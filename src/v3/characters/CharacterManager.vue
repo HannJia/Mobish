@@ -4,15 +4,10 @@
     <div class="chars-header">
       <h2 class="page-title">角色库</h2>
       <div class="header-actions">
-        <n-button type="primary" :disabled="savingEdit" @click="startNewCharacter">+ 手动添加</n-button>
-        <n-button @click="aiScanCharacters" :loading="scanning" :disabled="relationshipScanning || characterScanSaving || !!characterScanResult">
-          AI 扫描角色
-        </n-button>
-        <n-button v-if="scanning || relationshipScanning" size="small" @click="cancelAnalysis">停止</n-button>
-        <n-button size="small" @click="showRelationshipScan = true" :loading="relationshipScanning"
-          :disabled="characters.length < 2 || scanning">
-          补全关系
-        </n-button>
+        <button type="button" class="m-btn zhu" :disabled="savingEdit" @click="startNewCharacter"><V3Icon name="plus" size="s" />手动添加</button>
+        <button type="button" class="m-btn" :aria-busy="scanning" :disabled="scanning || relationshipScanning || characterScanSaving || !!characterScanResult" @click="aiScanCharacters">AI 扫描角色</button>
+        <button v-if="scanning || relationshipScanning" type="button" class="m-btn" @click="cancelAnalysis">停止</button>
+        <button type="button" class="m-btn" :aria-busy="relationshipScanning" :disabled="characters.length < 2 || scanning" @click="showRelationshipScan = true">补全关系</button>
       </div>
     </div>
 
@@ -21,32 +16,32 @@
     <p v-if="recoveryPending" role="status">正在保存或等待重试的输入：{{ recoveryPending }} 份</p>
     <div v-for="failure in recoveryFailures" :key="failure.session.identity.id" class="entity-source-alert" role="alert">
       {{ failure.session.identity.scope }}（{{ failure.session.identity.novelId }}）：{{ failure.message }}
-      <n-button size="small" @click="retryEditorInput">重试保存</n-button>
-      <n-button size="small" @click="forkEditorInput(failure.session)">另存当前输入</n-button>
-      <n-button size="small" @click="pendingInputDiscard = { session: failure.session, expected: failure.expected }">放弃未落盘输入</n-button>
+      <button type="button" class="m-btn sm" @click="retryEditorInput">重试保存</button>
+      <button type="button" class="m-btn sm" @click="forkEditorInput(failure.session)">另存当前输入</button>
+      <button type="button" class="m-btn sm" @click="pendingInputDiscard = { session: failure.session, expected: failure.expected }">放弃未保存的修改</button>
     </div>
     <div v-if="pendingInputDiscard" class="paper-panel">
-      放弃本地第 {{ pendingInputDiscard.expected.sequence }} 次输入？已落盘版本仍会保留。
-      <n-button size="small" :disabled="recoveryBusy" @click="discardPendingEditorInput">确认放弃</n-button>
-      <n-button size="small" :disabled="recoveryBusy" @click="pendingInputDiscard = null">保留</n-button>
+      放弃这次未保存的修改？已保存的内容不受影响。
+      <button type="button" class="m-btn sm" :disabled="recoveryBusy" @click="discardPendingEditorInput">确认放弃</button>
+      <button type="button" class="m-btn sm" :disabled="recoveryBusy" @click="pendingInputDiscard = null">保留</button>
     </div>
     <details v-if="recoveredPartial" class="paper-panel">
       <summary>已恢复未完成扫描（{{ recoveredPartial.kind === 'character-scan' ? '角色' : '关系' }}）</summary>
-      <p>这些片段尚未形成可提交候选。可查看保留内容，再由作者点击扫描按钮重新请求。</p>
+      <p>这些片段尚未形成可提交候选。可查看保留内容，再点击扫描按钮重新请求。</p>
       <pre style="white-space: pre-wrap; max-height: 240px; overflow: auto">{{ recoveredPartial.payload?.rawOutput || '请求未返回可展示片段。' }}</pre>
     </details>
     <div v-if="characterScanResult" class="paper-panel" aria-label="角色扫描待保存结果">
-      <p>已得到 {{ characterScanResult.candidates.length }} 条角色候选，保存后可在章节审核中核对。</p>
+      <p>已得到 {{ characterScanResult.candidates.length }} 条角色候选，保存后可在章节审校中核对。</p>
       <p v-if="characterScanError" role="alert">{{ characterScanError }}</p>
-      <n-button :loading="characterScanSaving" :disabled="characterScanSaving" @click="saveScannedCharacters">重试保存角色候选</n-button>
-      <n-button :disabled="characterScanSaving" @click="discardCurrentScan('character')">放弃本次候选</n-button>
+      <button type="button" class="m-btn zhu" :aria-busy="characterScanSaving" :disabled="characterScanSaving" @click="saveScannedCharacters">重试保存角色候选</button>
+      <button type="button" class="m-btn" :disabled="characterScanSaving" @click="discardCurrentScan('character')">放弃本次候选</button>
     </div>
 
     <p v-if="characterHistoryLoading" role="status">正在读取人物关系…</p>
-    <p v-if="characterHistoryError" class="entity-source-alert" role="alert">{{ characterHistoryError }} <n-button size="small" @click="loadCharacterHistory">重新读取</n-button></p>
+    <p v-if="characterHistoryError" class="entity-source-alert" role="alert">{{ characterHistoryError }} <button type="button" class="m-btn sm" @click="loadCharacterHistory">重新读取</button></p>
     <div class="relationship-boundary">
       <label>关系回看至
-        <select v-model="relationshipChapterId" aria-label="关系回看章节" :disabled="relationshipScanning">
+        <select v-model="relationshipChapterId" class="m-input m-select" aria-label="关系回看章节" :disabled="relationshipScanning">
           <option v-if="!relationshipChapters.length" value="">作者基础设定</option>
           <option v-for="chapter in relationshipChapters" :key="chapter.id" :value="chapter.id">第{{ chapter.chapterIndex + 1 }}章 {{ chapter.title }}</option>
         </select>
@@ -54,30 +49,32 @@
       <span>显示章末有效关系；箭头表示方向。章节确认的变化优先于基础关系。</span>
     </div>
     <p v-for="item in relationshipProjection.invalid" :key="item.record.id" class="entity-source-alert" role="status">{{ item.record.summary }}：{{ item.issue }}，关系待核对。</p>
-    <details v-if="novel" class="paper-panel" @toggle="loadCharacterHistory">
-      <summary style="padding: 12px; cursor: pointer">知情与关系历史</summary>
+    <div v-if="novel" class="char-history-row">
+    <details class="paper-panel char-history" @toggle="loadCharacterHistory">
+      <summary>知情与关系历史</summary>
       <p v-if="characterHistoryError" role="alert">{{ characterHistoryError }}</p>
       <p v-else-if="characterHistoryLoading">正在读取人物状态历史…</p>
       <CharacterStateHistory v-else :novel="novel" :records="reconstructionWorkspace.getCanonMutations(novelId)" />
     </details>
 
-    <!-- 筛选栏 -->
-    <details v-if="novel" class="paper-panel">
-      <summary style="padding: 12px; cursor: pointer">人物变更影响</summary>
+    <details class="paper-panel char-history">
+      <summary>人物变更影响</summary>
       <StoryImpactHistory :novel="novel" :reports="reconstructionWorkspace.getImpactReports(novelId)" root-kind="character"
         :workspace="{ creationDraft: reconstructionWorkspace.getCreationDraft(novelId), storyMemories: reconstructionWorkspace.getStoryMemories(novelId) }" />
     </details>
+    </div>
+    <!-- 筛选栏 -->
     <div class="filter-bar">
       <div class="character-view-tabs" role="group" aria-label="角色视图"><button type="button" :class="{ active: viewMode === 'grid' }" :aria-pressed="viewMode === 'grid'" @click="viewMode = 'grid'">列表</button><button type="button" :class="{ active: viewMode === 'graph' }" :aria-pressed="viewMode === 'graph'" @click="viewMode = 'graph'">关系图</button></div>
-      <n-input v-model:value="searchText" placeholder="搜索角色..." size="small" clearable style="max-width:200px;" />
-      <n-select v-model:value="statusFilter" :options="statusOptions" size="small" clearable placeholder="状态" style="width:100px;" />
+      <V3Input v-model:value="searchText" class="char-search" placeholder="搜索角色…" clearable aria-label="搜索角色" />
+      <V3Select v-model:value="statusFilter" class="char-status-filter" :options="statusOptions" clearable placeholder="全部状态" aria-label="状态筛选" />
     </div>
 
     <div class="character-workbench" :class="{ 'with-detail': showDetail && selectedChar }">
     <div class="character-main">
     <!-- 空状态 -->
     <div v-if="!characters.length && !scanning" class="empty-state paper-panel">
-      <div class="empty-icon"><svg class="ink-mountains" viewBox="0 0 220 80" aria-hidden="true"><path fill="currentColor" d="M0 80 L40 38 L62 56 L98 14 L130 50 L150 34 L188 66 L220 46 L220 80 Z" /></svg></div>
+      <img class="m-art empty-art" :src="charactersArt" alt="">
       <h3>还没有角色</h3>
       <p>手动添加角色，或让 AI 从已有章节中自动扫描提取角色信息</p>
     </div>
@@ -120,7 +117,7 @@
 
     <!-- 角色关系图谱 -->
     <div v-if="viewMode === 'graph' && filteredChars.length > 0 && !characterHistoryLoading && !characterHistoryError" class="relationship-graph">
-      <div class="graph-controls"><n-button size="small" :aria-pressed="graphFit" @click="graphFit = true">适应画布</n-button><n-button size="small" :aria-pressed="!graphFit" @click="graphFit = false">100%</n-button></div>
+      <div class="graph-controls"><div class="m-seg" role="group" aria-label="关系图缩放"><button type="button" :class="{ on: graphFit }" :aria-pressed="graphFit" @click="graphFit = true">适应画布</button><button type="button" :class="{ on: !graphFit }" :aria-pressed="!graphFit" @click="graphFit = false">100%</button></div></div>
       <div class="graph-scroll">
         <canvas ref="graphCanvas" :width="graphSize.width" :height="graphSize.height"
           :style="{ width: graphFit ? `min(100%, ${graphSize.width}px, ${65 * graphSize.width / graphSize.height}vh)` : `${graphSize.width}px`, height: 'auto' }" role="img" aria-label="人物关系图，下方按钮可查看各角色" @click="onGraphClick"></canvas>
@@ -135,11 +132,11 @@
       <ul class="relationship-readable" aria-label="有效人物关系">
         <li v-for="(edge, index) in relationshipEdges" :key="index">{{ edge.source.name }} → {{ edge.target.name }}｜{{ edge.dimensionLabel }}：{{ edge.relation }}
           <small>{{ edge.origin === 'chapter' ? '正文已确认' : '作者基础设定' }}</small>
-          <n-button v-if="edge.chapterId" size="tiny" @click="openSourceChapter(edge.chapterId)">查看证据</n-button>
+          <button v-if="edge.chapterId" type="button" class="m-link" @click="openSourceChapter(edge.chapterId)">查看证据</button>
         </li>
       </ul>
       <div class="graph-node-links">
-        <n-button v-for="char in filteredChars" :key="char.id" size="tiny" @click="selectChar(char)">{{ char.name }}</n-button>
+        <button v-for="char in filteredChars" :key="char.id" type="button" class="m-chip" :class="{ on: selectedId === char.id }" @click="selectChar(char)">{{ char.name }}</button>
       </div>
     </div>
 
@@ -149,7 +146,7 @@
       <header class="character-detail-heading"><h3>{{ selectedChar.name }}</h3><button type="button" aria-label="关闭角色详情" @click="showDetail = false">×</button></header>
         <template v-if="selectedChar">
           <div class="detail-panel">
-            <p v-if="entityIssueIds.has(selectedChar.id)" class="entity-source-alert" role="alert">资料含待核对字段；原值保留供核对，AI 仅使用有效字段。</p>
+            <p v-if="entityIssueIds.has(selectedChar.id)" class="entity-source-alert" role="alert">部分字段的来源已变化，核对前 AI 不使用这些字段。</p>
             <CharacterAvatar :character="selectedChar" :size="88" :era="inferredEra" style="margin: 0 auto 12px;" />
 
             <div class="detail-field">
@@ -211,7 +208,7 @@
               <article v-for="state in selectedKnowledge" :key="state.id" class="memory-fact-card">
                 <strong>{{ describeCharacterState(novel!, { kind: 'knowledge', after: state }) }}</strong>
                 <blockquote v-for="ref in state.evidence" :key="ref.id">{{ ref.quote }}</blockquote>
-                <n-button v-for="ref in state.evidence" :key="'source-' + ref.id" text @click="openSourceChapter(ref.sourceId)">查看来源章节</n-button>
+                <button v-for="ref in state.evidence" :key="'source-' + ref.id" type="button" class="m-link" @click="openSourceChapter(ref.sourceId)">查看来源章节</button>
               </article>
               <p v-if="!selectedKnowledge.length">未记录；不能推断该角色明确不知情。</p>
             </section>
@@ -224,13 +221,8 @@
             />
 
             <div class="detail-actions">
-              <n-button size="small" @click="editChar(selectedChar)">编辑</n-button>
-              <n-popconfirm @positive-click="removeChar(selectedChar.id)">
-                <template #trigger>
-                  <n-button size="small" type="error" quaternary :loading="deletingCharacter" :disabled="deletingCharacter">删除</n-button>
-                </template>
-                确定删除此角色？关联此人物的基础关系、剧情线、场景和事件需先解除；已写章节需重新审核。
-              </n-popconfirm>
+              <button type="button" class="m-btn sm" @click="editChar(selectedChar)">编辑</button>
+              <button type="button" class="m-btn sm ghost danger" :aria-busy="deletingCharacter" :disabled="deletingCharacter" @click="confirmRemoveChar(selectedChar.id)">删除</button>
             </div>
           </div>
         </template>
@@ -238,47 +230,39 @@
     </div>
 
     <!-- 添加/编辑弹窗 -->
-    <n-modal v-model:show="showAddModal" preset="card" title="编辑角色资料" :closable="!savingEdit" :mask-closable="!savingEdit" :close-on-esc="!savingEdit" style="width:min(1040px,calc(100vw - 32px));max-height:90vh;overflow-y:auto;">
-      <p role="status">输入会暂存为未提交草稿。关闭后可从角色库选择恢复。</p>
+    <V3Modal v-model:show="showAddModal" :title="editingId ? '编辑角色资料' : '添加角色'" :closable="!savingEdit" size="wide"
+      description="输入会暂存为未提交草稿，关闭后可在角色库恢复。">
       <div v-if="formConflict" class="entity-source-alert" role="alert">
         {{ formConflict }}
         <details><summary>查看最新正式资料</summary><pre style="white-space: pre-wrap">{{ latestFormSource }}</pre></details>
         <details><summary>查看此草稿打开时资料</summary><pre style="white-space: pre-wrap">{{ formSession?.identity.openedBaseline }}</pre></details>
-        <n-button :disabled="savingEdit" @click="openLatestCharacter">保留此草稿，打开最新资料</n-button>
+        <button type="button" class="m-btn sm" :disabled="savingEdit" @click="openLatestCharacter">保留此草稿，打开最新资料</button>
       </div>
       <div class="char-form" :inert="savingEdit">
         <div class="char-profile"><div class="char-fields">
         <div class="char-form-field">
-        <label>姓名 *</label>
-        <n-input v-model:value="form.name" size="small" placeholder="角色姓名" />
+        <V3Field label="姓名 *"><V3Input v-model:value="form.name" placeholder="角色姓名" /></V3Field>
         </div>
         <div class="char-form-field">
-        <label>别称（逗号分隔）</label>
-        <n-input v-model:value="form.aliasesText" size="small" placeholder="如：林少侠, 小林" />
+        <V3Field label="别称（逗号分隔）"><V3Input v-model:value="form.aliasesText" placeholder="如：林少侠, 小林" /></V3Field>
         </div>
         <div class="char-form-field">
-        <label>身份</label>
-        <n-input v-model:value="form.identity" size="small" placeholder="如：天衍宗外门弟子" />
+        <V3Field label="身份"><V3Input v-model:value="form.identity" placeholder="如：天衍宗外门弟子" /></V3Field>
         </div>
         <div class="char-form-field">
-        <label>性格</label>
-        <n-input v-model:value="form.personality" size="small" placeholder="如：沉稳内敛，心思缜密" />
+        <V3Field label="性格"><V3Input v-model:value="form.personality" placeholder="如：沉稳内敛，心思缜密" /></V3Field>
         </div>
         <div class="char-form-field">
-        <label>实力</label>
-        <n-input v-model:value="form.powerLevel" size="small" placeholder="如：炼气一层" />
+        <V3Field label="实力"><V3Input v-model:value="form.powerLevel" placeholder="如：炼气一层" /></V3Field>
         </div>
         <div class="char-form-field">
-        <label>阵营</label>
-        <n-input v-model:value="form.faction" size="small" placeholder="如：天衍宗" />
+        <V3Field label="阵营"><V3Input v-model:value="form.faction" placeholder="如：天衍宗" /></V3Field>
         </div>
         <div class="char-form-field">
-        <label>状态</label>
-        <n-select v-model:value="form.status" :options="statusOptions" size="small" />
+        <V3Field label="状态"><V3Select v-model:value="form.status" :options="statusOptions" /></V3Field>
         </div>
         <div class="char-form-field">
-        <label>描述</label>
-        <n-input v-model:value="form.description" type="textarea" :rows="3" size="small" placeholder="角色详细描述" />
+        <V3Field label="描述"><V3Input v-model:value="form.description" type="textarea" :rows="3" placeholder="角色详细描述" /></V3Field>
         </div>
         </div>
           <div class="avatar-preview">
@@ -286,28 +270,15 @@
               <CharacterAvatar :character="formCharacter" :size="96" :era="inferredEra" />
               <div v-if="selectedAvatar" class="avatar-preview-label">{{ selectedAvatar.label }}</div>
             </div>
-            <n-button size="small" @click="form.avatarId = ''">自动匹配</n-button>
+            <button type="button" class="m-btn sm" @click="form.avatarId = ''">自动匹配</button>
           </div>
         </div>
         <div class="avatar-picker"><h3>内置水墨头像</h3><p class="avatar-help">按时代、性别与身份挑选，保存后应用到角色。</p>
           <div class="avatar-filters">
-            <n-button-group size="tiny" role="group" aria-label="头像时代">
-              <n-button :aria-pressed="avatarFilterEra === ''" :type="avatarFilterEra === '' ? 'primary' : 'default'" @click="avatarFilterEra = ''">全部</n-button>
-              <n-button :aria-pressed="avatarFilterEra === 'ancient'" :type="avatarFilterEra === 'ancient' ? 'primary' : 'default'" @click="avatarFilterEra = 'ancient'">古代</n-button>
-              <n-button :aria-pressed="avatarFilterEra === 'modern'" :type="avatarFilterEra === 'modern' ? 'primary' : 'default'" @click="avatarFilterEra = 'modern'">现代</n-button>
-            </n-button-group>
-            <n-button-group size="tiny" role="group" aria-label="头像性别">
-              <n-button :aria-pressed="avatarFilterGender === ''" :type="avatarFilterGender === '' ? 'primary' : 'default'" @click="avatarFilterGender = ''">全部</n-button>
-              <n-button :aria-pressed="avatarFilterGender === 'female'" :type="avatarFilterGender === 'female' ? 'primary' : 'default'" @click="avatarFilterGender = 'female'">女性</n-button>
-              <n-button :aria-pressed="avatarFilterGender === 'male'" :type="avatarFilterGender === 'male' ? 'primary' : 'default'" @click="avatarFilterGender = 'male'">男性</n-button>
-            </n-button-group>
-            <n-button-group size="tiny" role="group" aria-label="头像身份">
-              <n-button :aria-pressed="avatarFilterCategory === ''" :type="avatarFilterCategory === '' ? 'primary' : 'default'" @click="avatarFilterCategory = ''">全部</n-button>
-              <n-button :aria-pressed="avatarFilterCategory === 'main'" :type="avatarFilterCategory === 'main' ? 'primary' : 'default'" @click="avatarFilterCategory = 'main'">主角女主</n-button>
-              <n-button :aria-pressed="avatarFilterCategory === 'villain'" :type="avatarFilterCategory === 'villain' ? 'primary' : 'default'" @click="avatarFilterCategory = 'villain'">反派</n-button>
-              <n-button :aria-pressed="avatarFilterCategory === 'support'" :type="avatarFilterCategory === 'support' ? 'primary' : 'default'" @click="avatarFilterCategory = 'support'">配角</n-button>
-              <n-button :aria-pressed="avatarFilterCategory === 'profession'" :type="avatarFilterCategory === 'profession' ? 'primary' : 'default'" @click="avatarFilterCategory = 'profession'">职业人物</n-button>
-            </n-button-group>
+            <div v-for="group in avatarFilterGroups" :key="group.label" class="m-seg" role="group" :aria-label="group.label">
+              <button v-for="option in group.options" :key="option.value" type="button" :class="{ on: group.model.value === option.value }"
+                :aria-pressed="group.model.value === option.value" @click="group.model.value = option.value">{{ option.label }}</button>
+            </div>
           </div>
           <div v-if="filteredAvatars.length === 0" class="avatar-empty">无匹配头像 (共 {{ characterAvatars.length }} 个)</div>
           <div v-else class="avatar-grid" role="group" aria-label="内置水墨头像">
@@ -329,25 +300,25 @@
         <p v-if="editingId" class="entity-source-note">保存当前表单中填写的字段后，会作为作者全局设定写入并覆盖角色对应设定。</p>
         <p v-if="saveError" class="save-error" role="alert">{{ saveError }}</p>
         <section class="char-relationships"><label>基础人物关系</label><p>作为故事的基础设定。章节中确认的变化按发生位置覆盖这些关系；移除基础关系不会删除章节变化历史。</p>
-        <p>保存设定后，全书 {{ novel?.chapters.filter(chapter => chapter.content.trim()).length || 0 }} 个已写章节的旧审核将失效，需要重新审核。</p>
+        <p>保存设定后，全书 {{ novel?.chapters.filter(chapter => chapter.content.trim()).length || 0 }} 个已写章节的旧审校将失效，需要重新审校。</p>
         <div v-for="(relation, index) in form.relationships" :key="index" class="relationship-form-row">
-          <n-select v-model:value="relation.targetId" :options="relationTargetOptions" placeholder="关联角色" />
-          <n-select v-model:value="relation.dimension" :options="dimensionOptions" placeholder="关系维度" />
-          <n-input v-if="relation.dimension === 'custom'" v-model:value="relation.dimensionName" placeholder="自定义维度名称" />
-          <n-input v-model:value="relation.relation" placeholder="关系描述" />
-          <n-button size="small" @click="form.relationships.splice(index, 1)">移除</n-button>
+          <V3Select v-model:value="relation.targetId" :options="relationTargetOptions" placeholder="关联角色" aria-label="关联角色" />
+          <V3Select v-model:value="relation.dimension" :options="dimensionOptions" placeholder="关系维度" aria-label="关系维度" />
+          <V3Input v-if="relation.dimension === 'custom'" v-model:value="relation.dimensionName" placeholder="自定义维度名称" aria-label="自定义维度名称" />
+          <V3Input v-model:value="relation.relation" placeholder="关系描述" aria-label="关系描述" />
+          <button type="button" class="m-btn sm" @click="form.relationships.splice(index, 1)">移除</button>
         </div>
-        <n-button size="small" @click="form.relationships.push({ targetId: '', targetName: '', relation: '', dimension: '', dimensionName: '' })">添加关系</n-button></section>
+        <button type="button" class="m-btn sm" @click="form.relationships.push({ targetId: '', targetName: '', relation: '', dimension: '', dimensionName: '' })"><V3Icon name="plus" size="s" />添加关系</button></section>
       </div>
-      <template #action>
-        <n-button :disabled="savingEdit" @click="showAddModal = false">关闭，保留草稿</n-button>
-        <n-button type="primary" :loading="savingEdit" @click="saveChar" :disabled="savingEdit || !form.name.trim() || !!formConflict">确认保存角色</n-button>
+      <template #footer>
+        <button type="button" class="m-btn" :disabled="savingEdit" @click="showAddModal = false">关闭，保留草稿</button>
+        <button type="button" class="m-btn zhu" :aria-busy="savingEdit" :disabled="savingEdit || !form.name.trim() || !!formConflict" @click="saveChar">确认保存角色</button>
       </template>
-    </n-modal>
-    <n-modal v-model:show="showRelationshipScan" preset="card" title="从正文提取关系候选" :mask-closable="!relationshipScanning" :closable="!relationshipScanning" style="width: 680px; max-width: 95vw;">
-      <p>逐段分析所选章节的完整正文，结果保存到章节审核，确认后才成为有效关系。</p>
-      <label>分析章节
-        <select v-model="relationshipChapterId" aria-label="关系分析章节" :disabled="relationshipScanning || !!relationshipResult">
+    </V3Modal>
+    <V3Modal v-model:show="showRelationshipScan" title="从正文提取关系候选" :closable="!relationshipScanning"
+      description="逐段分析所选章节的完整正文，结果保存到章节审校，确认后才成为有效关系。">
+      <label class="m-field"><span class="m-field-l">分析章节</span>
+        <select v-model="relationshipChapterId" class="m-input m-select" aria-label="关系分析章节" :disabled="relationshipScanning || !!relationshipResult">
           <option v-for="chapter in relationshipChapters" :key="chapter.id" :value="chapter.id">第{{ chapter.chapterIndex + 1 }}章 {{ chapter.title }}</option>
         </select>
       </label>
@@ -356,20 +327,19 @@
       <p v-if="relationshipError" role="alert" class="entity-source-alert">{{ relationshipError }}</p>
       <p v-if="relationshipResult">已收到 {{ relationshipResult.candidates.length }} 条候选，等待成功保存。</p>
       <template #footer>
-        <div class="detail-actions">
-          <n-button v-if="relationshipScanning && analysisController" @click="cancelAnalysis">停止分析</n-button>
-          <n-button :disabled="relationshipScanning" @click="showRelationshipScan = false">关闭</n-button>
-          <n-button v-if="relationshipResult" :loading="relationshipScanning" @click="saveScannedRelationships">重试保存候选</n-button>
-          <n-button v-if="relationshipResult" :disabled="relationshipScanning" @click="discardCurrentScan('relationship')">放弃未保存候选</n-button>
-          <n-button v-else type="primary" :loading="relationshipScanning" :disabled="!relationshipChapter?.content.trim() || characterHistoryLoading || !!characterHistoryError" @click="aiScanRelationships">分析所选章节</n-button>
-        </div>
+        <button v-if="relationshipScanning && analysisController" type="button" class="m-btn" @click="cancelAnalysis">停止分析</button>
+        <button type="button" class="m-btn" :disabled="relationshipScanning" @click="showRelationshipScan = false">关闭</button>
+        <button v-if="relationshipResult" type="button" class="m-btn zhu" :aria-busy="relationshipScanning" :disabled="relationshipScanning" @click="saveScannedRelationships">重试保存候选</button>
+        <button v-if="relationshipResult" type="button" class="m-btn" :disabled="relationshipScanning" @click="discardCurrentScan('relationship')">放弃未保存候选</button>
+        <button v-else type="button" class="m-btn zhu" :aria-busy="relationshipScanning" :disabled="relationshipScanning || !relationshipChapter?.content.trim() || characterHistoryLoading || !!characterHistoryError" @click="aiScanRelationships">分析所选章节</button>
       </template>
-    </n-modal>
+    </V3Modal>
   </div>
   </BookPage>
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import BookPage from '@/v3/components/BookPage.vue'
 import { fitGraphText, placeGraphLabel, type GraphBox } from '@/services/relationshipGraphLayout'
 import { ref, shallowRef, computed, watch, nextTick, onBeforeUnmount } from 'vue'
@@ -377,7 +347,12 @@ import { useEditorRecovery, type EditorDraftSession, type PendingEditorDraftVers
 import EditorRecoveryPicker from '@/components/EditorRecoveryPicker.vue'
 import type { CharacterEditorPayload, EditorDraft, EditorDraftPayload } from '@/types/editorRecovery'
 import { useRoute, useRouter } from 'vue-router'
-import { NButton, NButtonGroup, NInput, NSelect, NModal, NPopconfirm, useMessage } from 'naive-ui'
+import { useDialog, useMessage } from '@/v3/feedback'
+import V3Icon from '@/v3/components/V3Icon.vue'
+import V3Modal from '@/v3/components/V3Modal.vue'
+import V3Field from '@/v3/components/form/V3Field.vue'
+import V3Input from '@/v3/components/form/V3Input.vue'
+import V3Select from '@/v3/components/form/V3Select.vue'
 import { useNovelStore } from '@/stores/novel'
 import { useConfigStore } from '@/stores/config'
 import { useThemeStore } from '@/stores/theme'
@@ -400,6 +375,7 @@ import { assertStructuredOutputComplete } from '@/services/aiDiagnostics'
 import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspace'
 import { characterAvatars, resolveCharacterAvatar, inferAvatarEra } from '@/data/characterAvatars'
 import type { CharacterAvatarEra, CharacterAvatarGender } from '@/data/characterAvatars'
+import charactersArt from '@/assets/v3/empty/characters.webp'
 
 const route = useRoute()
 const router = useRouter()
@@ -419,12 +395,13 @@ async function loadCharacterHistory() {
   characterHistoryLoading.value = true
   characterHistoryError.value = ''
   try { await reconstructionWorkspace.hydrateFromPersistence(bookId) }
-  catch (error) { if (novelId.value === bookId) characterHistoryError.value = '人物状态读取失败：' + (error instanceof Error ? error.message : String(error)) }
+  catch (error) { if (novelId.value === bookId) characterHistoryError.value = '人物状态读取失败：' + (errorText(error, String(error))) }
   finally { if (novelId.value === bookId) characterHistoryLoading.value = false }
 }
 const configStore = useConfigStore()
 const themeStore = useThemeStore()
 const msg = useMessage()
+const dialog = useDialog()
 
 const novelId = computed(() => route.params.novelId as string)
 const novel = computed(() => novelStore.getNovel(novelId.value))
@@ -452,6 +429,13 @@ const atlasImages = ref<Map<string, HTMLImageElement>>(new Map())
 const avatarFilterEra = ref<CharacterAvatarEra | ''>('')
 const avatarFilterGender = ref<CharacterAvatarGender | ''>('')
 const avatarFilterCategory = ref<'' | 'main' | 'villain' | 'support' | 'profession'>('')
+// 头像筛选：三组分段按钮，各自绑定一个筛选值。
+const avatarFilterGroups = [
+  { label: '头像时代', model: avatarFilterEra, options: [{ label: '全部', value: '' }, { label: '古代', value: 'ancient' }, { label: '现代', value: 'modern' }] },
+  { label: '头像性别', model: avatarFilterGender, options: [{ label: '全部', value: '' }, { label: '女性', value: 'female' }, { label: '男性', value: 'male' }] },
+  { label: '头像身份', model: avatarFilterCategory, options: [{ label: '全部', value: '' }, { label: '主角女主', value: 'main' }, { label: '反派', value: 'villain' },
+    { label: '配角', value: 'support' }, { label: '职业人物', value: 'profession' }] },
+] as Array<{ label: string; model: { value: string }; options: Array<{ label: string; value: string }> }>
 const showRelationshipScan = ref(false)
 const relationshipChapterId = ref('')
 const relationshipProgress = ref('')
@@ -525,7 +509,7 @@ function captureCharacterForm(): CharacterEditorPayload {
 watch(form, () => {
   if (!showAddModal.value || !formSession.value) return
   try { editorRecovery.queue(formSession.value, captureCharacterForm()) }
-  catch (error) { saveError.value = error instanceof Error ? error.message : String(error) }
+  catch (error) { saveError.value = errorText(error, String(error)) }
 }, { deep: true, flush: 'sync' })
 const recoverableDrafts = computed(() => reconstructionWorkspace.getEditorDrafts(novelId.value)
   .filter(draft => ['character-form', 'character-scan', 'relationship-scan'].includes(draft.kind))
@@ -540,7 +524,7 @@ function currentDraftBaseline(draft: Pick<EditorDraft, 'novelId' | 'kind' | 'tar
   return JSON.stringify({ chapterId: draft.targetId, sourceVersion: chapter ? buildAnalysisSourceVersionId(chapter.content) : '', characterBaseline: JSON.stringify(book.characters) })
 }
 function recoveryConflict(draft: Pick<EditorDraft, 'novelId' | 'kind' | 'targetId' | 'openedBaseline'>): string {
-  return currentDraftBaseline(draft) === draft.openedBaseline ? '' : '来源资料已变化。原基线和输入仍保留，请与最新资料核对；旧输入不能直接覆盖正式内容。'
+  return currentDraftBaseline(draft) === draft.openedBaseline ? '' : '人物资料已被修改。你的输入已保留，请对照最新资料后再保存。'
 }
 const formConflict = computed(() => formSession.value ? recoveryConflict(formSession.value.identity) : '')
 const latestFormSource = computed(() => formSession.value ? currentDraftBaseline(formSession.value.identity) : '')
@@ -555,7 +539,7 @@ function openLatestCharacter() {
   else startNewCharacter()
 }
 async function retryEditorInput() {
-  try { await editorRecovery.retryAll() } catch (error) { msg.error(error instanceof Error ? error.message : String(error)) }
+  try { await editorRecovery.retryAll() } catch (error) { msg.error(errorText(error, String(error))) }
 }
 async function discardPendingEditorInput() {
   const request = pendingInputDiscard.value
@@ -567,7 +551,7 @@ async function discardPendingEditorInput() {
     if (characterScanSession === request.session) { characterScanSession = null; characterScanResult.value = null }
     if (relationshipScanSession === request.session) { relationshipScanSession = null; relationshipResult.value = null }
     pendingInputDiscard.value = null
-  } catch (error) { msg.error(error instanceof Error ? error.message : String(error)) }
+  } catch (error) { msg.error(errorText(error, String(error))) }
   finally { recoveryBusy.value = false }
 }
 async function forkEditorInput(session: EditorDraftSession) {
@@ -576,8 +560,8 @@ async function forkEditorInput(session: EditorDraftSession) {
     if (formSession.value === session) formSession.value = next
     if (characterScanSession === session) characterScanSession = next
     if (relationshipScanSession === session) relationshipScanSession = next
-    msg.success('当前输入已另存，原始基线与已有版本保留')
-  } catch (error) { msg.error(error instanceof Error ? error.message : String(error)) }
+    msg.success('已另存为草稿，原有版本不受影响')
+  } catch (error) { msg.error(errorText(error, String(error))) }
 }
 function restoreEditorInput(draft: EditorDraft) {
   try {
@@ -607,7 +591,7 @@ function restoreEditorInput(draft: EditorDraft) {
         showRelationshipScan.value = true
       }
     } else recoveredPartial.value = draft
-  } catch (error) { msg.error(error instanceof Error ? error.message : String(error)) }
+  } catch (error) { msg.error(errorText(error, String(error))) }
 }
 async function discardEditorInput(draft: EditorDraft) {
   recoveryBusy.value = true
@@ -618,7 +602,7 @@ async function discardEditorInput(draft: EditorDraft) {
     if (characterScanSession?.identity.id === draft.id) { characterScanSession = null; characterScanResult.value = null }
     if (relationshipScanSession?.identity.id === draft.id) { relationshipScanSession = null; relationshipResult.value = null }
     if (recoveredPartial.value?.id === draft.id) recoveredPartial.value = null
-  } catch (error) { msg.error(error instanceof Error ? error.message : String(error)) }
+  } catch (error) { msg.error(errorText(error, String(error))) }
   finally { recoveryBusy.value = false }
 }
 async function discardCurrentScan(kind: 'character' | 'relationship') {
@@ -627,7 +611,7 @@ async function discardCurrentScan(kind: 'character' | 'relationship') {
   try {
     const checkpoint = await editorRecovery.flushSession(session)
     if (checkpoint) await discardEditorInput(checkpoint)
-  } catch (error) { msg.error(error instanceof Error ? error.message : String(error)) }
+  } catch (error) { msg.error(errorText(error, String(error))) }
 }
 
 const formCharacter = computed(() => ({
@@ -761,7 +745,7 @@ async function saveChar() {
     }
   } catch (error) {
     if (libraryMounted && formSession.value === session) {
-      saveError.value = error instanceof Error ? error.message : '角色保存失败，请重试'
+      saveError.value = errorText(error, '角色保存失败，请重试')
       msg.error(saveError.value)
     }
   } finally {
@@ -770,6 +754,10 @@ async function saveChar() {
 }
 
 const deletingCharacter = ref(false)
+function confirmRemoveChar(id: string) {
+  dialog.warning({ title: '删除角色', content: '确定删除此角色？关联此人物的基础关系、剧情线、场景和事件需先解除；已写章节需重新审校。',
+    positiveText: '删除', negativeText: '取消', onPositiveClick: () => { void removeChar(id) } })
+}
 async function removeChar(id: string) {
   if (deletingCharacter.value) return false
   deletingCharacter.value = true
@@ -777,10 +765,10 @@ async function removeChar(id: string) {
     await novelStore.deleteCharacter(novelId.value, id)
     showDetail.value = false
     if (selectedId.value === id) selectedId.value = ''
-    msg.success('已删除，已写章节需重新审核')
+    msg.success('已删除，已写章节需重新审校')
     return true
   } catch (error) {
-    msg.error(error instanceof Error ? error.message : '删除失败，请重试')
+    msg.error(errorText(error, '删除失败，请重试'))
     return false
   } finally {
     deletingCharacter.value = false
@@ -904,16 +892,16 @@ async function saveScannedCharacters() {
   try {
     if (!session) throw new Error('请先恢复对应扫描草稿。')
     const checkpoint = await editorRecovery.flushSession(session)
-    if (!checkpoint) throw new Error('扫描结果尚未落盘，请重试保存草稿。')
+    if (!checkpoint) throw new Error('扫描结果还没保存成功，请重试。')
     const added = await reconstructionWorkspace.saveCharacterScanCandidates(result.novelId, result.baseline, result.candidates, checkpoint)
     if (!libraryMounted || novelId.value !== result.novelId || characterScanResult.value !== result) return
     characterScanResult.value = null
     characterScanSession = null
-    msg.success(added ? '已保存 ' + added + ' 条角色候选，请在章节审核中确认后入库' : '这些角色候选已保存，原有作者决定保持不变')
+    msg.success(added ? '已保存 ' + added + ' 条角色候选，请在章节审校中确认后入库' : '这些角色候选已保存，你原有的决定保持不变')
     openSourceChapter(result.candidates[0].chapterId!)
   } catch (error) {
     if (libraryMounted && novelId.value === result.novelId && characterScanResult.value === result) {
-      characterScanError.value = error instanceof Error ? error.message : '角色候选保存失败，请重试'
+      characterScanError.value = errorText(error, '角色候选保存失败，请重试')
       msg.error(characterScanError.value)
     }
   } finally { characterScanSaving.value = false }
@@ -928,16 +916,16 @@ async function saveScannedRelationships() {
   try {
     if (!session || session.identity.novelId !== bookId) throw new Error('请先恢复对应关系扫描草稿。')
     const checkpoint = await editorRecovery.flushSession(session)
-    if (!checkpoint) throw new Error('关系扫描结果尚未落盘，请重试保存草稿。')
+    if (!checkpoint) throw new Error('关系扫描结果还没保存成功，请重试。')
     const count = await reconstructionWorkspace.saveRelationshipCandidates(bookId, result.chapterId, result.sourceVersion, result.characterBaseline, result.candidates, checkpoint)
     if (!libraryMounted || novelId.value !== bookId || relationshipResult.value !== result) return
     relationshipResult.value = null
     relationshipScanSession = null
     showRelationshipScan.value = false
-    msg.success('已保存 ' + count + ' 条关系候选，请在章节审核中确认')
+    msg.success('已保存 ' + count + ' 条关系候选，请在章节审校中确认')
     openSourceChapter(result.chapterId)
   } catch (error) {
-    if (novelId.value === bookId) relationshipError.value = error instanceof Error ? error.message : '候选保存失败，请重试'
+    if (novelId.value === bookId) relationshipError.value = errorText(error, '候选保存失败，请重试')
   } finally { relationshipScanning.value = false }
 }
 async function aiScanRelationships() {
@@ -975,7 +963,7 @@ async function aiScanRelationships() {
     await editorRecovery.flushSession(scanSession)
     scanPersisted = true
   } catch (error) {
-    if (!request.signal.aborted && novelId.value === bookId) relationshipError.value = error instanceof Error ? error.message : '关系分析失败'
+    if (!request.signal.aborted && novelId.value === bookId) relationshipError.value = errorText(error, '关系分析失败')
   } finally {
     if (scanSession.latest?.state === 'partial') {
       try { editorRecovery.queue(scanSession, { ...scanSession.latest, outcome: request.signal.aborted ? 'interrupted' : 'incomplete' }) }
@@ -1191,7 +1179,14 @@ watch(selectedId, () => { if (viewMode.value === 'graph') nextTick(drawRelations
 <style scoped>
 .entity-source-alert { color: var(--jin); background: var(--paper); padding: 6px 8px; border-radius: 6px; font-size: 12px; line-height: 1.6; }
 .relationship-boundary { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 12px 0; font-size: 13px; line-height: 1.7; }
-.relationship-boundary select, label select { max-width: 100%; color: var(--ink); background: var(--paper); border: 1px solid var(--line-2); border-radius: 6px; padding: 6px; }
+.relationship-boundary label { display: inline-flex; align-items: center; gap: 8px; }
+.relationship-boundary .m-select { width: auto; min-width: 180px; max-width: 100%; }
+.char-history-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.char-history { flex: 1 1 240px; min-width: 0; padding: 0; }
+.char-history[open] { flex-basis: 100%; }
+.char-history > summary { padding: 10px 14px; cursor: pointer; color: var(--ink-2); font-size: 13px; }
+.char-history[open] > summary { border-bottom: 1px solid var(--line); }
+.char-history > :not(summary) { margin: 12px 14px; }
 .relationship-readable { display: grid; gap: 8px; padding: 12px 24px; line-height: 1.7; overflow-wrap: anywhere; }
 .relationship-readable small { margin: 0 8px; color: var(--ink-2); }
 .chars-header {
@@ -1209,8 +1204,6 @@ watch(selectedId, () => { if (viewMode.value === 'graph') nextTick(drawRelations
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; min-height: 40vh; gap: 12px; text-align: center;
 }
-.empty-icon { font-size: 48px; }
-.empty-icon { color: var(--ink-3); width: 220px; }
 .empty-state h3 { font-family: var(--f-serif); font-size: 18px; color: var(--ink); }
 .empty-state p { font-size: 14px; color: var(--ink-3); }
 
@@ -1327,6 +1320,9 @@ watch(selectedId, () => { if (viewMode.value === 'graph') nextTick(drawRelations
 
 .char-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
 .char-form-field { display: grid; align-content: start; gap: 6px; min-width: 0; }
+.char-form-field .m-field { margin-bottom: 0; }
+.char-search { width: min(220px, 100%); }
+.char-status-filter { width: 128px; }
 @media (max-width: 600px) { .char-fields { grid-template-columns: 1fr; } }
 .avatar-picker { display: flex; flex-direction: column; gap: 12px; }
 .avatar-preview { display: flex; align-items: center; gap: 12px; }
@@ -1422,7 +1418,7 @@ watch(selectedId, () => { if (viewMode.value === 'graph') nextTick(drawRelations
 .avatar-preview { justify-content: center; padding: 16px; border-bottom: 1px solid var(--line); }
 .avatar-preview-box { gap: 8px; }
 .avatar-picker { min-width: 0; }
-.avatar-picker h3 { font: 600 22px var(--f-serif); margin: 0; }
+.avatar-picker h3 { font: 600 15px var(--f-serif); margin: 0; }
 .avatar-help { color: var(--ink-3); font-size: 12px; margin: 0; }
 .avatar-filters { flex-direction: column; align-items: flex-start; }
 .avatar-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: 390px; gap: 8px; }

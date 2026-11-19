@@ -26,7 +26,7 @@ describe('V3 book export', () => {
     vi.spyOn(exporters, 'exportToTXT').mockImplementation(() => {})
     vi.spyOn(exporters, 'exportToWordHtml').mockImplementation(() => {})
     vi.spyOn(exporters, 'exportToEpub').mockResolvedValue()
-    vi.spyOn(shell, 'toast').mockImplementation(() => {})
+    vi.spyOn(shell, 'toast').mockImplementation(() => () => {})
     router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/chapters/:novelId', component: {}, meta: { bookTool: 'chapters', title: '章节管理' } }] })
     await router.push('/chapters/' + book.id)
     wrapper = shallowMount(BookExport, { global: { plugins: [pinia, router], stubs: { Teleport: true } } })

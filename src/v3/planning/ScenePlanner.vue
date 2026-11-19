@@ -1,6 +1,6 @@
 <template>
   <section class="scene-planner" aria-label="章节与场景设计">
-    <p>先确认本章的目标、开场状态、结束状态与禁止揭露的信息，再将这一章拆成可编辑场景。只有作者批准的方案会进入写作和审核。</p>
+    <p>先确认本章的目标、开场状态、结束状态与禁止揭露的信息，再将这一章拆成可编辑场景。批准后的方案用于写作和审校。</p>
     <p v-if="!ready" role="status">正在读取创作工作区…</p>
     <template v-else>
       <p v-if="!storyConfirmed">请先在作品创建页确认作品契约和故事骨架。<button @click="router.push('/generate/' + novel.id)">检查作品契约</button></p>
@@ -21,11 +21,11 @@
             <textarea :value="chapterForm[field.key].join('\n')" :aria-label="field.label" rows="3" @input="chapterForm[field.key] = split(($event.target as HTMLTextAreaElement).value)"></textarea>
           </label>
         </div></fieldset>
-        <div class="actions"><button type="button" :disabled="busy" @click="saveChapter(false)">保存章计划草稿</button><button class="confirm-action" type="submit" :disabled="busy || !storyConfirmed">确认本章计划</button></div>
+        <div class="actions"><button type="button" :disabled="busy" @click="saveChapter(false)">保存章计划</button><button class="confirm-action" type="submit" :disabled="busy || !storyConfirmed">确认本章计划</button></div>
       </form>
       <template v-if="selectedPlan">
         <h3>场景方案</h3>
-        <p v-if="approvedScenes.length">当前有 {{ approvedScenes.length }} 个已批准场景。新草稿经确认后才会替换它们。</p>
+        <p v-if="approvedScenes.length">当前有 {{ approvedScenes.length }} 个已批准场景，确认新方案后会替换它们。</p>
         <label>方案名称<input v-model="optionTitle" :disabled="busy" placeholder="例如：潜入方案／正面交涉方案" /></label>
         <label>本次生成要求<textarea v-model="instructions" :disabled="busy" rows="3" placeholder="希望比较的方向、节奏和限制；随编辑草稿保存"></textarea></label>
         <div class="actions"><button :disabled="busy || selectedPlan.approval !== 'approved' || chapterDirty" @click="generate('generate')">生成一个新方案（先保留当前输入）</button><button :disabled="busy || scenes.length >= 12" @click="addScene">添加场景</button><button v-if="generating" @click="cancelGeneration">取消并保留部分输出</button></div>
@@ -33,7 +33,7 @@
         <p v-if="scenesDirty" role="status">场景输入已加入恢复保存队列；保存作者版本后才能批准。</p>
         <p v-if="incomplete" role="status">当前输入来自未完整输出，不能直接批准。请编辑补齐，并勾选核对后保存作者版本。</p>
         <p v-if="optionConflict" role="status">此方案已有更新版本；当前版本仍在历史中，请另存为新方案后比较。</p>
-        <p v-if="baselineConflict" role="status">打开时的规划已变化。你的输入和原基线保留；核对当前章计划后，可明确关联到最新规划。</p>
+        <p v-if="baselineConflict" role="status">章节规划已被修改。你的输入已保留，请对照最新规划后再关联保存。</p>
         <button v-if="baselineConflict" :disabled="busy" @click="rebindInputs">已核对，保留输入并关联最新规划</button>
         <label v-if="incomplete"><input v-model="authorCompleted" type="checkbox" :disabled="busy" />我已手工补齐并核对全部场景，保存为完整作者版本</label>
         <form v-if="scenes.length" @submit.prevent="saveScenes(true)">
@@ -56,7 +56,7 @@
         <details v-if="history.length"><summary>已替换的场景（{{ history.length }}）</summary><article v-for="scene in history" :key="scene.id"><strong>{{ scene.title }}</strong><p>{{ scene.purpose }} → {{ scene.outputState }}</p></article></details>
       </template>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
-      <button v-if="error" :disabled="busy" @click="reloadLatest">保留输入快照并重新读取规划</button>
+      <button v-if="error" :disabled="busy" @click="reloadLatest">保留输入并重新读取规划</button>
       <p v-if="pendingCount" role="status">{{ pendingCount }} 项输入或输出尚未完成保存；切换后仍保留在保存队列。</p>
       <button :disabled="busy" @click="retryRecovery">重试本页及离页保留的输入与输出</button>
       <pre v-if="generating && liveOutput" class="partial-output">{{ liveOutput }}</pre>
@@ -298,7 +298,7 @@ async function saveChapter(confirm: boolean) {
     const plan = clone(chapterForm.value), owner = formOwner, planId = formPlanId, baseline = formBaseline.value
     await checkpointEditor()
     await persist({ action: 'chapter', plan, confirm }, owner, planId, baseline)
-    notice.value = confirm ? '本章计划已确认；场景输入仍保留，保存新版本后可确认' : '章节草稿已保存，场景仍需核对'
+    notice.value = confirm ? '本章计划已确认；场景输入仍保留，保存新版本后可确认' : '章计划已保存，场景还需要确认'
   })
 }
 function addScene() {
@@ -361,7 +361,7 @@ async function restoreEditor(id: string) {
     optionId.value = saved.optionId; revisionId.value = saved.revisionId; incomplete.value = saved.incomplete; authorCompleted.value = false
     incompleteSignature.value = saved.incomplete ? saved.incompleteSignature ?? sceneContentSignature(saved.scenes) : undefined
     formBaseline.value = saved.baseline; editorId = crypto.randomUUID(); editorSequence = 0; suppress = false
-    await checkpointEditor(); notice.value = '已恢复输入；原基线保留，未覆盖已批准规划'
+    await checkpointEditor(); notice.value = '已恢复输入，已批准的规划没有被覆盖'
   })
 }
 async function discardEditor(id: string) {
@@ -405,7 +405,7 @@ async function saveScenes(confirm: boolean) {
     const edit: ScenePlanningEdit = { action: 'scenes', planId, scenes: clone(scenes.value), confirm: true, revisionId: selectedRevision.value.id }
     await checkpointEditor()
     await persist(edit, owner, planId, baseline)
-    notice.value = '本方案已批准，正式场景及相关审核状态已按事务更新'
+    notice.value = '方案已批准，场景和相关审校状态已更新'
   })
 }
 async function recoverOutput(id: string) {
@@ -503,7 +503,7 @@ async function runGeneration(mode: SceneGenerationAttempt['mode'], parentId?: st
         openRevision(candidate); await checkpointEditor()
       }
     }
-    if (scopeCurrent(owner, planId)) notice.value = request.status === 'conflict' ? '规划已变化，输出只保留为候选，请核对原基线'
+    if (scopeCurrent(owner, planId)) notice.value = request.status === 'conflict' ? '规划已被修改，生成结果已保留为候选，请对照最新规划'
       : complete ? '新方案已保存，可与其他方案比较；确认前不改变正式场景' : '部分输出和输入已保存，可手工补齐、明确继续或重试'
   } catch (cause) {
     if (!responseRecorded) request.status = abort.signal.aborted ? (disposed || interruptReason ? 'interrupted' : 'cancelled') : 'failed'
@@ -512,7 +512,7 @@ async function runGeneration(mode: SceneGenerationAttempt['mode'], parentId?: st
   } finally {
     clearTimeout(timer)
     await checkpoint.catch(() => undefined)
-    try { await saveAttempt() } catch (cause) { if (!disposed) error.value = '输出尚未落盘，可重试保存：' + safeAiErrorMessage(cause) }
+    try { await saveAttempt() } catch (cause) { if (!disposed) error.value = '生成结果还没保存成功，可以重试：' + safeAiErrorMessage(cause) }
     if (activity) finishAiActivity(activity, checkpointError || (request.error ? new Error(request.error) : undefined))
     if (controller === abort) controller = undefined
     activeAttempt = undefined; generating.value = false; maybeReleaseSaver()

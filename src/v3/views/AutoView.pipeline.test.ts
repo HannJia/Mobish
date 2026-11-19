@@ -13,7 +13,7 @@ const { route, messages } = vi.hoisted(() => ({
   messages: { success: vi.fn(), warning: vi.fn(), info: vi.fn(), error: vi.fn() },
 }))
 vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => ({ push: vi.fn() }) }))
-vi.mock('naive-ui', async original => ({ ...await original<object>(), useMessage: () => messages }))
+vi.mock('@/v3/feedback', async original => ({ ...await original<object>(), useMessage: () => messages, useDialog: () => ({ warning: vi.fn() }) }))
 
 const endpoint = 'http://127.0.0.1:1/offline-auto-pipeline'
 const prose = [

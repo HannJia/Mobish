@@ -5,30 +5,28 @@
     <pre v-if="store.state.release?.notes" class="ready-notes">{{ store.state.release.notes }}</pre>
     <p v-if="store.state.error" class="ready-error" role="alert">{{ store.state.error }}</p>
     <div class="notice-actions">
-      <n-button size="small" type="primary" @click="confirmInstall">安装并重启</n-button>
-      <n-button size="small" quaternary @click="store.dismissNotice">稍后</n-button>
+      <button type="button" class="m-btn pri sm" @click="confirmInstall">安装并重启</button>
+      <button type="button" class="m-btn ghost sm" @click="store.dismissNotice">稍后</button>
     </div>
   </div>
   <div v-else-if="store.showNotice" class="update-notice" role="status">
     <span>{{ store.state.phase === 'error' ? '更新检查或下载未完成' : '发现新版本' }}{{ store.state.release ? ` · ${store.state.release.version}` : '' }}</span>
     <div class="notice-actions">
-      <n-button size="small" @click="store.detailsOpen = true">{{ store.state.phase === 'error' ? '查看详情' : '查看更新' }}</n-button>
-      <n-button quaternary circle size="small" title="稍后处理" aria-label="稍后处理" @click="store.dismissNotice">
-        <template #icon><n-icon><close-outline /></n-icon></template>
-      </n-button>
+      <button type="button" class="m-btn sm" @click="store.detailsOpen = true">{{ store.state.phase === 'error' ? '查看详情' : '查看更新' }}</button>
+      <button type="button" class="m-ibtn" title="稍后处理" aria-label="稍后处理" @click="store.dismissNotice">
+        <V3Icon name="x" />
+      </button>
     </div>
   </div>
-  <n-modal v-model:show="store.detailsOpen" preset="card" title="软件更新" style="width: min(620px, calc(100vw - 32px));"
-    :mask-closable="store.state.phase !== 'installing'" :closable="store.state.phase !== 'installing'"
-    :close-on-esc="store.state.phase !== 'installing'">
+  <V3Modal v-model:show="store.detailsOpen" title="软件更新" :closable="store.state.phase !== 'installing'">
     <AppUpdatePanel />
-  </n-modal>
+  </V3Modal>
 </template>
 
 <script setup lang="ts">
 import { onMounted } from 'vue'
-import { NButton, NIcon, NModal } from 'naive-ui'
-import { CloseOutline } from '@vicons/ionicons5'
+import V3Modal from '@/v3/components/V3Modal.vue'
+import V3Icon from '@/v3/components/V3Icon.vue'
 import AppUpdatePanel from './AppUpdatePanel.vue'
 import { useAppUpdateStore } from '@/stores/appUpdate'
 import { useUpdateInstall } from '@/composables/useUpdateInstall'

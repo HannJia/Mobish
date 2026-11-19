@@ -29,18 +29,18 @@ export function saveChapterReviewSnapshot(aggregate: StoryAggregate, input: Chap
   knowledge: ReviewKnowledgeRevisions = []) {
   const { novel, workspace } = aggregate
   const chapter = novel.chapters.find(row => row.id === input.chapterId)
-  if (!chapter || chapter.status === 'locked' || chapter.content !== input.content) throw new Error('正文已变化或章节已锁定，审核结果未保存。')
+  if (!chapter || chapter.status === 'locked' || chapter.content !== input.content) throw new Error('正文已变化或章节已锁定，审校结果未保存。')
   const version = storyDecisionSourceVersion(aggregate, chapter.id, knowledge)
-  if (input.review.chapterId !== chapter.id || input.review.sourceVersionId !== version) throw new Error('审核依据已变化，请重新审核。')
+  if (input.review.chapterId !== chapter.id || input.review.sourceVersionId !== version) throw new Error('审校依据已变化，请重新审校。')
   const signature = buildChapterReviewSignature(chapter.content, buildReviewContextVersion(novel, chapter, knowledge,
     workspace.creationDraft, workspace.canonMutations, workspace.storyMemories))
-  if (!input.report.trim() || !isReviewCoverageComplete(input.coverage, signature, chapter.content)) throw new Error('审核报告或覆盖尚未完整，未保存为已完成审核。')
+  if (!input.report.trim() || !isReviewCoverageComplete(input.coverage, signature, chapter.content)) throw new Error('审校报告或覆盖尚未完整，未保存为已完成审校。')
   const bodyVersion = buildAnalysisSourceVersionId(chapter.content)
   if (input.review.findings.some(row => row.chapterId !== chapter.id || row.sourceVersionId !== bodyVersion)
-    || new Set(input.review.findings.map(row => row.id)).size !== input.review.findings.length) throw new Error('审核问题的来源或编号无效，未保存。')
+    || new Set(input.review.findings.map(row => row.id)).size !== input.review.findings.length) throw new Error('审校问题的来源或编号无效，未保存。')
   const replaced = (workspace.chapterReviews || []).filter(row => row.chapterId === chapter.id && row.sourceVersionId === version)
   if ((workspace.chapterReviews || []).some(row => row.id === input.review.id
-    && (row.chapterId !== chapter.id || row.sourceVersionId !== version))) throw new Error('审核记录编号冲突，未保存。')
+    && (row.chapterId !== chapter.id || row.sourceVersionId !== version))) throw new Error('审校记录编号冲突，未保存。')
   const previous = replaced[replaced.length - 1]
   const findings = input.review.findings.map(row => {
     const old = workspace.reviewFindings.find(value => sameFinding(value, row))
@@ -48,7 +48,7 @@ export function saveChapterReviewSnapshot(aggregate: StoryAggregate, input: Chap
       ? { ...row, status: old.status, authorNote: old.authorNote } : row
   })
   const verdict = contentReviewVerdict(input.report)
-  if (verdict === 'unknown') throw new Error('审核报告格式未能识别，未保存为已完成审核。')
+  if (verdict === 'unknown') throw new Error('审校报告格式未能识别，未保存为已完成审校。')
   const semanticChecksPassed = verdict === 'passed'
   const review: ChapterReview = { ...input.review, id: previous?.id || input.review.id,
     startedAt: previous?.startedAt || input.review.startedAt, completedAt: input.review.completedAt || now,

@@ -9,11 +9,8 @@
         <p v-if="!selectedKBId" class="page-subtitle">全局设定资料与书籍挂载</p>
       </div>
       <div class="header-actions">
-        <n-button v-if="!hasNovelContext" size="small" tertiary @click="router.push('/')">返回书架</n-button>
-        <n-button size="small" type="primary" @click="showCreateModal = true">
-          <template #icon><span style="font-size:16px">+</span></template>
-          创建知识库
-        </n-button>
+        <button v-if="!hasNovelContext" type="button" class="m-btn sm ghost" @click="router.push('/')">返回书架</button>
+        <button type="button" class="m-btn sm pri" @click="showCreateModal = true"><V3Icon name="plus" size="s" />创建知识库</button>
       </div>
     </div>
 
@@ -21,14 +18,14 @@
     <div v-if="!selectedKBId" class="kb-list">
       <div class="kb-list-toolbar">
         <span class="kb-library-count">共 {{ knowledgeBases.length }} 个知识库</span>
-        <n-input v-model:value="libraryQuery" placeholder="搜索知识库、描述或条目..." clearable aria-label="搜索知识库" />
-        <n-select v-model:value="librarySort" :options="librarySortOptions" aria-label="知识库排序" />
+        <V3Input v-model:value="libraryQuery" class="kb-library-search" placeholder="搜索知识库、描述或条目..." clearable aria-label="搜索知识库" />
+        <V3Select v-model:value="librarySort" class="kb-library-sort" :options="librarySortOptions" aria-label="知识库排序" />
       </div>
       <div v-if="knowledgeBases.length === 0" class="empty-state paper-panel">
-        <div class="empty-icon"><svg class="ink-mountains" viewBox="0 0 220 80" aria-hidden="true"><path fill="currentColor" d="M0 80 L40 38 L62 56 L98 14 L130 50 L150 34 L188 66 L220 46 L220 80 Z" /></svg></div>
+        <img class="m-art empty-art" :src="libraryArt" alt="">
         <h3>还没有知识库</h3>
         <p>知识库可以存储世界观、人物、势力等设定信息，在 AI 写作时自动注入</p>
-        <n-button type="primary" @click="showCreateModal = true">创建第一个知识库</n-button>
+        <button type="button" class="m-btn pri" @click="showCreateModal = true">创建第一个知识库</button>
       </div>
       <div
         v-for="kb in filteredKnowledgeBases"
@@ -49,20 +46,9 @@
           <span class="kb-card-meta">{{ kb.entries.length }} 条目 · {{ kbActivityTime(kb) ? formatDate(new Date(kbActivityTime(kb)).toISOString()) : '暂无编辑记录' }}{{ hasNovelContext && isBound(kb.id) ? ' · 本书已挂载' : '' }}</span>
         </div>
         <div class="kb-card-actions">
-        <n-button
-          v-if="hasNovelContext"
-          size="tiny"
-          :type="isBound(kb.id) ? 'warning' : 'default'"
-          @click.stop="toggleBind(kb.id)"
-        >
-          {{ isBound(kb.id) ? '已绑定' : '绑定小说' }}
-        </n-button>
-        <n-popconfirm @positive-click.stop="deleteKB(kb.id)">
-          <template #trigger>
-            <n-button size="tiny" quaternary type="error" @click.stop>删除</n-button>
-          </template>
-          确定删除此知识库？
-        </n-popconfirm>
+        <button v-if="hasNovelContext" type="button" class="m-btn xs" :class="{ pri: isBound(kb.id) }" :aria-pressed="isBound(kb.id)"
+          @click.stop="toggleBind(kb.id)">{{ isBound(kb.id) ? '已绑定' : '绑定小说' }}</button>
+        <button type="button" class="m-btn xs ghost danger" @click.stop="confirmDeleteKB(kb)">删除</button>
         </div>
       </div>
       <p v-if="knowledgeBases.length && !filteredKnowledgeBases.length" class="kb-no-results paper-panel">没有匹配的知识库，请尝试其他关键词。</p>
@@ -71,30 +57,27 @@
     <!-- 知识库详情 -->
     <div v-else class="kb-detail">
       <div class="kb-detail-header">
-        <n-button size="small" text @click="selectedKBId = ''">←  返回列表</n-button>
+        <button type="button" class="m-btn sm ghost" @click="selectedKBId = ''"><V3Icon name="chevR" size="s" class="back-icon" />返回列表</button>
         <div class="detail-actions">
-          <n-button size="small" tertiary @click="showImportModal = true">导入</n-button>
-          <n-button size="small" tertiary :loading="summarizingKB" :disabled="baseSummaryBusy" @click="summarizeSelectedKB">整理摘要</n-button>
-          <n-button size="small" type="primary" @click="openAddEntry">
-            <template #icon><span style="font-size:16px">+</span></template>
-            添加条目
-          </n-button>
+          <button type="button" class="m-btn sm" @click="showImportModal = true">导入</button>
+          <button type="button" class="m-btn sm" :aria-busy="summarizingKB" :disabled="baseSummaryBusy" @click="summarizeSelectedKB">{{ summarizingKB ? '正在整理…' : '整理摘要' }}</button>
+          <button type="button" class="m-btn sm pri" @click="openAddEntry"><V3Icon name="plus" size="s" />添加条目</button>
         </div>
       </div>
 
       <section class="kb-summary-panel paper-panel">
         <div class="summary-budget">
-          <label>本次请求上限<n-input-number v-model:value="summaryBudget.requests" :min="1" :max="4096" :precision="0" :disabled="anySummaryRunning" aria-label="摘要请求上限" /></label>
-          <label>本次 token 额度<n-input-number v-model:value="summaryBudget.tokens" :min="1" :max="50000000" :precision="0" :disabled="anySummaryRunning" aria-label="摘要 token 额度" /></label>
+          <label>本次请求上限<V3Number v-model:value="summaryBudget.requests" :min="1" :max="4096" :disabled="anySummaryRunning" aria-label="摘要请求上限" /></label>
+          <label>本次 Token 额度<V3Number v-model:value="summaryBudget.tokens" :min="1" :max="50000000" :disabled="anySummaryRunning" aria-label="摘要 token 额度" /></label>
           <span>生成前检查完整处理额度；接口未报告用量时保守计入。导入批次共享此额度。</span>
-          <n-button v-if="importSummaryRunning" size="small" @click="cancelSummary('import')">取消导入摘要</n-button>
+          <button v-if="importSummaryRunning" type="button" class="m-btn sm" @click="cancelSummary('import')">取消导入摘要</button>
         </div>
         <div class="kb-summary-toolbar">
           <div>
             <h4>知识库摘要</h4>
             <p>摘要在书架层面维护，挂载到小说后 AI 优先读取摘要，再按问题读取相关条目。</p>
           </div>
-          <n-select v-model:value="summaryLevel" :options="summaryLevelOptions" size="small" style="width:120px;" :disabled="baseSummaryBusy" />
+          <V3Select v-model:value="summaryLevel" class="summary-level" :options="summaryLevelOptions" aria-label="摘要详略" :disabled="baseSummaryBusy" />
         </div>
         <div class="summary-status-row">
           <span class="summary-status" :class="`summary-status-${selectedKB ? getBaseSummaryStatus(selectedKB) : 'empty'}`">
@@ -102,12 +85,12 @@
           </span>
           <span class="summary-status-hint">{{ selectedKB ? summaryStatusHint(getBaseSummaryStatus(selectedKB)) : '' }}</span>
         </div>
-        <n-input
+        <V3Input
           v-model:value="baseSummaryDraft"
           type="textarea"
           :rows="5"
           aria-label="知识库摘要"
-          placeholder="可手工填写摘要；保存后会以作者核对结果沿用。"
+          placeholder="可手工填写摘要；保存后会按你核对的结果使用。"
           :disabled="baseSummaryBusy"
           @focus="beginBaseSummaryEdit"
           @update:value="markBaseSummaryDirty"
@@ -116,7 +99,7 @@
         <p v-if="selectedKB?.summarySource?.coverage" class="summary-coverage">{{ coverageText(selectedKB.summarySource) }}</p>
         <div v-if="summaryProgress[baseJobKey]" class="summary-run-status" role="status">
           {{ progressText(summaryProgress[baseJobKey]) }}
-          <n-button v-if="summarizingKB && ['extract', 'merge'].includes(summaryProgress[baseJobKey].phase)" size="small" @click="cancelSummary(baseJobKey)">取消整库整理</n-button>
+          <button v-if="summarizingKB && ['extract', 'merge'].includes(summaryProgress[baseJobKey].phase)" type="button" class="m-btn sm" @click="cancelSummary(baseJobKey)">取消整库整理</button>
         </div>
         <p v-if="baseSummaryError" class="summary-error" role="alert">
           {{ baseSummaryError }}
@@ -124,9 +107,7 @@
           <button v-if="baseSummaryErrorKind === 'ai'" type="button" @click="summarizeSelectedKB">重新整理</button>
         </p>
         <div class="summary-actions">
-          <n-button size="small" :disabled="baseSummaryBusy || !baseSummaryDraft.trim()" @click="saveBaseSummaryDraft">
-            {{ selectedKB?.summary ? '作者核对并沿用' : '保存并核对' }}
-          </n-button>
+          <button type="button" class="m-btn sm" :disabled="baseSummaryBusy || !baseSummaryDraft.trim()" @click="saveBaseSummaryDraft">{{ selectedKB?.summary ? '核对并沿用' : '保存并核对' }}</button>
         </div>
         <span v-if="selectedKB?.summaryUpdatedAt" class="kb-summary-time">上次整理：{{ formatDateTime(selectedKB.summaryUpdatedAt) }}</span>
         <div v-if="selectedKB?.summaryHistory?.length" class="summary-history">
@@ -166,7 +147,7 @@
         <div class="kb-entries">
           <!-- 筛选栏 -->
           <div class="filter-bar">
-            <n-input v-model:value="searchQuery" placeholder="搜索条目..." size="small" clearable style="max-width:260px;" />
+            <V3Input v-model:value="searchQuery" class="entry-search" placeholder="搜索条目..." clearable aria-label="搜索条目" />
             <span class="entry-count">{{ filteredEntries.length }} 条</span>
           </div>
 
@@ -190,9 +171,9 @@
                   <span v-for="t in entry.tags" :key="t" class="tag-chip">{{ t }}</span>
                 </div>
                 <div class="entry-actions">
-                  <n-button size="tiny" :aria-pressed="selectedEntryId === entry.id" @click="selectEntry(entry.id)">查看</n-button>
-                  <n-button size="tiny" @click="editEntry(entry)">编辑</n-button>
-                  <n-button size="tiny" type="error" quaternary @click="removeEntry(entry.id)">删除</n-button>
+                  <button type="button" class="m-btn xs" :class="{ pri: selectedEntryId === entry.id }" :aria-pressed="selectedEntryId === entry.id" @click="selectEntry(entry.id)">查看</button>
+                  <button type="button" class="m-btn xs" @click="editEntry(entry)">编辑</button>
+                  <button type="button" class="m-btn xs ghost danger" @click="confirmRemoveEntry(entry)">删除</button>
                 </div>
               </div>
             </div>
@@ -215,13 +196,13 @@
                 {{ summaryStatusLabel(getEntrySummaryStatus(selectedKBId, selectedEntry)) }}
               </span>
             </div>
-            <p class="summary-status-hint">{{ summaryStatusHint(getEntrySummaryStatus(selectedKBId, selectedEntry)) }} 原文始终保留。</p>
-            <n-input
+            <p class="summary-status-hint">{{ summaryStatusHint(getEntrySummaryStatus(selectedKBId, selectedEntry)) }}</p>
+            <V3Input
               v-model:value="entrySummaryDraft"
               type="textarea"
               :rows="5"
               aria-label="条目摘要"
-              placeholder="可手工填写摘要；保存后会以作者核对结果沿用。"
+              placeholder="可手工填写摘要；保存后会按你核对的结果使用。"
               :disabled="entrySummaryBusy(selectedEntry.id)"
               @focus="beginEntrySummaryEdit(selectedEntry.id)"
               @update:value="markEntrySummaryDirty"
@@ -230,7 +211,7 @@
             <p v-if="selectedEntry.summarySource?.coverage" class="summary-coverage">{{ coverageText(selectedEntry.summarySource) }}</p>
             <div v-if="summaryProgress[entryJobKey]" class="summary-run-status" role="status">
               {{ progressText(summaryProgress[entryJobKey]) }}
-              <n-button v-if="summarizingEntryIds.has(selectedEntry.id) && ['extract', 'merge'].includes(summaryProgress[entryJobKey].phase)" size="small" @click="cancelSummary(entryJobKey)">取消条目整理</n-button>
+              <button v-if="summarizingEntryIds.has(selectedEntry.id) && ['extract', 'merge'].includes(summaryProgress[entryJobKey].phase)" type="button" class="m-btn sm" @click="cancelSummary(entryJobKey)">取消条目整理</button>
             </div>
             <p v-if="entrySummaryErrors[entrySummaryErrorKey(selectedKBId, selectedEntry.id)]" class="summary-error" role="alert">
               {{ entrySummaryErrors[entrySummaryErrorKey(selectedKBId, selectedEntry.id)] }}
@@ -238,10 +219,8 @@
               <button v-if="entrySummaryErrorKinds[entrySummaryErrorKey(selectedKBId, selectedEntry.id)] === 'ai'" type="button" @click="retryEntrySummary(selectedEntry.id)">重新整理</button>
             </p>
             <div class="summary-actions">
-              <n-button size="small" :disabled="entrySummaryBusy(selectedEntry.id) || !entrySummaryDraft.trim()" @click="saveEntrySummaryDraft(selectedEntry.id)">
-                {{ selectedEntry.summary ? '作者核对并沿用' : '保存并核对' }}
-              </n-button>
-              <n-button size="small" tertiary :loading="entrySummaryBusy(selectedEntry.id)" :disabled="entrySummaryBusy(selectedEntry.id)" @click="retryEntrySummary(selectedEntry.id)">重新整理摘要</n-button>
+              <button type="button" class="m-btn sm" :disabled="entrySummaryBusy(selectedEntry.id) || !entrySummaryDraft.trim()" @click="saveEntrySummaryDraft(selectedEntry.id)">{{ selectedEntry.summary ? '核对并沿用' : '保存并核对' }}</button>
+              <button type="button" class="m-btn sm ghost" :aria-busy="entrySummaryBusy(selectedEntry.id)" :disabled="entrySummaryBusy(selectedEntry.id)" @click="retryEntrySummary(selectedEntry.id)">重新整理摘要</button>
             </div>
             <div v-if="selectedEntry.summaryHistory?.length" class="summary-history">
               <strong>摘要历史（最近 {{ selectedEntry.summaryHistory.length }} 条）</strong>
@@ -265,54 +244,48 @@
     </div>
 
     <!-- 创建知识库弹窗 -->
-    <n-modal v-model:show="showCreateModal" preset="card" title="创建知识库" style="max-width:400px;">
-      <div class="form-group">
-        <label>名称</label>
-        <n-input v-model:value="createForm.name" size="small" placeholder="如：仙侠世界设定" />
-        <label>描述</label>
-        <n-input v-model:value="createForm.description" size="small" placeholder="简要描述此知识库的用途" />
+    <V3Modal v-model:show="showCreateModal" title="创建知识库" size="small" description="创建后可以导入资料或逐条添加，再挂载到作品。">
+      <div class="kb-form">
+        <V3Field label="名称"><V3Input v-model:value="createForm.name" placeholder="如：仙侠世界设定" @keydown.enter="createForm.name.trim() && doCreateKB()" /></V3Field>
+        <V3Field label="描述"><V3Input v-model:value="createForm.description" placeholder="简要描述此知识库的用途" /></V3Field>
       </div>
-      <template #action>
-        <n-button @click="showCreateModal = false">取消</n-button>
-        <n-button type="primary" :disabled="!createForm.name.trim()" @click="doCreateKB">创建</n-button>
+      <template #footer>
+        <button type="button" class="m-btn" @click="showCreateModal = false">取消</button>
+        <button type="button" class="m-btn pri" :disabled="!createForm.name.trim()" @click="doCreateKB">创建</button>
       </template>
-    </n-modal>
+    </V3Modal>
 
     <!-- 添加/编辑条目弹窗 -->
-    <n-modal
-      :show="showEntryModal"
-      preset="card"
-      :title="editingEntryId ? '编辑条目' : '添加条目'"
-      :closable="!entryFormBusy"
-      :mask-closable="!entryFormBusy"
-      :close-on-esc="!entryFormBusy"
-      style="max-width:550px;"
-      @update:show="setEntryModalShow"
-    >
-      <div class="form-group">
-        <label>标题</label>
-        <n-input v-model:value="entryForm.title" size="small" placeholder="条目标题" :disabled="entryFormBusy" />
-        <label>分类</label>
-        <n-select v-model:value="entryForm.category" :options="categoryOptions" size="small" :disabled="entryFormBusy" />
-        <label>内容</label>
-        <n-input v-model:value="entryForm.content" type="textarea" :rows="8" size="small" placeholder="条目内容（支持 Markdown）" :disabled="entryFormBusy" />
-        <label>标签（逗号分隔）</label>
-        <n-input v-model:value="entryForm.tagsText" size="small" placeholder="如：剑法,武技" :disabled="entryFormBusy" />
+    <V3Modal :show="showEntryModal" :title="editingEntryId ? '编辑条目' : '添加条目'" :closable="!entryFormBusy" @update:show="setEntryModalShow">
+      <div class="kb-form">
+        <div class="kb-form-row">
+          <V3Field label="标题"><V3Input v-model:value="entryForm.title" placeholder="条目标题" :disabled="entryFormBusy" /></V3Field>
+          <V3Field label="分类"><V3Select v-model:value="entryForm.category" :options="categoryOptions" :disabled="entryFormBusy" /></V3Field>
+        </div>
+        <V3Field label="内容"><V3Input v-model:value="entryForm.content" type="textarea" :rows="8" placeholder="条目内容（支持 Markdown）" :disabled="entryFormBusy" /></V3Field>
+        <V3Field label="标签（逗号分隔）"><V3Input v-model:value="entryForm.tagsText" placeholder="如：剑法,武技" :disabled="entryFormBusy" /></V3Field>
       </div>
-      <template #action>
-        <n-button :disabled="entryFormBusy" @click="setEntryModalShow(false)">取消</n-button>
-        <n-button type="primary" :loading="entryFormBusy" :disabled="entryFormBusy || !entryForm.title.trim()" @click="saveEntry">保存</n-button>
+      <template #footer>
+        <button type="button" class="m-btn" :disabled="entryFormBusy" @click="setEntryModalShow(false)">取消</button>
+        <button type="button" class="m-btn pri" :aria-busy="entryFormBusy" :disabled="entryFormBusy || !entryForm.title.trim()" @click="saveEntry">{{ entryFormBusy ? '正在保存…' : '保存' }}</button>
       </template>
-    </n-modal>
+    </V3Modal>
 
     <KnowledgeImportDialog v-model:show="showImportModal" :kb-id="selectedKBId" @imported="afterImport" />
   </div>
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NButton, NInput, NInputNumber, NSelect, NModal, NPopconfirm, useMessage } from 'naive-ui'
+import { useDialog, useMessage } from '@/v3/feedback'
+import V3Icon from '@/v3/components/V3Icon.vue'
+import V3Modal from '@/v3/components/V3Modal.vue'
+import V3Field from '@/v3/components/form/V3Field.vue'
+import V3Input from '@/v3/components/form/V3Input.vue'
+import V3Number from '@/v3/components/form/V3Number.vue'
+import V3Select from '@/v3/components/form/V3Select.vue'
 import { useKnowledgeStore, kbCategories, knowledgeSummaryEditVersion, type KBEntry, type KnowledgeBase } from '@/stores/knowledge'
 import { useNovelStore } from '@/stores/novel'
 import { useConfigStore } from '@/stores/config'
@@ -320,6 +293,7 @@ import { createKnowledgeSummaryBudget, planKnowledgeSummary, generateKnowledgeSu
 import type { KnowledgeSummarySource } from '@/types/knowledge'
 import KnowledgeImportDialog from '@/components/KnowledgeImportDialog.vue'
 import { renderMd } from '@/utils/markdown'
+import libraryArt from '@/assets/v3/empty/library.webp'
 import {
   baseSourceVersion,
   entrySourceVersion,
@@ -334,6 +308,7 @@ const kbStore = useKnowledgeStore()
 const novelStore = useNovelStore()
 const configStore = useConfigStore()
 const msg = useMessage()
+const dialog = useDialog()
 
 const novelId = computed(() => route.params.novelId as string)
 const novel = computed(() => novelStore.getNovel(novelId.value))
@@ -418,7 +393,7 @@ const importSummaryRunning = ref(false)
 const anySummaryRunning = computed(() => summarizingKB.value || summarizingEntryIds.value.size > 0 || importSummaryRunning.value)
 const entryJobKey = computed(() => 'entry:' + entrySummaryErrorKey(selectedKBId.value, selectedEntryId.value))
 const baseJobKey = computed(() => 'base:' + selectedKBId.value)
-function cancelSummary(key: string) { summaryControllers.get(key)?.abort(new Error('作者已取消摘要整理')) }
+function cancelSummary(key: string) { summaryControllers.get(key)?.abort(new Error('已取消摘要整理')) }
 onBeforeUnmount(() => { for (const controller of summaryControllers.values()) controller.abort(new Error('已离开资料页，摘要整理停止')) })
 
 function planHint(entryId?: string) {
@@ -430,9 +405,9 @@ function planHint(entryId?: string) {
     const model = configStore.getModelForTask('review')
     const tokens = model ? estimateKnowledgeSummaryTokens(plan, model, configStore.getSkillPrompt('analysis')) : undefined
     return '全文分批读取：' + chars + ' 字，' + plan.chunks.length + ' 段，预计 ' + plan.plannedRequests + ' 次请求'
-      + (tokens === undefined ? '；配置模型后可估算 token 额度。' : '，保守额度 ' + tokens.toLocaleString() + ' token。')
-      + ' 摘要仍可能遗漏细节，原文保留供检索核对。'
-  } catch (error) { return error instanceof Error ? error.message : '资料暂不能整理' }
+      + (tokens === undefined ? '；配置模型后可估算 Token 额度。' : '，保守额度 ' + tokens.toLocaleString() + ' Token。')
+      + ' 摘要可能遗漏细节，检索时仍会查找原文。'
+  } catch (error) { return errorText(error, '资料暂不能整理') }
 }
 const basePlanHint = computed(() => planHint())
 const entryPlanHint = computed(() => selectedEntry.value ? planHint(selectedEntry.value.id) : '')
@@ -444,7 +419,7 @@ function progressText(progress: KnowledgeSummaryProgress) {
 function coverageText(source?: KnowledgeSummarySource) {
   const coverage = source?.coverage
   return coverage ? '上次生成完整读取 ' + coverage.sources.length + ' 个条目、' + coverage.leafCount + ' 段原文，使用 ' + coverage.requestCount + ' 次请求；'
-    + (coverage.usageEstimated ? '保守计入 ' : '接口报告 ') + (coverage.inputTokens + coverage.outputTokens).toLocaleString() + ' token。' : ''
+    + (coverage.usageEstimated ? '保守计入 ' : '接口报告 ') + (coverage.inputTokens + coverage.outputTokens).toLocaleString() + ' Token。' : ''
 }
 
 function summaryStatusLabel(status: KnowledgeSummaryStatus) {
@@ -459,8 +434,8 @@ function summaryStatusHint(status: KnowledgeSummaryStatus) {
   return ({
     empty: '还没有摘要，可以手工填写或整理。',
     current: '摘要对应当前资料，可继续沿用。',
-    unverified: '摘要存在，但还没有可验证的来源记录；作者核对后才会用于写作。',
-    stale: '资料已经修改，旧摘要保留供参考；作者核对或重新整理后才会重新用于写作。',
+    unverified: '摘要还没有来源记录，核对后才会用于写作。',
+    stale: '资料已修改，旧摘要需要核对或重新整理后才会继续用于写作。',
   } satisfies Record<KnowledgeSummaryStatus, string>)[status]
 }
 
@@ -600,7 +575,26 @@ async function deleteKB(id: string) {
     await novelStore.flushPendingSaves()
     await kbStore.deleteKB(id)
     msg.success('已删除')
-  } catch (error) { msg.error(error instanceof Error ? error.message : '删除失败，请重试') }
+  } catch (error) { msg.error(errorText(error, '删除失败，请重试')) }
+}
+
+function confirmDeleteKB(kb: KnowledgeBase) {
+  const bound = novelStore.novels.filter(book => book.knowledgeBaseIds.includes(kb.id)).length
+  dialog.warning({
+    title: '删除知识库',
+    content: `删除「${kb.name}」及其 ${kb.entries.length} 条资料？${bound ? `已挂载它的 ${bound} 部作品会同时取消挂载。` : ''}此操作无法撤销。`,
+    positiveText: '删除', negativeText: '取消',
+    onPositiveClick: () => { void deleteKB(kb.id) },
+  })
+}
+
+function confirmRemoveEntry(entry: KBEntry) {
+  dialog.warning({
+    title: '删除条目',
+    content: `删除条目「${entry.title}」？此操作无法撤销。`,
+    positiveText: '删除', negativeText: '取消',
+    onPositiveClick: () => removeEntry(entry.id),
+  })
 }
 
 function openAddEntry() {
@@ -642,10 +636,10 @@ async function saveEntry() {
     }
     if (!entryId) throw new Error('资料已不存在')
     await kbStore.flushPendingSaves()
-    msg.success('资料已保存；摘要可由作者核对或点击重新整理')
+    msg.success('资料已保存；可以核对摘要，或点击重新整理')
     saved = Boolean(entryId)
   } catch (error) {
-    msg.error((error instanceof Error ? error.message : '资料保存失败') + '，表单已保留')
+    msg.error((errorText(error, '资料保存失败')) + '，表单已保留')
   } finally {
     entryFormBusy.value = false
   }
@@ -686,7 +680,7 @@ async function afterImport(result: { kbId: string; entryIds: string[]; summarize
     }
     msg.success('本批摘要已保存 ' + completed + ' 个条目')
   } catch (error) {
-    msg.warning((error instanceof Error ? error.message : '批次已停止') + '；已保存 ' + completed + ' 个条目')
+    msg.warning((errorText(error, '批次已停止')) + '；已保存 ' + completed + ' 个条目')
   } finally {
     importSummaryRunning.value = false
     summaryControllers.delete('import')
@@ -747,7 +741,7 @@ async function autoSummarizeEntry(kbId: string, entryId: string, notifyUnavailab
     msg.success('条目摘要已更新')
     return true
   } catch (error) {
-    const message = error instanceof Error ? error.message : '摘要整理失败'
+    const message = errorText(error, '摘要整理失败')
     const visibleMessage = /发生变化|重新核对|过期/.test(message)
       ? '资料或摘要已在整理期间变化，迟到的 AI 结果已拒绝，请重新核对。'
       : `${message}，可点击“重新整理摘要”重试。`
@@ -816,7 +810,7 @@ async function summarizeSelectedKB() {
     }
     msg.success('知识库摘要已更新')
   } catch (error) {
-    const message = error instanceof Error ? error.message : '摘要整理失败'
+    const message = errorText(error, '摘要整理失败')
     const visibleMessage = /发生变化|重新核对|过期/.test(message)
       ? '知识库资料或摘要已在整理期间变化，迟到的 AI 结果已拒绝，请重新核对。'
       : `${message}，可点击“重新整理”重试。`
@@ -876,7 +870,7 @@ async function saveEntrySummaryDraft(entryId: string) {
     entrySummaryErrorKinds.value = { ...entrySummaryErrorKinds.value, [errorKey]: 'save' }
     msg.success('条目摘要已保存并核对')
   } catch (error) {
-    const message = error instanceof Error ? error.message : '摘要保存失败'
+    const message = errorText(error, '摘要保存失败')
     const visibleMessage = /发生变化|重新核对|过期/.test(message)
       ? '资料或摘要已发生变化，摘要未保存，请重新核对。'
       : `${message}，表单内容已保留。`
@@ -931,7 +925,7 @@ async function saveBaseSummaryDraft() {
     }
     msg.success('知识库摘要已保存并核对')
   } catch (error) {
-    const message = error instanceof Error ? error.message : '摘要保存失败'
+    const message = errorText(error, '摘要保存失败')
     const visibleMessage = /发生变化|重新核对|过期/.test(message)
       ? '知识库资料或摘要已发生变化，摘要未保存，请重新核对。'
       : `${message}，表单内容已保留。`
@@ -1022,7 +1016,6 @@ function toggleBind(kbId: string) {
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; min-height: 40vh; gap: 12px; text-align: center;
 }
-.empty-icon { width: 220px; color: var(--line-2); }
 .empty-state h3 { font-family: var(--f-serif); font-size: 18px; color: var(--ink); }
 .empty-state p { font-size: 14px; color: var(--ink-3); max-width: 360px; }
 
@@ -1035,8 +1028,11 @@ function toggleBind(kbId: string) {
 .kb-list > .empty-state { grid-column: 1 / -1; }
 .kb-list-toolbar { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin-bottom: 8px; }
 .kb-library-count { margin-right: auto; color: var(--ink-2); }
-.kb-list-toolbar :deep(.n-input) { width: min(100%, 300px); }
-.kb-list-toolbar :deep(.n-select) { width: 130px; }
+.kb-list-toolbar .kb-library-search { width: min(100%, 300px); }
+.kb-list-toolbar .kb-library-sort { width: 130px; }
+.back-icon { transform: rotate(180deg); }
+.summary-level { width: 120px; flex-shrink: 0; }
+.entry-search { width: min(100%, 260px); }
 .kb-no-results { grid-column: 1 / -1; padding: 40px; text-align: center; color: var(--ink-2); }
 @media (max-width: 1100px) { .kb-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 650px) { .kb-list { grid-template-columns: 1fr; } }
@@ -1365,7 +1361,7 @@ function toggleBind(kbId: string) {
   border-top: 1px solid var(--line-2);
 }
 .entry-summary-heading h4 { margin: 0; font-family: var(--f-serif); color: var(--ink); }
-.entry-summary-editor :deep(.n-input) { margin-top: 8px; }
+.entry-summary-editor .m-input-wrap { margin-top: 8px; }
 
 .entry-detail-tags {
   display: flex;
@@ -1421,8 +1417,9 @@ function toggleBind(kbId: string) {
 .kb-summary-time { display: block; margin-top: 10px; color: var(--ink-4); font-size: 11px; }
 
 /* 表单 */
-.form-group { display: flex; flex-direction: column; gap: 8px; }
-.form-group label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.kb-form { display: grid; gap: 4px; }
+.kb-form-row { display: grid; grid-template-columns: minmax(0, 1fr) 140px; gap: 12px; }
+@media (max-width: 560px) { .kb-form-row { grid-template-columns: 1fr; } }
 
 .file-upload-area {
   display: flex;

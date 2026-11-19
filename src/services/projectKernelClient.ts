@@ -19,7 +19,7 @@ export class ProjectKernelError extends Error {
 
 async function invoke<T>(request: ProjectKernelRequest): Promise<T> {
   const bridge = window.electronAPI?.projectRequest
-  if (!bridge) throw new ProjectKernelError('PROJECT_UNAVAILABLE', '主进程项目存储不可用，已停止保存。')
+  if (!bridge) throw new ProjectKernelError('PROJECT_UNAVAILABLE', '无法保存到本机项目文件，已暂停保存。请重启软件；如果仍然失败，请先导出项目备份。')
   const result = await bridge(request) as ProjectKernelResponse<T>
   if (!result?.ok) throw new ProjectKernelError(result?.error?.code || 'PROJECT_UNAVAILABLE', result?.error?.message || '项目存储返回无效响应。')
   return result.value

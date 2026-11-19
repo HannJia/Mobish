@@ -137,7 +137,7 @@ export function projectDataPanelReferences(novel: Novel, beforeChapterIndex?: nu
       if (beforeChapterIndex !== undefined || !rule.enabled || rule.trigger !== 'elapsed_days' || rule.sourceFieldName !== STORY_CLOCK_SOURCE
         || rule.lastSourceValue === undefined && rule.storyTimeCursor === undefined && !rule.storyTimeCursorPending) continue
       if (rule.storyTimeCursorPending) {
-        issues.push(`${original.name}/${field.name}：数值已由作者重新确认；将在下次推算所选章节的有效结束日重新累计，不补算旧时间区间`)
+        issues.push(`${original.name}/${field.name}：数值已重新确认；将在下次推算所选章节的有效结束日重新累计，不补算旧时间区间`)
         continue
       }
       const cursor = rule.storyTimeCursor

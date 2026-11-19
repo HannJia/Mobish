@@ -15,7 +15,8 @@ describe('native V3 routes', () => {
     expect(router.currentRoute.value.meta.shell).toBe('v3')
     expect(router.currentRoute.value.name).toBe(name)
     expect(router.currentRoute.value.fullPath).toBe(path || '/')
-  }, 15000)
+    // 首次进入页面会加载整套页面模块；创建向导冷启动约 20 秒，这里只防卡死。
+  }, 60000)
 
   it.each(['/legacy', '/legacy-create', '/legacy-generate/book', '/workspace/book', '/workspace/book/editor/chapter', '/workspace/book/planning?tab=timeline'])('does not adapt retired addresses: %s', path => {
     expect(router.resolve(path).name).toBe('V3NotFound')

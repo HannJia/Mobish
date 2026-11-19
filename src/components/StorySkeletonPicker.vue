@@ -5,7 +5,7 @@
         <h3>比较故事骨架</h3>
         <p>点击单元格逐行挑选字段，勾选关键节点，可以混合不同方案；“整列选用”采用整套方案。混合只生成新的可编辑候选，保存作者版本并确认后才成为正式故事方向。</p>
       </div>
-      <div class="toolbar"><n-button :disabled="busy" @click="emit('create')">手写新方案</n-button><n-button :disabled="busy" @click="emit('regenerate')">重新生成候选</n-button></div>
+      <div class="toolbar"><button type="button" class="m-btn" :disabled="busy" @click="emit('create')">手写新方案</button><button type="button" class="m-btn" :disabled="busy" @click="emit('regenerate')">重新生成候选</button></div>
     </header>
 
     <div v-if="skeletons.length" class="comparison" tabindex="0" aria-label="方案对照表，可横向滚动">
@@ -19,7 +19,7 @@
               <span class="col-tags">
                 <span v-if="selectedId === item.id" class="sk-tag edit">编辑中</span>
                 <span v-if="item.id === confirmedId" class="sk-tag ok">正式方向</span>
-                <span v-if="item.complete === false" class="sk-tag warn">未完整，需作者补齐保存</span>
+                <span v-if="item.complete === false" class="sk-tag warn">未完整，需要补齐后保存</span>
               </span>
               <button type="button" class="col-all" :disabled="busy || !item.revisionId" :aria-label="'整列选用：' + (item.title || '未命名方案')" @click="pickColumn(item)">整列选用</button>
             </th>
@@ -63,7 +63,7 @@
       <div class="mix-side">
         <span v-if="mixCounts" class="mix-counts">{{ mixCounts }}</span>
         <span v-if="mixHint" class="mix-hint" role="status">{{ mixHint }}</span>
-        <n-button type="primary" :disabled="busy || !canMix || dirty" @click="mix">组合为新的可编辑候选</n-button>
+        <button type="button" class="m-btn pri" :disabled="busy || !canMix || dirty" @click="mix">组合为新的可编辑候选</button>
       </div>
     </div>
 
@@ -77,14 +77,13 @@
         <textarea :aria-label="'节点' + (index + 1) + '内容'" :value="beat.description" :disabled="busy" rows="2" @input="updateBeat(index, 'description', ($event.target as HTMLTextAreaElement).value)"></textarea>
         <div class="beat-actions"><button type="button" :disabled="busy || index === 0" @click="moveBeat(index, -1)">上移</button><button type="button" :disabled="busy || index === selected.beats.length - 1" @click="moveBeat(index, 1)">下移</button><button type="button" :disabled="busy" @click="removeBeat(index)">移除节点</button></div>
       </div>
-      <n-button :disabled="busy" @click="addBeat">添加关键节点</n-button>
+      <button type="button" class="m-btn" :disabled="busy" @click="addBeat">添加关键节点</button>
     </div>
-    <footer><p v-if="!selected">选择一个方案，或手写新方案。</p><template v-else><n-button :disabled="busy" @click="emit('save')">{{ selected.complete === false ? '已核对补齐，保存作者版本' : '保存作者版本' }}</n-button><n-button type="primary" :disabled="busy || dirty || !canConfirm" @click="emit('confirm')">确认此方案为正式方向</n-button></template></footer>
+    <footer><p v-if="!selected">选择一个方案，或手写新方案。</p><template v-else><button type="button" class="m-btn" :disabled="busy" @click="emit('save')">{{ selected.complete === false ? '已核对补齐，保存作者版本' : '保存作者版本' }}</button><button type="button" class="m-btn pri" :disabled="busy || dirty || !canConfirm" @click="emit('confirm')">确认此方案为正式方向</button></template></footer>
   </section>
 </template>
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { NButton } from 'naive-ui'
 import type { PlotSkeleton, SkeletonField, SkeletonSourceSelection, StoryBeat } from '@/types/reconstruction'
 import { skeletonCompletionIssues } from '@/services/creationDraft'
 const props = defineProps<{ skeletons: PlotSkeleton[]; selectedId?: string; confirmedId?: string; busy?: boolean; dirty?: boolean; hasOutline?: boolean }>()
@@ -138,7 +137,6 @@ function beatLabel(source: SkeletonSourceSelection) { const skeleton = props.ske
 function mix() { emit('mix', [...fields.map(field => ({ field: field.key, revisionId: fieldSources[field.key] })), ...beatSources.value]) }
 </script>
 <style scoped>
-/* 本组件同时出现在新界面和旧界面：优先用新界面的纸色变量，旧界面没有时退回其变量。 */
 .skeleton-picker {
   width: 100%; box-sizing: border-box; color: var(--ink); }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

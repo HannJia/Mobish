@@ -10,7 +10,8 @@ import { callAI } from '@/services/ai'
 import { createEntrySummarySource } from '@/services/knowledgeSources'
 
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: {} }), useRouter: () => ({ push: vi.fn() }) }))
-vi.mock('naive-ui', async original => ({ ...await original<object>(), useMessage: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }) }))
+const { dialog } = vi.hoisted(() => ({ dialog: { warning: vi.fn() } }))
+vi.mock('@/v3/feedback', async original => ({ ...await original<object>(), useMessage: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }), useDialog: () => dialog }))
 vi.mock('@/services/ai', async original => ({ ...await original<object>(), callAI: vi.fn() }))
 vi.mock('@/services/db/knowledge', () => ({
   loadAllKnowledgeBasesFromDb: vi.fn().mockResolvedValue([]),
@@ -25,10 +26,9 @@ beforeEach(() => {
 })
 const stubs = {
   RouterLink: { template: '<a><slot /></a>' },
-  InputNumber: { props: ['value'], emits: ['update:value'], template: '<input type="number" :value="value" @input="$emit(\'update:value\', Number($event.target.value))" />' },
-  Modal: { props: ['show'], template: '<div v-if="show"><slot /><slot name="action" /></div>' },
-  Button: { template: '<button><slot /></button>' },
-  Input: { props: ['value', 'placeholder'], emits: ['update:value'], template: '<input :value="value" :placeholder="placeholder" @input="$emit(\'update:value\', $event.target.value)" />' },
+  V3Number: { name: 'V3Number', props: ['value'], emits: ['update:value'], template: '<input type="number" :value="value" @input="$emit(\'update:value\', Number($event.target.value))" />' },
+  V3Modal: { props: ['show', 'title'], template: '<section v-if="show"><slot /><slot name="footer" /></section>' },
+  V3Input: { name: 'V3Input', props: ['value', 'placeholder'], emits: ['update:value'], template: '<input :value="value" :placeholder="placeholder" @input="$emit(\'update:value\', $event.target.value)" />' },
 }
 
 describe('knowledge full-content selection', () => {
@@ -180,7 +180,7 @@ describe('knowledge full-content selection', () => {
     expect(w.find('.summary-status-stale').exists()).toBe(false)
     expect(w.text()).toContain('待核对')
     await summary.setValue('作者重新核对后的摘要')
-    const confirm = w.findAll('.entry-summary-editor button').find(button => button.text().includes('作者核对'))!
+    const confirm = w.findAll('.entry-summary-editor button').find(button => button.text().includes('核对并沿用'))!
     await confirm.trigger('click')
     await flushPromises()
 
@@ -219,7 +219,7 @@ describe('knowledge full-content selection', () => {
 
     const summary = w.get('input[aria-label="条目摘要"]')
     await summary.setValue('保存失败后仍要保留的表单内容')
-    await w.findAll('.entry-summary-editor button').find(button => button.text().includes('作者核对'))!.trigger('click')
+    await w.findAll('.entry-summary-editor button').find(button => button.text().includes('核对并沿用'))!.trigger('click')
     await flushPromises()
 
     expect((summary.element as HTMLInputElement).value).toBe('保存失败后仍要保留的表单内容')
@@ -239,7 +239,7 @@ describe('knowledge full-content selection', () => {
     const summary = w.get('input[aria-label="条目摘要"]')
     await summary.setValue('编辑中的旧草稿')
     store.updateEntry(kb.id, entry.id, { content: '较新的正文内容。', summary: '较新的摘要' })
-    await w.findAll('.entry-summary-editor button').find(button => button.text().includes('作者核对'))!.trigger('click')
+    await w.findAll('.entry-summary-editor button').find(button => button.text().includes('核对并沿用'))!.trigger('click')
     await flushPromises()
 
     expect(entry.summary).toBe('较新的摘要')
@@ -263,7 +263,7 @@ describe('knowledge full-content selection', () => {
     await summary.setValue('编辑中的旧整库草稿')
     store.updateEntry(kb.id, entry.id, { content: '较新的规则正文。' })
     kb.summary = '较新的整库摘要'
-    await w.findAll('.kb-summary-panel button').find(button => button.text().includes('作者核对'))!.trigger('click')
+    await w.findAll('.kb-summary-panel button').find(button => button.text().includes('核对并沿用'))!.trigger('click')
     await flushPromises()
 
     expect(kb.summary).toBe('较新的整库摘要')
@@ -288,7 +288,7 @@ describe('knowledge full-content selection', () => {
     await w.findAll('.kb-card').find(card => card.text().includes('先选知识库'))!.trigger('click')
     await flushPromises()
     await w.get('input[aria-label="条目摘要"]').setValue('第一条目的旧草稿')
-    await w.findAll('.entry-summary-editor button').find(button => button.text().includes('作者核对'))!.trigger('click')
+    await w.findAll('.entry-summary-editor button').find(button => button.text().includes('核对并沿用'))!.trigger('click')
     await flushPromises()
 
     await w.get('.kb-detail-header button').trigger('click')
@@ -316,7 +316,7 @@ describe('knowledge full-content selection', () => {
     await w.findAll('.kb-card').find(card => card.text().includes('先选整库'))!.trigger('click')
     await flushPromises()
     await w.get('input[aria-label="知识库摘要"]').setValue('第一整库旧草稿')
-    await w.findAll('.kb-summary-panel button').find(button => button.text().includes('作者核对'))!.trigger('click')
+    await w.findAll('.kb-summary-panel button').find(button => button.text().includes('核对并沿用'))!.trigger('click')
     await flushPromises()
 
     await w.get('.kb-detail-header button').trigger('click')
@@ -437,7 +437,7 @@ describe('knowledge full-content selection', () => {
 
     const summary = w.get('input[aria-label="知识库摘要"]')
     await summary.setValue('作者核对后的整库摘要')
-    await w.findAll('.kb-summary-panel button').find(button => button.text().includes('作者核对'))!.trigger('click')
+    await w.findAll('.kb-summary-panel button').find(button => button.text().includes('核对并沿用'))!.trigger('click')
     await flushPromises()
 
     expect(kb.summary).toBe('作者核对后的整库摘要')
@@ -462,10 +462,39 @@ describe('knowledge full-content selection', () => {
     const summary = w.get('input[aria-label="知识库摘要"]')
     await summary.trigger('focus')
     await summary.setValue('新的整库摘要')
-    await w.findAll('.kb-summary-panel button').find(button => button.text().includes('作者核对'))!.trigger('click')
+    await w.findAll('.kb-summary-panel button').find(button => button.text().includes('核对并沿用'))!.trigger('click')
     await flushPromises()
 
     expect(kb.summary).toBe('新的整库摘要')
     expect(kb.summarySource?.origin).toBe('author')
+  })
+})
+
+describe('knowledge deletion confirmations', () => {
+  it('asks before deleting an entry and only removes it after confirmation', async () => {
+    const store = useKnowledgeStore(), kb = store.createKB('删除确认')
+    store.addEntry(kb.id, { title: '待删条目', category: '其他', content: '原文', summary: '', tags: [] })
+    const w = shallowMount(KnowledgeBase, { global: { stubs, renderStubDefaultSlot: true } })
+    await w.get('.kb-card').trigger('click')
+    await w.findAll('.entry-actions button').find(button => button.text() === '删除')!.trigger('click')
+    expect(dialog.warning).toHaveBeenCalledOnce()
+    expect(dialog.warning.mock.calls[0][0].content).toContain('待删条目')
+    expect(kb.entries).toHaveLength(1)
+    dialog.warning.mock.calls[0][0].onPositiveClick()
+    await flushPromises()
+    expect(kb.entries).toHaveLength(0)
+  })
+
+  it('asks before deleting a knowledge base from the list', async () => {
+    const store = useKnowledgeStore(), kb = store.createKB('整库删除')
+    const remove = vi.spyOn(store, 'deleteKB').mockResolvedValue(undefined as never)
+    const w = shallowMount(KnowledgeBase, { global: { stubs, renderStubDefaultSlot: true } })
+    await w.findAll('.kb-card-actions button').find(button => button.text() === '删除')!.trigger('click')
+    expect(w.find('.kb-detail').exists()).toBe(false)
+    expect(dialog.warning.mock.calls[0][0].content).toContain('整库删除')
+    expect(remove).not.toHaveBeenCalled()
+    dialog.warning.mock.calls[0][0].onPositiveClick()
+    await flushPromises()
+    expect(remove).toHaveBeenCalledWith(kb.id)
   })
 })

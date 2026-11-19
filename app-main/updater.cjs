@@ -1,7 +1,7 @@
 const semver = require('semver')
 
-const RELEASES_URL = 'https://github.com/HannJia/novel-ai-studio/releases'
-const LATEST_API = 'https://api.github.com/repos/HannJia/novel-ai-studio/releases/latest'
+const RELEASES_URL = 'https://github.com/HannJia/mobish/releases'
+const LATEST_API = 'https://api.github.com/repos/HannJia/mobish/releases/latest'
 
 function parseRelease(data, currentVersion, arch = 'x64') {
   const tag = data?.tag_name

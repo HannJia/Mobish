@@ -34,7 +34,7 @@ export function projectChapterReview(novel: Novel, chapter: Chapter, sources: Ch
     parts, baseline, localBlock, alerts }))
   return { contextVersion, localBlock, alerts, buildContext: (text: string): ReviewContext => {
     const context = contexts.get(text)
-    if (!context) throw new Error('审核分段不属于当前正文，不能发送未绑定的审核输入')
+    if (!context) throw new Error('审校分段不属于当前正文，不能发送未绑定的审校输入')
     // Callers may add request details without mutating the captured identity.
     return JSON.parse(JSON.stringify(context)) as ReviewContext
   } }

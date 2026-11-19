@@ -94,7 +94,7 @@ function createEditorRecovery(workspace: Workspace) {
     assertEditorDraft(draft, draft.novelId)
     if (draft.status !== 'active') throw new Error('该草稿已经丢弃。')
     const related = [...sessions].filter(session => session.identity.novelId === draft.novelId && session.identity.id === draft.id)
-    if (related.some(session => hasPending(session) || session.running)) throw new Error('此草稿仍有未落盘输入，请先重试保存或另存草稿。')
+    if (related.some(session => hasPending(session) || session.running)) throw new Error('这份草稿还有未保存的修改，请先保存或另存为草稿。')
     const session: EditorDraftSession = {
       identity: { id: draft.id, novelId: draft.novelId, kind: draft.kind, scope: draft.scope,
         ...(draft.targetId ? { targetId: draft.targetId } : {}), openedBaseline: draft.openedBaseline },

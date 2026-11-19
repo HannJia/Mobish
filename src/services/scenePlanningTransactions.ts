@@ -71,7 +71,7 @@ export function applyScenePlanningEdit(aggregate: StoryAggregate, edit: ScenePla
         || sceneContentSignature(revision.scenes) !== sceneContentSignature(normalized)) {
         throw new Error('场景候选版本或打开基线已变化，输入已保留；请核对并保存新作者版本。')
       }
-      if (edit.confirm && !revision.complete) throw new Error('未完整生成的场景须先由作者补齐并保存，不能直接批准。')
+      if (edit.confirm && !revision.complete) throw new Error('未完整生成的场景需要先补齐并保存，不能直接批准。')
     }
     const pending = next.scenePlans.filter(scene => scene.chapterPlanId === edit.planId && ['draft', 'awaiting_approval'].includes(scene.approval))
       .sort((a, b) => a.order - b.order)

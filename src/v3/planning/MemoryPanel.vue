@@ -3,7 +3,7 @@
     <header class="panel-header">
       <div>
         <h2>故事回顾</h2>
-        <p>回顾只读取已写正文，AI 结果先留在候选编辑区；作者明确确认后，才会保存为可供写作和检索使用的故事记忆。</p>
+        <p>根据已写正文生成故事回顾，确认后保存为故事记忆，供写作和检索使用。</p>
       </div>
       <span class="memory-principle">默认简要回顾 · 800 字符</span>
     </header>
@@ -58,7 +58,7 @@
             <span>旧回顾仍可查看，不能当作当前故事事实使用。可以重新载入当前来源，草稿内容会保留。</span>
           </div>
 
-          <div v-if="candidate" class="candidate-banner" role="status"><strong>AI 候选尚未保存</strong><span>请检查标题和回顾内容，再点击“作者确认并保存”。离开或取消不会把候选写入故事记忆。</span></div>
+          <div v-if="candidate" class="candidate-banner" role="status"><strong>AI 候选尚未保存</strong><span>请检查标题和回顾内容，再点击“确认并保存”。离开或取消不会把候选写入故事记忆。</span></div>
 
           <details v-if="candidate" class="source-preview"><summary>查看完整 AI 候选</summary><p style="white-space: pre-wrap">{{ candidate.summary }}</p><button type="button" :disabled="busy" @click="useCandidate">将候选载入编辑区</button></details>
           <details v-if="requestOutputs.length" class="source-preview"><summary>已保存的节点输出与中断片段（不能直接确认为正式记忆）</summary><article v-for="row in requestOutputs" :key="row.id"><strong>请求 {{ row.number }} · {{ requestStatusLabels[row.status] }}</strong><p>{{ row.partialOutput }}</p></article></details>
@@ -69,19 +69,19 @@
           </div>
           <p class="level-hint">简要回顾默认用于完整写作上下文；标准和详细回顾更适合检索。预算为 0 时会在发送请求前拒绝。</p>
           <p v-if="estimateText" class="estimate" role="status">{{ estimateText }}</p>
-          <p v-if="taskUsage" class="estimate" role="status">{{ taskUsage }}；成功节点会复用，未完成请求不会自动继续。</p>
+          <p v-if="taskUsage" class="estimate" role="status">{{ taskUsage }}；重试时会复用已完成的部分。</p>
 
           <label class="title-field">回顾标题<input v-model="titleDraft" :disabled="busy" aria-label="回顾标题" /></label>
-          <label class="summary-field"><span>{{ candidate ? 'AI 候选回顾' : '回顾内容' }}</span><textarea v-model="summaryDraft" rows="14" :disabled="busy" placeholder="生成后在这里检查，或填写作者核对后的回顾。" aria-label="回顾内容"></textarea><small>{{ summaryDraft.length }} 字符</small></label>
+          <label class="summary-field"><span>{{ candidate ? 'AI 候选回顾' : '回顾内容' }}</span><textarea v-model="summaryDraft" rows="14" :disabled="busy" placeholder="生成后在这里检查，或填写你核对后的回顾。" aria-label="回顾内容"></textarea><small>{{ summaryDraft.length }} 字符</small></label>
 
-          <details v-if="sourcePreview.length" class="source-preview"><summary>来源预览（{{ sourcePreview.length }} 章）</summary><p class="preview-disclaimer">这里只显示每章首段提示，帮助确认范围；它不是完整正文预览，生成仍由服务读取当前范围的完整正文。</p><article v-for="item in sourcePreview" :key="item.chapter.id"><div><strong>第{{ item.chapter.chapterIndex + 1 }}章 · {{ chapterTitleForDisplay(item.chapter.title, item.chapter.chapterIndex) }}</strong><a :href="`#/write/${novel.id}/${item.chapter.id}`">打开原章</a></div><p>{{ item.excerpt }}</p></article></details>
+          <details v-if="sourcePreview.length" class="source-preview"><summary>来源预览（{{ sourcePreview.length }} 章）</summary><p class="preview-disclaimer">这里只显示每章开头，生成时会读取全文。</p><article v-for="item in sourcePreview" :key="item.chapter.id"><div><strong>第{{ item.chapter.chapterIndex + 1 }}章 · {{ chapterTitleForDisplay(item.chapter.title, item.chapter.chapterIndex) }}</strong><a :href="`#/write/${novel.id}/${item.chapter.id}`">打开原章</a></div><p>{{ item.excerpt }}</p></article></details>
 
-          <div v-if="progress" class="progress-panel" role="status" aria-live="polite"><div class="progress-header"><strong>{{ progressLabel }}</strong><span>{{ progressPercent }}%</span></div><progress :value="progressPercent" max="100"></progress><small>请求 {{ progress.completedRequests }}/{{ progress.plannedRequests }} · 输入 {{ progress.inputTokens }} · 输出 {{ progress.outputTokens }} tokens</small></div>
+          <div v-if="progress" class="progress-panel" role="status" aria-live="polite"><div class="progress-header"><strong>{{ progressLabel }}</strong><span>{{ progressPercent }}%</span></div><progress :value="progressPercent" max="100"></progress><small>请求 {{ progress.completedRequests }}/{{ progress.plannedRequests }} · 输入 {{ progress.inputTokens }} · 输出 {{ progress.outputTokens }} Token</small></div>
 
           <div class="editor-actions">
             <button type="button" :disabled="busy || !selectedScope || (taskRun?.status === 'needs_author' && taskRun?.memoryTask?.sourceVersionId === openedBinding?.sourceVersionId)" @click="generate">{{ busy && !saving ? '正在生成…' : taskCanContinue ? '继续生成未完成节点' : '生成 AI 候选' }}</button>
             <button type="button" :disabled="busy || !openedBinding" @click="saveDraft">暂存草稿</button>
-            <button type="button" class="primary" :disabled="busy || !summaryDraft.trim() || !openedBinding" @click="confirmAuthor">作者确认并保存</button>
+            <button type="button" class="primary" :disabled="busy || !summaryDraft.trim() || !openedBinding" @click="confirmAuthor">确认并保存</button>
             <button v-if="openedBinding && (!bindingCurrent || selectedStatus !== 'current')" type="button" :disabled="busy" @click="reloadCurrentSource">重新载入当前来源</button>
             <button v-if="busy && !saving" type="button" class="cancel" @click="cancel">取消生成</button>
           </div>
@@ -100,6 +100,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { registerDraftSaver, type DraftFlushToken } from '@/services/appLifecycle'
 import { useConfigStore } from '@/stores/config'
@@ -195,7 +196,7 @@ const persistedTaskError = computed(() => {
 const requestOutputs = computed(() => taskRun.value?.memoryTask?.requests.flatMap((row, index) => row.partialOutput ? [{ ...row, number: index + 1 }] : []) || [])
 const requestStatusLabels: Record<StoryMemoryRequestLedgerEntry['status'], string> = { pending: '请求中', completed: '已完成', failed: '失败', unknown: '结果未确认', interrupted: '已中断', not_sent: '未发送' }
 const taskCanContinue = computed(() => taskRun.value?.memoryTask && !['draft', 'committed'].includes(taskRun.value.memoryTask.stage) && isResumableStoryMemoryRun(taskRun.value) && taskRun.value?.status !== 'needs_author')
-const taskUsage = computed(() => taskRun.value?.memoryTask && taskRun.value.memoryTask.stage !== 'draft' ? '本轮继续用量：输入 ' + taskRun.value.memoryTask.currentInputTokens.toLocaleString() + ' / 输出 ' + taskRun.value.memoryTask.currentOutputTokens.toLocaleString() + ' tokens；任务累计输入 ' + taskRun.value.memoryTask.historicalInputTokens.toLocaleString() + ' / 输出 ' + taskRun.value.memoryTask.historicalOutputTokens.toLocaleString() + (taskRun.value.memoryTask.usageEstimated ? '（含估算）' : '') : '')
+const taskUsage = computed(() => taskRun.value?.memoryTask && taskRun.value.memoryTask.stage !== 'draft' ? '本轮继续用量：输入 ' + taskRun.value.memoryTask.currentInputTokens.toLocaleString() + ' / 输出 ' + taskRun.value.memoryTask.currentOutputTokens.toLocaleString() + ' Token；任务累计输入 ' + taskRun.value.memoryTask.historicalInputTokens.toLocaleString() + ' / 输出 ' + taskRun.value.memoryTask.historicalOutputTokens.toLocaleString() + (taskRun.value.memoryTask.usageEstimated ? '（含估算）' : '') : '')
 const bindingCurrent = computed(() => openedBinding.value ? sourceStillCurrent(openedBinding.value) : false)
 const builderSceneChapter = computed(() => props.novel.chapters.find(chapter => chapter.id === builderSceneChapterId.value))
 const sceneMatchOffsets = computed(() => {
@@ -335,7 +336,7 @@ function openBuilderScope() {
     scope = { kind: 'book', throughChapterId: builderThroughChapterId.value }
   }
   try { resolveStoryMemorySource(props.novel, scope) }
-  catch (cause) { builderError.value = cause instanceof Error ? cause.message : String(cause); return }
+  catch (cause) { builderError.value = errorText(cause, String(cause)); return }
   const option = optionFor(scope, scope.kind === 'scene' ? `场景片段 · 第${builderSceneChapter.value!.chapterIndex + 1}章` : scope.kind === 'volume' ? `分卷回顾 · 截至${builderThroughChapterChaptersLabel(scope.throughChapterId)}` : `全书回顾 · 截至${builderThroughChapterChaptersLabel(scope.throughChapterId)}`, '新建范围', true, kindLabel(scope))
   openScope(option)
 }
@@ -348,14 +349,14 @@ function reloadCurrentSource() {
     candidate.value = null
     notice.value = '已重新载入当前来源，标题和回顾草稿已保留。'
     error.value = ''
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
+  } catch (cause) { error.value = errorText(cause, String(cause)) }
 }
 function sourceStillCurrent(binding: FormBinding) {
   if (binding.novelId !== props.novel.id || !binding.sourceVersionId) return false
   try { return resolveStoryMemorySource(props.novel, binding.scope).versionId === binding.sourceVersionId && currentRecordSnapshot() === binding.recordSnapshot } catch { return false }
 }
 function assertBudget() {
-  if (!Number.isSafeInteger(maxRequests.value) || maxRequests.value < 1 || !Number.isSafeInteger(maxTokens.value) || maxTokens.value < 1) throw new Error('预算必须至少允许 1 次请求和 1 token；尚未发送请求。')
+  if (!Number.isSafeInteger(maxRequests.value) || maxRequests.value < 1 || !Number.isSafeInteger(maxTokens.value) || maxTokens.value < 1) throw new Error('预算必须至少允许 1 次请求和 1 Token；尚未发送请求。')
 }
 function preparePlan(model: Parameters<typeof buildStoryMemorySummaryGraph>[1]): { plan: KnowledgeSummaryPlan; instructions: string; estimate: number; graph: ReturnType<typeof buildStoryMemorySummaryGraph> } {
   if (!openedBinding.value) throw new Error('请先打开一个回顾范围。')
@@ -364,7 +365,7 @@ function preparePlan(model: Parameters<typeof buildStoryMemorySummaryGraph>[1]):
   const instructions = config.getSkillPrompt('analysis')
   const graph = buildStoryMemorySummaryGraph(plan, model, instructions)
   const estimate = graph.estimatedTokens
-  estimateText.value = '当前计划 ' + graph.nodes.filter(node => node.kind === 'leaf').length + ' 个叶子、' + graph.nodes.length + ' 个依赖节点、' + graph.plannedRequests + ' 次请求；保守估算 ' + estimate.toLocaleString() + ' token。预算：' + maxRequests.value.toLocaleString() + ' 次 / ' + maxTokens.value.toLocaleString() + ' token。'
+  estimateText.value = '当前计划 ' + graph.nodes.filter(node => node.kind === 'leaf').length + ' 个叶子、' + graph.nodes.length + ' 个依赖节点、' + graph.plannedRequests + ' 次请求，预计 ' + estimate.toLocaleString() + ' Token。预算：' + maxRequests.value.toLocaleString() + ' 次 / ' + maxTokens.value.toLocaleString() + ' Token。'
   // Each missing node is admitted against the cumulative ledger; reused nodes cost zero.
   return { plan, instructions, estimate, graph }
 }
@@ -384,7 +385,7 @@ async function saveDraft() {
   try {
     await draftWrite.catch(() => undefined)
     await queueAuthorDraft({ novelId, draft })
-    draftWrite = Promise.resolve(); error.value = ''; notice.value = '作者草稿已保存；点击生成才会检查模型并发起请求。'
+    draftWrite = Promise.resolve(); error.value = ''; notice.value = '草稿已保存；点击生成才会检查模型并发起请求。'
   } catch (cause) { error.value = String(cause) }
   finally { busy.value = false }
 }
@@ -392,9 +393,9 @@ async function generate() {
   if (busy.value || !openedBinding.value) return
   const model = config.getModelForTask('review')
   if (!model) { error.value = '请先配置章节审查模型，用于生成故事回顾。'; return }
-  try { assertBudget() } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); return }
+  try { assertBudget() } catch (cause) { error.value = errorText(cause, String(cause)); return }
   let prepared: ReturnType<typeof preparePlan>
-  try { prepared = preparePlan(model) } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); return }
+  try { prepared = preparePlan(model) } catch (cause) { error.value = errorText(cause, String(cause)); return }
   const binding = clone(openedBinding.value), jobKey = selectedScopeKey.value, jobNovelId = props.novel.id
   busy.value = true
   try { await draftWrite } catch (cause) { busy.value = false; error.value = String(cause); return }
@@ -412,9 +413,9 @@ async function generate() {
     candidate.value = { summary: saved.summary, coverage: clone(saved.coverage), sourceVersionId: saved.sourceVersionId, scopeKey: jobKey, title: saved.title, taskRunId: result.id, taskUpdatedAt: result.memoryTask?.updatedAt }
     summaryDraft.value = result.memoryTask?.bodyDraft || saved.summary
     titleDraft.value = result.memoryTask?.titleDraft || saved.title
-    notice.value = 'AI 候选已生成，尚未保存；请检查后由作者确认。'
+    notice.value = 'AI 候选已生成，尚未保存；请检查后确认。'
   } catch (cause) {
-    if (!disposed && controller?.signal === signal && props.novel.id === jobNovelId) error.value = cause instanceof Error ? cause.message : String(cause)
+    if (!disposed && controller?.signal === signal && props.novel.id === jobNovelId) error.value = errorText(cause, String(cause))
   } finally {
     if (controller?.signal === signal) { controller = undefined; busy.value = false; progress.value = null }
   }
@@ -435,15 +436,15 @@ async function confirmAuthor() {
     openedBinding.value = { novelId: jobNovelId, scope: clone(saved.scope), sourceVersionId: saved.source.sourceVersionId, recordSnapshot: JSON.stringify(clone(saved)) }
     selectedScopeKey.value = scopeKey(saved.scope); candidate.value = null; titleDraft.value = saved.title; summaryDraft.value = saved.summary
     notice.value = getStoryMemoryStatus(props.novel, saved) === 'current'
-      ? unchangedCandidate ? 'AI 候选已由作者确认并保存，原文覆盖记录已保留。' : '作者核对后的故事回顾已保存。'
+      ? unchangedCandidate ? 'AI 候选已确认并保存，原文覆盖记录已保留。' : '你核对后的故事回顾已保存。'
       : '回顾已保存，但保存期间来源发生变化；请重新核对。'
-  } catch (cause) { if (isCurrent()) error.value = cause instanceof Error ? cause.message : String(cause) }
+  } catch (cause) { if (isCurrent()) error.value = errorText(cause, String(cause)) }
   finally { if (epoch === saveEpoch) { saving.value = false; busy.value = false } }
 }
 function cancel() {
   if (!controller) return
   controller.abort(new DOMException('作者取消故事回顾生成', 'AbortError'))
-  notice.value = '正在取消并保存请求账本，已完成节点和草稿会保留。'
+  notice.value = '正在取消，已完成的部分和草稿会保留。'
 }
 
 function resetForNovel() {
@@ -457,7 +458,7 @@ watch([() => props.novel.id, () => props.ready], async () => {
   syncBuilderDefaults()
   try { await workspace.hydrateFromPersistence(novelId) }
   catch (cause) {
-    if (!disposed && props.novel.id === novelId) error.value = '故事记忆读取失败：' + (cause instanceof Error ? cause.message : String(cause))
+    if (!disposed && props.novel.id === novelId) error.value = '故事记忆读取失败：' + (errorText(cause, String(cause)))
     return
   }
   if (disposed || props.novel.id !== novelId) return

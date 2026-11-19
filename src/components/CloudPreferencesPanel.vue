@@ -7,9 +7,9 @@
     <p class="prefs-note">开启后，模型配置、API 密钥和常用设置会随当前云账号自动同步，无需另外设置密码。</p>
     <div class="prefs-controls">
       <label class="prefs-toggle">启用云端配置
-        <n-switch :value="prefs.enabled" :disabled="prefs.busy || cloudSync.busy || working" aria-label="启用云端配置" @update:value="value => perform(() => prefs.setEnabled(value))" />
+        <V3Switch :value="prefs.enabled" :disabled="prefs.busy || cloudSync.busy || working" aria-label="启用云端配置" @update:value="value => perform(() => prefs.setEnabled(value))" />
       </label>
-      <n-button v-if="prefs.enabled" size="small" :disabled="prefs.busy || cloudSync.busy || working" @click="perform(() => prefs.syncNow())">立即同步配置</n-button>
+      <button type="button" class="m-btn sm" v-if="prefs.enabled" :disabled="prefs.busy || cloudSync.busy || working" @click="perform(() => prefs.syncNow())">立即同步配置</button>
     </div>
     <p v-if="prefs.supported === false" class="prefs-note">当前云服务暂不支持自动同步配置，本机配置不受影响。</p>
     <p v-if="prefs.error" class="prefs-feedback" role="alert">{{ prefs.error }}</p>
@@ -18,17 +18,18 @@
       <p class="prefs-note">本机与云端配置不同，请选择使用哪一份。替换前会自动保存备份。</p>
       <p class="prefs-note">本机 {{ config.models.length }} 个模型 · 云端 {{ remoteModelCount }} 个模型</p>
       <div class="prefs-controls">
-        <n-button :disabled="working || prefs.busy || cloudSync.busy" @click="perform(() => prefs.restore(true))">使用云端配置</n-button>
-        <n-button :disabled="working || prefs.busy || cloudSync.busy" @click="perform(() => prefs.upload())">使用本机配置</n-button>
+        <button type="button" class="m-btn" :disabled="working || prefs.busy || cloudSync.busy" @click="perform(() => prefs.restore(true))">使用云端配置</button>
+        <button type="button" class="m-btn" :disabled="working || prefs.busy || cloudSync.busy" @click="perform(() => prefs.upload())">使用本机配置</button>
       </div>
     </div>
-    <n-button v-if="prefs.archiveCount" size="small" class="prefs-export" @click="prefs.exportArchives()">导出加密恢复副本（{{ prefs.archiveCount }}）</n-button>
+    <button type="button" class="m-btn sm prefs-export" v-if="prefs.archiveCount" @click="prefs.exportArchives()">导出加密恢复副本（{{ prefs.archiveCount }}）</button>
   </section>
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { computed, onMounted, ref, watch } from 'vue'
-import { NButton, NSwitch } from 'naive-ui'
+import V3Switch from '@/v3/components/form/V3Switch.vue'
 import { useCloudPreferencesStore } from '@/stores/cloudPreferences'
 import { useCloudSyncStore } from '@/stores/cloudSync'
 import { useConfigStore } from '@/stores/config'
@@ -46,7 +47,7 @@ async function perform(action: () => Promise<unknown>) {
   working.value = true
   feedback.value = ''
   try { await action() }
-  catch (cause) { feedback.value = cause instanceof Error ? cause.message : '操作未完成，请稍后重试。' }
+  catch (cause) { feedback.value = errorText(cause, '操作未完成，请稍后重试。') }
   finally { working.value = false }
 }
 onMounted(() => { void perform(() => prefs.initialize()) })

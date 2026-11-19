@@ -5,14 +5,14 @@
       <!-- 向导头部 -->
       <div class="wizard-header">
         <button class="back-btn" @click="handleBack" id="wizard-back-btn">
-          <n-icon :size="20"><arrow-back-outline /></n-icon>
+          <V3Icon name="chevR" class="back-icon" />
           <span>{{ choosingCreationOptions && previousCreationState ? '取消更换，返回编辑' : '返回书架' }}</span>
         </button>
         <span v-if="!choosingCreationOptions && setupMethod" class="creation-combination" role="status">{{ form.writingMode === 'ai' ? 'AI 模式' : '作者主笔' }} · {{ creationSetupLabels[setupMethod] }}</span>
-        <n-button v-if="!choosingCreationOptions" quaternary :disabled="creating" @click="openCreationOptions">更换搭配</n-button>
-        <n-button v-if="!choosingCreationOptions && setupMethod === 'inspiration' && reviewingInspiration"
-          quaternary :disabled="creating" @click="reviewingInspiration = false">返回灵感对话</n-button>
-        <n-button v-if="showInspiration" quaternary :disabled="creating" @click="discussingInspiration = false">保留讨论，返回创建输入</n-button>
+        <button v-if="!choosingCreationOptions" type="button" class="m-btn ghost" :disabled="creating" @click="openCreationOptions">更换搭配</button>
+        <button v-if="!choosingCreationOptions && setupMethod === 'inspiration' && reviewingInspiration" type="button"
+          class="m-btn ghost" :disabled="creating" @click="reviewingInspiration = false">返回灵感对话</button>
+        <button v-if="showInspiration" type="button" class="m-btn ghost" :disabled="creating" @click="discussingInspiration = false">保留讨论，返回创建输入</button>
       </div>
 
       <!-- 步骤指示器 -->
@@ -27,7 +27,7 @@
           }"
         >
           <div class="step-dot">
-            <n-icon v-if="currentStep > index" :size="15" aria-hidden="true"><checkmark-outline /></n-icon>
+            <V3Icon v-if="currentStep > index" name="check" size="s" />
             <span v-else>{{ index + 1 }}</span>
           </div>
           <span class="step-label">{{ step }}</span>
@@ -43,12 +43,12 @@
     <div v-if="showEntry && !discussingInspiration" class="creation-entry-body">
       <section class="paper-panel creation-entry-panel">
         <h2>{{ setupMethod ? creationSetupLabels[setupMethod] : '' }}</h2>
-        <p>保存创建输入后，依次编辑作品契约、比较骨架候选并确认规划。此处不会生成正文或批准故事事实。</p>
-        <label>作品名称（可稍后填写）<n-input v-model:value="form.workingTitle" :disabled="creating || !!createdNovelId" placeholder="可在作品契约中继续修改" aria-label="新作品名称" /></label>
+        <p>保存创建输入后，依次编辑作品契约、比较骨架候选并确认规划。</p>
+        <label>作品名称（可稍后填写）<V3Input v-model:value="form.workingTitle" :disabled="creating || !!createdNovelId" placeholder="可在作品契约中继续修改" aria-label="新作品名称" /></label>
         <template v-if="setupMethod === 'inspiration'">
-          <label>一句话灵感<n-input v-model:value="ideaSentence" type="textarea" :rows="4" :maxlength="4000" :disabled="creating || !!createdNovelId" aria-label="一句话灵感" placeholder="一个人物、一个冲突或一个场景，就可以作为起点" /></label>
-          <n-checkbox v-model:checked="includeInspirationHistory" :disabled="creating || !!createdNovelId || !inspirationHistory.length">一并保存当前灵感讨论（{{ inspirationHistory.length }} 条）</n-checkbox>
-          <n-button :disabled="creating || !!createdNovelId" @click="openInspirationDiscussion">{{ ideaSentence.trim() ? '发送灵感并开始讨论' : '继续已有讨论 / 展开灵感对话' }}</n-button>
+          <label>一句话灵感<V3Input v-model:value="ideaSentence" type="textarea" :rows="4" :maxlength="4000" :disabled="creating || !!createdNovelId" aria-label="一句话灵感" placeholder="一个人物、一个冲突或一个场景，就可以作为起点" /></label>
+          <label class="m-check"><input v-model="includeInspirationHistory" type="checkbox" :disabled="creating || !!createdNovelId || !inspirationHistory.length">一并保存当前灵感讨论（{{ inspirationHistory.length }} 条）</label>
+          <button type="button" class="m-btn entry-chat-btn" :disabled="creating || !!createdNovelId" @click="openInspirationDiscussion"><V3Icon name="chat" size="s" />{{ ideaSentence.trim() ? '发送灵感并开始讨论' : '继续已有讨论 / 展开灵感对话' }}</button>
           <p>填写灵感后，点击上方按钮会直接发送并开始讨论；留空可继续已有对话。创建时可一并保存讨论记录。</p>
         </template>
         <CreationOutlineInput v-if="setupMethod === 'outline'" v-model="outlineInput" :saved="outlineSaved"
@@ -56,13 +56,13 @@
         <p v-if="setupMethod === 'blank'">创建空白作品契约：类型、主题、冲突和大纲保持未填写。无需配置模型，可先手工保存草稿。</p>
         <section class="entry-origin">
           <h3>故事时间起点（可暂不确定）</h3>
-          <label>起始故事日<n-input-number v-model:value="storyOriginDay" :min="0" :max="100000000" :step="0.01"
-            :disabled="creating || !!createdNovelId" aria-label="创建起始故事日" placeholder="留空表示未知；0 也须明确填写" /></label>
-          <label>起点名称（随起始日保存）<n-input v-model:value="storyOriginLabel" :disabled="creating || !!createdNovelId" /></label>
-          <p role="status">{{ storyOriginDay === null ? '未填写起始日：创建后保持未知，不自动确认故事日 0。' : `创建时确认作者填写的故事日 ${storyOriginDay}` }}</p>
+          <label>起始故事日<V3Number v-model:value="storyOriginDay" :min="0" :max="100000000" :step="0.01" clearable
+            :disabled="creating || !!createdNovelId" aria-label="创建起始故事日" placeholder="不确定可以留空" /></label>
+          <label>起点名称（随起始日保存）<V3Input v-model:value="storyOriginLabel" :disabled="creating || !!createdNovelId" /></label>
+          <p role="status">{{ storyOriginDay === null ? '未填写起始日：创建后保持未知，不自动确认故事日 0。' : `创建时确认你填写的故事日 ${storyOriginDay}` }}</p>
           <p v-if="storyOriginDay === null && storyOriginLabel.trim()" role="alert">请填写对应的起始日，或清除起点名称以保持未知。</p>
         </section>
-        <n-button type="primary" size="large" :loading="creating" :disabled="creating || (!createdNovelId && (!canProceed || outlineReading))" @click="handleCreate" id="entry-create-btn">{{ createdNovelId ? '打开已创建的作品' : '保存输入并创建，进入作品契约' }}</n-button>
+        <button id="entry-create-btn" type="button" class="m-btn pri lg" :aria-busy="creating" :disabled="creating || (!createdNovelId && (!canProceed || outlineReading))" @click="handleCreate">{{ createdNovelId ? '打开已创建的作品' : creating ? '正在创建…' : '保存输入并创建，进入作品契约' }}</button>
         <p v-if="createdNovelId" role="status">作品和输入已保存；再次点击只会打开这部作品。</p>
       </section>
     </div>
@@ -72,12 +72,14 @@
 
 
 
-      <n-modal v-model:show="showImportModal" preset="card" title="导入参考小说设定" style="width: min(820px, calc(100vw - 32px));">
+      <V3Modal v-model:show="showImportModal" title="导入参考小说设定" size="wide"
+        :description="previewData ? '确认识别结果后再填充到表单，已填写的内容会被覆盖。' : '粘贴其他 AI 按“复制分析提示词”返回的 JSON。'">
         <template v-if="!previewData">
-          <n-input
+          <V3Input
             v-model:value="importJsonText"
             type="textarea"
             :rows="14"
+            aria-label="参考小说设定 JSON"
             placeholder="请粘贴其他 AI 返回的 JSON，可以包含 ```json 代码块。"
           />
         </template>
@@ -117,23 +119,21 @@
           </div>
         </div>
         <template #footer>
-          <div class="import-modal-actions">
-            <template v-if="!previewData">
-              <n-button @click="showImportModal = false">取消</n-button>
-              <n-button type="primary" @click="parseImportedSettings">解析并预览</n-button>
-            </template>
-            <template v-else>
-              <n-button @click="previewData = null">重新粘贴</n-button>
-              <n-button type="primary" @click="confirmImportSettings">确认导入并填充</n-button>
-            </template>
-          </div>
+          <template v-if="!previewData">
+            <button type="button" class="m-btn" @click="showImportModal = false">取消</button>
+            <button type="button" class="m-btn pri" :disabled="!importJsonText.trim()" @click="parseImportedSettings">解析并预览</button>
+          </template>
+          <template v-else>
+            <button type="button" class="m-btn" @click="previewData = null">重新粘贴</button>
+            <button type="button" class="m-btn pri" @click="confirmImportSettings">确认导入并填充</button>
+          </template>
         </template>
-      </n-modal>
+      </V3Modal>
 
     <!-- 第一页：类型 + 字数 + 风格 -->
     <div v-if="currentStep === 0" class="wizard-page" id="wizard-page-1">
       <div class="form-sections">
-        <section class="form-section paper-panel"><h3 class="section-title">作品名称（可稍后填写）</h3><n-input v-model:value="form.workingTitle" :disabled="creating || !!createdNovelId" placeholder="在作品契约中继续确认" /></section>
+        <section class="form-section paper-panel"><h3 class="section-title">作品名称（可稍后填写）</h3><V3Input v-model:value="form.workingTitle" :disabled="creating || !!createdNovelId" placeholder="在作品契约中继续确认" /></section>
         <!-- 小说类型 -->
         <section class="form-section paper-panel">
           <h3 class="section-title">小说类型</h3>
@@ -169,15 +169,15 @@
           <div v-if="form.subGenre" class="tags-section">
             <h4 class="subsection-title">题材标签（可多选）</h4>
             <div class="tags-grid">
-              <span
+              <button
                 v-for="tag in themeTags"
                 :key="tag"
-                class="tag-chip clickable"
-                :class="{ active: form.tags.includes(tag) }"
+                type="button"
+                class="m-chip"
+                :class="{ on: form.tags.includes(tag) }"
+                :aria-pressed="form.tags.includes(tag)"
                 @click="toggleTag(tag)"
-              >
-                {{ tag }}
-              </span>
+              >{{ tag }}</button>
             </div>
           </div>
         </section>
@@ -186,7 +186,7 @@
         <section class="form-section paper-panel">
           <h3 class="section-title">目标字数（万字）</h3>
           <div class="word-count-row">
-            <n-input-number
+            <V3Number
               v-model:value="form.targetWordCountMin"
               :min="1"
               :max="form.targetWordCountMax || 500"
@@ -194,7 +194,7 @@
               class="word-input"
             />
             <span class="word-sep">~</span>
-            <n-input-number
+            <V3Number
               v-model:value="form.targetWordCountMax"
               :min="form.targetWordCountMin || 1"
               :max="999"
@@ -239,14 +239,12 @@
         <section class="form-section paper-panel">
           <h3 class="section-title">主角设定</h3>
           <p class="section-hint">所有项均为可选，填写越详细 AI 生成质量越高</p>
-          <div class="form-grid">
-            <div class="form-item">
-              <label>姓名</label>
-              <n-input v-model:value="form.settings.protagonist.name" placeholder="主角姓名" />
-            </div>
-            <div class="form-item">
-              <label>性别</label>
-              <n-select
+          <div class="m-form-grid">
+            <V3Field label="姓名">
+              <V3Input v-model:value="form.settings.protagonist.name" placeholder="主角姓名" />
+            </V3Field>
+            <V3Field label="性别">
+              <V3Select
                 v-model:value="form.settings.protagonist.gender"
                 :options="[
                   { label: '男', value: '男' },
@@ -255,53 +253,49 @@
                 ]"
                 placeholder="选择性别"
               />
-            </div>
-            <div class="form-item">
-              <label>年龄</label>
-              <n-input v-model:value="form.settings.protagonist.age" placeholder="如 16 岁" />
-            </div>
-            <div class="form-item full-width">
-              <label>身份背景</label>
-              <n-input
+            </V3Field>
+            <V3Field label="年龄">
+              <V3Input v-model:value="form.settings.protagonist.age" placeholder="如 16 岁" />
+            </V3Field>
+            <V3Field label="身份背景" span>
+              <V3Input
                 v-model:value="form.settings.protagonist.background"
                 type="textarea"
                 placeholder="出身、身世、初始处境等"
                 :rows="2"
               />
-            </div>
-            <div class="form-item full-width">
-              <label>性格特点</label>
+            </V3Field>
+            <div class="m-field span-2" role="group" aria-label="性格特点">
+              <span class="m-field-l">性格特点</span>
               <div class="tags-grid compact">
-                <span
+                <button
                   v-for="tag in personalityTags"
                   :key="tag"
-                  class="tag-chip clickable"
-                  :class="{ active: form.settings.protagonist.personality.includes(tag) }"
+                  type="button"
+                  class="m-chip"
+                  :class="{ on: form.settings.protagonist.personality.includes(tag) }"
+                  :aria-pressed="form.settings.protagonist.personality.includes(tag)"
                   @click="togglePersonality(tag)"
-                >
-                  {{ tag }}
-                </span>
+                >{{ tag }}</button>
               </div>
             </div>
-            <div class="form-item full-width">
-              <label>金手指 / 外挂</label>
-              <n-input
+            <V3Field label="金手指 / 外挂" span>
+              <V3Input
                 v-model:value="form.settings.protagonist.cheatDescription"
                 type="textarea"
                 placeholder="系统、传承、血脉等特殊能力"
                 :rows="2"
               />
-            </div>
+            </V3Field>
           </div>
         </section>
 
         <!-- 世界观设定 -->
         <section class="form-section paper-panel">
           <h3 class="section-title">世界观设定</h3>
-          <div class="form-grid">
-            <div class="form-item">
-              <label>世界类型</label>
-              <n-select
+          <div class="m-form-grid">
+            <V3Field label="世界类型">
+              <V3Select
                 v-model:value="form.settings.worldBuilding.worldType"
                 :options="[
                   { label: '古代', value: '古代' },
@@ -313,10 +307,9 @@
                 ]"
                 placeholder="选择世界类型"
               />
-            </div>
-            <div class="form-item">
-              <label>世界规模</label>
-              <n-select
+            </V3Field>
+            <V3Field label="世界规模">
+              <V3Select
                 v-model:value="form.settings.worldBuilding.worldScale"
                 :options="[
                   { label: '单大陆', value: '单大陆' },
@@ -326,40 +319,36 @@
                 ]"
                 placeholder="选择世界规模"
               />
-            </div>
-            <div class="form-item">
-              <label>社会结构</label>
-              <n-input v-model:value="form.settings.worldBuilding.socialStructure" placeholder="宗门/王朝/帝国/家族/联邦" />
-            </div>
-            <div class="form-item full-width">
-              <label>特殊规则</label>
-              <n-input
+            </V3Field>
+            <V3Field label="社会结构">
+              <V3Input v-model:value="form.settings.worldBuilding.socialStructure" placeholder="宗门/王朝/帝国/家族/联邦" />
+            </V3Field>
+            <V3Field label="特殊规则" span>
+              <V3Input
                 v-model:value="form.settings.worldBuilding.specialRules"
                 type="textarea"
                 placeholder="这个世界有什么特别的规则？"
                 :rows="2"
               />
-            </div>
+            </V3Field>
           </div>
         </section>
 
         <!-- 力量体系 -->
         <section class="form-section paper-panel">
           <h3 class="section-title">力量体系</h3>
-          <div class="form-grid">
-            <div class="form-item">
-              <label>体系名称</label>
-              <n-input v-model:value="form.settings.powerSystem.systemName" placeholder="修仙/斗气/超能力/魔法…" />
-            </div>
-            <div class="form-item full-width">
-              <label>等级划分</label>
-              <n-input
+          <div class="m-form-grid">
+            <V3Field label="体系名称">
+              <V3Input v-model:value="form.settings.powerSystem.systemName" placeholder="修仙/斗气/超能力/魔法…" />
+            </V3Field>
+            <V3Field label="等级划分" span>
+              <V3Input
                 v-model:value="form.settings.powerSystem.levelHierarchy"
                 type="textarea"
                 placeholder="如：练气→筑基→金丹→元婴→化神→合体→大乘→渡劫"
                 :rows="2"
               />
-            </div>
+            </V3Field>
           </div>
         </section>
 
@@ -369,34 +358,30 @@
         <!-- 核心冲突 -->
         <section class="form-section paper-panel">
           <h3 class="section-title">核心冲突</h3>
-          <div class="form-grid">
-            <div class="form-item">
-              <label>主线矛盾</label>
-              <n-input v-model:value="form.settings.coreConflict.mainConflict" placeholder="复仇/崛起/拯救/探索…" />
-            </div>
-            <div class="form-item">
-              <label>主要反派</label>
-              <n-input v-model:value="form.settings.coreConflict.mainVillain" placeholder="反派设定描述" />
-            </div>
-            <div class="form-item full-width">
-              <label>核心悬念</label>
-              <n-input
+          <div class="m-form-grid">
+            <V3Field label="主线矛盾">
+              <V3Input v-model:value="form.settings.coreConflict.mainConflict" placeholder="复仇/崛起/拯救/探索…" />
+            </V3Field>
+            <V3Field label="主要反派">
+              <V3Input v-model:value="form.settings.coreConflict.mainVillain" placeholder="反派设定描述" />
+            </V3Field>
+            <V3Field label="核心悬念" span>
+              <V3Input
                 v-model:value="form.settings.coreConflict.coreSuspense"
                 type="textarea"
                 placeholder="贯穿全书的核心悬念是什么？"
                 :rows="2"
               />
-            </div>
+            </V3Field>
           </div>
         </section>
 
         <!-- 感情线 -->
         <section class="form-section paper-panel">
           <h3 class="section-title">感情线</h3>
-          <div class="form-grid">
-            <div class="form-item">
-              <label>感情类型</label>
-              <n-select
+          <div class="m-form-grid">
+            <V3Field label="感情类型">
+              <V3Select
                 v-model:value="form.settings.romance.romanceType"
                 :options="[
                   { label: '无感情线', value: '无感情线' },
@@ -406,10 +391,9 @@
                 ]"
                 placeholder="选择感情类型"
               />
-            </div>
-            <div class="form-item">
-              <label>发展节奏</label>
-              <n-select
+            </V3Field>
+            <V3Field label="发展节奏">
+              <V3Select
                 v-model:value="form.settings.romance.developmentPace"
                 :options="[
                   { label: '早期展开', value: '早期展开' },
@@ -418,24 +402,22 @@
                 ]"
                 placeholder="选择节奏"
               />
-            </div>
-            <div class="form-item full-width">
-              <label>感情基调变化</label>
-              <n-input
+            </V3Field>
+            <V3Field label="感情基调变化" span>
+              <V3Input
                 v-model:value="form.settings.romance.toneChanges"
                 placeholder="如：前期热烈→中期回避→后期释然"
               />
-            </div>
+            </V3Field>
           </div>
         </section>
 
         <!-- 爽点设计 -->
         <section class="form-section paper-panel">
           <h3 class="section-title">爽点设计</h3>
-          <div class="form-grid">
-            <div class="form-item">
-              <label>打脸频率</label>
-              <n-select
+          <div class="m-form-grid">
+            <V3Field label="打脸频率">
+              <V3Select
                 v-model:value="form.settings.payoff.faceSlapFrequency"
                 :options="[
                   { label: '高频（几乎每章）', value: '高' },
@@ -444,10 +426,9 @@
                 ]"
                 placeholder="选择频率"
               />
-            </div>
-            <div class="form-item">
-              <label>升级节奏</label>
-              <n-select
+            </V3Field>
+            <V3Field label="升级节奏">
+              <V3Select
                 v-model:value="form.settings.payoff.levelUpPace"
                 :options="[
                   { label: '快速升级', value: '快' },
@@ -456,19 +437,19 @@
                 ]"
                 placeholder="选择节奏"
               />
-            </div>
-            <div class="form-item full-width">
-              <label>爽点模式（可多选）</label>
+            </V3Field>
+            <div class="m-field span-2" role="group" aria-label="爽点模式（可多选）">
+              <span class="m-field-l">爽点模式（可多选）</span>
               <div class="tags-grid compact">
-                <span
+                <button
                   v-for="pattern in payoffPatterns"
                   :key="pattern"
-                  class="tag-chip clickable"
-                  :class="{ active: form.settings.payoff.patterns.includes(pattern) }"
+                  type="button"
+                  class="m-chip"
+                  :class="{ on: form.settings.payoff.patterns.includes(pattern) }"
+                  :aria-pressed="form.settings.payoff.patterns.includes(pattern)"
                   @click="togglePayoffPattern(pattern)"
-                >
-                  {{ pattern }}
-                </span>
+                >{{ pattern }}</button>
               </div>
             </div>
           </div>
@@ -477,10 +458,9 @@
         <!-- 结构设计 -->
         <section class="form-section paper-panel">
           <h3 class="section-title">结构设计</h3>
-          <div class="form-grid">
-            <div class="form-item">
-              <label>伏笔密度</label>
-              <n-select
+          <div class="m-form-grid">
+            <V3Field label="伏笔密度">
+              <V3Select
                 v-model:value="form.settings.structure.foreshadowingDensity"
                 :options="[
                   { label: '低（直白爽文，一两处提示即可）', value: '低' },
@@ -490,14 +470,14 @@
                 ]"
                 placeholder="选择伏笔密度"
               />
-            </div>
+            </V3Field>
           </div>
         </section>
 
         <!-- 其他设定 -->
         <section class="form-section paper-panel">
           <h3 class="section-title">其他设定</h3>
-          <n-input
+          <V3Input
             v-model:value="form.settings.otherSettings"
             type="textarea"
             placeholder="任何额外的创意补充、特殊要求、参考作品等"
@@ -517,8 +497,8 @@
             <p class="import-hint">复制提示词给其他 AI 分析参考小说，再把返回的 JSON 粘贴回来一键填充设定。</p>
           </div>
           <div class="reference-import-actions">
-            <n-button @click="copyReferencePrompt">复制分析提示词</n-button>
-            <n-button type="primary" @click="showImportModal = true">粘贴 / 导入设定</n-button>
+            <button type="button" class="m-btn sm" @click="copyReferencePrompt">复制分析提示词</button>
+            <button type="button" class="m-btn sm pri" @click="showImportModal = true">粘贴 / 导入设定</button>
           </div>
         </div>
       </section>        <section class="form-section paper-panel knowledge-mount-section">
@@ -527,76 +507,72 @@
               <h3 class="section-title">挂载知识库</h3>
               <p class="section-hint">只读取本书勾选的资料，AI 自动写作和辅助写作都可以使用。每本小说的挂载关系独立保存。</p>
             </div>
-            <n-switch v-model:value="form.knowledgeEnabled" />
+            <V3Switch v-model:value="form.knowledgeEnabled" aria-label="为本书挂载知识库" />
           </div>
           <div v-if="form.knowledgeEnabled">
-            <n-checkbox-group v-if="availableKnowledgeBases.length" v-model:value="selectedKnowledgeBaseIds">
-              <div class="knowledge-mount-list">
-                <n-checkbox v-for="kb in availableKnowledgeBases" :key="kb.id" :value="kb.id">
-                  <span class="knowledge-mount-item">
-                    <strong>{{ kb.name }}</strong>
-                    <small>{{ kb.entries.length }} 条资料{{ kb.description ? ` · ${kb.description}` : '' }}</small>
-                  </span>
-                </n-checkbox>
-              </div>
-            </n-checkbox-group>
+            <div v-if="availableKnowledgeBases.length" class="knowledge-mount-list" role="group" aria-label="要挂载的知识库">
+              <label v-for="kb in availableKnowledgeBases" :key="kb.id" class="m-check knowledge-mount-check">
+                <input v-model="selectedKnowledgeBaseIds" type="checkbox" :value="kb.id">
+                <span class="knowledge-mount-item">
+                  <strong>{{ kb.name }}</strong>
+                  <small>{{ kb.entries.length }} 条资料{{ kb.description ? ` · ${kb.description}` : '' }}</small>
+                </span>
+              </label>
+            </div>
             <p v-else class="section-hint">书架还没有知识库，请先返回书架创建。</p>
           </div>
         </section>
         <section class="form-section paper-panel">
           <h3 class="section-title">故事时间起点</h3>
-          <p class="section-hint">故事日是本书的时间坐标。留空保持未知；只有明确填写后创建，才保存作者起点来源，之后可在数据面板纠正。</p>
-          <div class="form-item">
-            <label>起始故事日</label>
-            <n-input-number v-model:value="storyOriginDay" :min="0" :max="100000000" :step="0.01"
+          <p class="section-hint">故事日是本书的时间坐标。不确定可以先留空，之后在数据面板修改。</p>
+          <V3Field label="起始故事日">
+            <V3Number v-model:value="storyOriginDay" :min="0" :max="100000000" :step="0.01" clearable
               :disabled="creating || !!createdNovelId" aria-label="起始故事日" placeholder="明确填写，包括 0" />
-          </div>
-          <div class="form-item">
-            <label>起点名称（可选）</label>
-            <n-input v-model:value="storyOriginLabel" :disabled="creating || !!createdNovelId" placeholder="例如：玄历三年春，抵达当天" />
-          </div>
+          </V3Field>
+          <V3Field label="起点名称（可选）">
+            <V3Input v-model:value="storyOriginLabel" :disabled="creating || !!createdNovelId" placeholder="例如：玄历三年春，抵达当天" />
+          </V3Field>
           <p role="status">{{ storyOriginDay === null ? '未填写：起点保持未知，不补 0。若填写起点名称，也请填写对应故事日。' : `创建时将确认：故事日 ${storyOriginDay}${storyOriginLabel.trim() ? ` · ${storyOriginLabel.trim()}` : ''}` }}</p>
         </section>
       </aside>
     <!-- 底部操作栏 -->
     <div class="wizard-footer" id="wizard-footer">
-      <n-button v-if="currentStep > 0" @click="currentStep--" size="large">
-        上一步
-      </n-button>
+      <button v-if="currentStep > 0" type="button" class="m-btn lg" @click="currentStep--">上一步</button>
       <div class="footer-spacer"></div>
-      <n-button
+      <button
         v-if="currentStep < steps.length - 1"
-        type="primary"
-        size="large"
+        id="wizard-next-btn"
+        type="button"
+        class="m-btn pri lg"
         :disabled="!canProceed"
         @click="currentStep++"
-        id="wizard-next-btn"
-      >
-        下一步 →
-      </n-button>
-      <n-button
+      >下一步<V3Icon name="chevR" size="s" /></button>
+      <button
         v-else
-        type="primary"
-        size="large"
-        :disabled="(!createdNovelId && !canProceed) || creating"
-        :loading="creating"
-        @click="handleCreate"
         id="wizard-create-btn"
-      >
-        {{ createdNovelId ? '打开已创建的作品' : '保存输入并创建，进入作品契约' }}
-      </n-button>
+        type="button"
+        class="m-btn pri lg"
+        :aria-busy="creating"
+        :disabled="(!createdNovelId && !canProceed) || creating"
+        @click="handleCreate"
+      >{{ createdNovelId ? '打开已创建的作品' : '保存输入并创建，进入作品契约' }}</button>
       </div><!-- /wizard-footer -->
     </div><!-- /wizard-body -->
   </div>
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
-import {
-  NButton, NIcon, NInput, NInputNumber, NSelect, NModal, NSwitch, NCheckbox, NCheckboxGroup, useDialog, useMessage
-} from 'naive-ui'
-import { ArrowBackOutline, CheckmarkOutline } from '@vicons/ionicons5'
+import { useDialog, useMessage } from '@/v3/feedback'
+import V3Icon from '@/v3/components/V3Icon.vue'
+import V3Modal from '@/v3/components/V3Modal.vue'
+import V3Field from '@/v3/components/form/V3Field.vue'
+import V3Input from '@/v3/components/form/V3Input.vue'
+import V3Number from '@/v3/components/form/V3Number.vue'
+import V3Select from '@/v3/components/form/V3Select.vue'
+import V3Switch from '@/v3/components/form/V3Switch.vue'
 import { genres, themeTags } from '@/data/genres'
 import { styleDimensions, personalityTags, payoffPatterns } from '@/data/styles'
 import { useNovelStore } from '@/stores/novel'
@@ -1225,7 +1201,7 @@ async function handleCreate() {
     const failure = await router.push('/generate/' + createdNovelId.value)
     if (failure) throw new Error('页面未能打开，请点击“打开已创建的作品”重试。')
   } catch (error) {
-    const detail = error instanceof Error ? error.message : '操作失败'
+    const detail = errorText(error, '操作失败')
     message.error(createdNovelId.value ? '作品已经保存，打开失败：' + detail : '创建失败：' + detail)
   } finally {
     creating.value = false
@@ -1483,28 +1459,9 @@ async function handleCreate() {
   font-weight: 500;
 }
 
-/* 表单网格 */
-.form-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-md);
-}
-
-.form-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.form-item.full-width {
-  grid-column: 1 / -1;
-}
-
-.form-item label {
-  font-size: 13px;
-  color: var(--ink-2);
-  font-weight: 500;
-}
+.back-icon { transform: rotate(180deg); }
+.entry-chat-btn { justify-self: start; }
+.m-form-grid .span-2 { grid-column: 1 / -1; }
 
 /* 底部操作栏 */
 
@@ -1529,7 +1486,6 @@ async function handleCreate() {
   .form-section { padding: 20px 24px; }
   .reference-import-header { flex-direction: column; align-items: stretch; }
   .reference-import-actions { flex-wrap: wrap; }
-  .form-grid { grid-template-columns: minmax(0, 1fr); }
   .style-dimension { flex-direction: column; gap: 4px; }
   .word-count-row { flex-wrap: wrap; }
 }
@@ -1539,7 +1495,7 @@ async function handleCreate() {
   .wizard-footer { padding: 12px 0; flex-wrap: wrap; }
   .steps-indicator { padding: 12px 16px; gap: 16px; }
   .form-section { padding: 16px 20px; }
-  .wizard-footer :deep(.n-button) { flex: 1 1 100%; }
+  .wizard-footer .m-btn { flex: 1 1 100%; }
 }
 .step-line {
   transition: width 0.4s ease;

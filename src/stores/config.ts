@@ -306,7 +306,7 @@ export const useConfigStore = defineStore('config', () => {
         const persisted = saved ? JSON.parse(saved) as ConfigData : null
         if (persisted && status.encryptionAvailable) {
           if (persisted.models.some(model => model.apiKey && !model.apiKey.startsWith('enc:'))
-            || persisted.embedding?.apiKey && !persisted.embedding.apiKey.startsWith('enc:')) throw new Error('V3 桌面配置密钥必须加密保存。')
+            || persisted.embedding?.apiKey && !persisted.embedding.apiKey.startsWith('enc:')) throw new Error('API 密钥必须加密保存。')
           data = await decryptConfig(persisted)
         } else if (persisted) {
           data = mergeSessionSecrets(redactConfigSecrets(persisted))
@@ -314,7 +314,7 @@ export const useConfigStore = defineStore('config', () => {
       } else {
         const persisted = readLocalConfig()
         if (persisted) {
-          if (!isLocalDevelopment() && containsPersistedSecrets(persisted)) throw new Error('V3 网页配置只持久保存公开设置。')
+          if (!isLocalDevelopment() && containsPersistedSecrets(persisted)) throw new Error('网页版只能保存不含密钥的设置。')
           data = mergeSessionSecrets(persisted)
         }
         if (isLocalDevelopment()) securityStatus.storage = 'local-development'

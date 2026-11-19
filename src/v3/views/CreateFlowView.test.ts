@@ -8,7 +8,7 @@ import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspac
 import { createEmptyCreationDraft } from '@/types/reconstruction'
 
 const { route } = vi.hoisted(() => ({ route: { params: { novelId: '' } } }))
-vi.mock('vue-router', () => ({ useRoute: () => route }))
+vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => ({ replace: vi.fn() }) }))
 
 describe('V3 creation flow', () => {
   beforeEach(() => {
@@ -24,6 +24,8 @@ describe('V3 creation flow', () => {
     })
     route.params.novelId = novel.id
     const workspace = useReconstructionWorkspaceStore()
+    // 草稿只放在内存里；模拟磁盘读取已完成，避免挂载后读取空存储覆盖它。
+    vi.spyOn(workspace, 'hydrateFromPersistence').mockResolvedValue({ candidates: [], reviewFindings: [], canonMutations: [] } as never)
     const draft = createEmptyCreationDraft({ id: `creation:${novel.id}`, now: '2026-11-07T00:00:00.000Z', entry: 'blank', mode: 'author' })
     workspace.setCreationDraft(novel.id, draft)
 

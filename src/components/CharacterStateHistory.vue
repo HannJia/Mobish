@@ -13,17 +13,17 @@
         </select>
       </label>
     </div>
-    <p>显示所选章节结束时的状态。怀疑和错误信念不代表客观事实，单向关系不自动推定为双向。未记录表示未知。</p>
+    <p>显示所选章节结束时的状态，未记录的内容表示未知。</p>
     <p v-if="!chapters.length">创建章节后可按章节回看人物状态。</p>
     <template v-else>
       <h4>截至第{{ chapterIndex + 1 }}章的有效状态</h4>
-      <p v-if="!currentStates.length">没有已确认且证据有效的人物状态。请在章节审核中确认知情或关系候选。</p>
+      <p v-if="!currentStates.length">没有已确认且证据有效的人物状态。请在章节审校中确认知情或关系候选。</p>
       <ul v-else><li v-for="change in currentStates" :key="change.after.id">{{ describeCharacterState(novel, change) }}</li></ul>
-      <p v-for="item in invalidStates" :key="item.record.id" class="state-warning" role="status">{{ item.record.summary }}：{{ item.issue }}，需要重新审核。</p>
+      <p v-for="item in invalidStates" :key="item.record.id" class="state-warning" role="status">{{ item.record.summary }}：{{ item.issue }}，需要重新审校。</p>
       <details>
         <summary>命题身份的作者决定（{{ snapshot.propositionDecisions.length }}）</summary>
         <article v-for="item in snapshot.propositionDecisions" :key="item.record.id" class="state-entry">
-          <strong>{{ item.active ? '本章边界有效' : '已停用，恢复各自身份投影' }}</strong>
+          <strong>{{ item.active ? '在本章有效' : '已停用' }}</strong>
           <p>{{ memoryDecision(item.record)?.fromIds.join('、') }} → {{ memoryDecision(item.record)?.targetId }}</p>
           <p>作者说明：{{ memoryDecision(item.record)?.reason || '作者明确选择引用已有命题' }}</p>
           <p v-if="memoryDecision(item.record)?.resolvedStateIds?.length">作者明确处理的旧认知：{{ memoryDecision(item.record)?.resolvedStateIds?.join('、') }}；原记录和证据保留。</p>
@@ -36,7 +36,7 @@
         <article v-for="item in history" :key="item.record.id" class="state-entry">
           <strong>{{ describeCharacterState(novel, item.record.characterState!) }}</strong>
           <small>作者确认时间：{{ item.record.appliedAt }}</small>
-          <p v-if="item.issue" class="state-warning">{{ item.issue }}；保留历史，不作为当前事实。</p>
+          <p v-if="item.issue" class="state-warning">{{ item.issue }}（已过时）</p>
           <blockquote v-for="evidence in item.record.characterState!.after.evidence" :key="evidence.id">{{ evidence.quote }}</blockquote>
           <router-link v-if="novel.chapters.some(chapter => chapter.id === item.record.chapterId)"
             :to="{ name: 'V3Write', params: { novelId: novel.id, chapterId: item.record.chapterId } }">打开来源章节</router-link>

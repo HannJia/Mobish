@@ -23,7 +23,7 @@ vi.mock('@/services/embeddings', async importOriginal => ({
 }))
 const dialog = vi.hoisted(() => ({ warning: vi.fn() }))
 vi.mock('@/services/chatSearch', async original => ({ ...await original<object>(), testChatSearch: vi.fn() }))
-vi.mock('naive-ui', async importOriginal => ({
+vi.mock('@/v3/feedback', async importOriginal => ({
   ...await importOriginal<object>(),
   useMessage: () => ({ success: vi.fn(), warning: vi.fn(), info: vi.fn(), error: vi.fn() }),
   useDialog: () => dialog,
@@ -40,10 +40,8 @@ function mountSettings(realSearchTest = false) {
     plugins: [router],
     provide: { [matchedRouteKey as symbol]: computed(() => router.currentRoute.value.matched[0]) },
     renderStubDefaultSlot: true, stubs: {
-    Button: { props: ['disabled'], emits: ['click'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
-    Modal: { props: ['show'], template: '<section v-if="show"><slot /><slot name="action" /></section>' },
-    Input: { props: ['value', 'placeholder'], emits: ['update:value'],
-      template: '<input :value="value" :placeholder="placeholder" @input="$emit(\'update:value\', $event.target.value)" />' },
+    V3Input: { name: 'V3Input', props: ['value', 'placeholder'], emits: ['update:value'],
+      template: '<input :value="value" :placeholder="placeholder" @input="$emit(\x27update:value\x27, $event.target.value)" />' },
     ...(realSearchTest ? { ModelSearchTest: false } : {}),
   } } })
   mounted.push(wrapper)
@@ -133,7 +131,7 @@ describe('模型原始名称与配置备注', () => {
     expect(cards[0].get('.skill-select').attributes('aria-pressed')).toBe('false')
     expect(wrapper.get('input[aria-label="技能名称"]').element).toHaveProperty('value', store.skills[1].name)
 
-    await cards[2].get('.skill-name').findComponent({ name: 'Tag' }).trigger('click')
+    await cards[2].get('.skill-name').find('.m-tag').trigger('click')
     expect(wrapper.get('input[aria-label="技能名称"]').element).toHaveProperty('value', store.skills[2].name)
     await cards[0].trigger('click')
     expect(cards[0].get('.skill-select').attributes('aria-pressed')).toBe('true')
@@ -153,7 +151,7 @@ describe('模型原始名称与配置备注', () => {
     const cards = wrapper.findAll('.skill-row')
     const name = wrapper.get('input[aria-label="技能名称"]')
     await name.setValue('尚未保存的技能名称')
-    const toggle = cards[1].findComponent({ name: 'Switch' })
+    const toggle = cards[1].findComponent({ name: 'V3Switch' })
     await toggle.trigger('click')
     toggle.vm.$emit('update:value', false)
     await flushPromises()
@@ -175,7 +173,7 @@ describe('模型原始名称与配置备注', () => {
     const store = useConfigStore()
     const wrapper = mountSettings()
     await wrapper.get('#add-model-btn').trigger('click')
-    const kind = wrapper.findAllComponents({ name: 'Select' }).find(item => item.attributes('aria-label') === '模型类型')!
+    const kind = wrapper.findAllComponents({ name: 'V3Select' }).find(item => item.attributes('aria-label') === '模型类型')!
     kind.vm.$emit('update:value', 'embedding')
     await flushPromises()
     await wrapper.get('input[placeholder="如：https://api.deepseek.com"]').setValue('http://127.0.0.1:11434')
@@ -197,9 +195,9 @@ describe('模型原始名称与配置备注', () => {
     const store = useConfigStore()
     const vector = store.addModel({ name: '资料检索', kind: 'embedding', modelName: 'synthetic-vector', baseUrl: 'http://127.0.0.1:11434', apiKey: '', maxTokens: 4096, temperature: 0, topP: 1 })
     const wrapper = mountSettings()
-    const semantic = wrapper.find('.embedding-assignment').findComponent({ name: 'Select' })
+    const semantic = wrapper.find('.embedding-assignment').findComponent({ name: 'V3Select' })
     expect(semantic.props('options').map((option: { value: string }) => option.value)).toEqual(['', vector.id])
-    const chatOptions = wrapper.find('.chat-assignment').findComponent({ name: 'Select' }).props('options')
+    const chatOptions = wrapper.find('.chat-assignment').findComponent({ name: 'V3Select' }).props('options')
     expect(chatOptions.some((option: { value: string }) => option.value === vector.id)).toBe(false)
     await wrapper.findAll('.model-select')[0].trigger('click')
     await wrapper.get(`input[placeholder="${aliasPlaceholder}"]`).setValue('未保存的配置备注')
@@ -222,7 +220,7 @@ describe('模型原始名称与配置备注', () => {
     const wrapper = mountSettings()
     expect(wrapper.findAll('button').some(button => button.text() === '测试对话')).toBe(true)
     await wrapper.findAll('button').find(button => button.text() === '编辑')!.trigger('click')
-    const input = wrapper.get('input[placeholder="留空则保留当前接口密钥"]')
+    const input = wrapper.get('input[placeholder="留空则保留当前 API 密钥"]')
     await input.setValue('')
     expect(wrapper.get('.model-editor').findComponent(ModelSearchTest).props('model')).toMatchObject({
       id: model.id, apiKey: 'synthetic-test-key', modelName: model.modelName,
@@ -325,7 +323,7 @@ describe('模型原始名称与配置备注', () => {
     const chat = addLegacyModel(ids[1])
     const store = useConfigStore()
     const wrapper = mountSettings()
-    const select = wrapper.find('.chat-assignment').findComponent({ name: 'Select' })
+    const select = wrapper.find('.chat-assignment').findComponent({ name: 'V3Select' })
     expect(select.props('value')).toBe('')
     expect(select.props('options')).toEqual([
       { value: '', label: '默认跟随大纲模型' },
@@ -349,7 +347,7 @@ describe('模型原始名称与配置备注', () => {
     const assignments = { ...store.assignments }
     const wrapper = mountSettings()
     expect(wrapper.findAll('.model-name').map(node => node.text())).toEqual(ids)
-    const selects = wrapper.findAllComponents({ name: 'Select' })
+    const selects = wrapper.findAllComponents({ name: 'V3Select' })
     expect(selects[0].props('options').map((option: { label: string }) => option.label)).toEqual(ids)
     expect(wrapper.find('.model-detail').text()).toBe('备注：Claude Sonnet 5')
     expect(JSON.stringify(store.models)).toBe(before)
@@ -396,7 +394,7 @@ describe('模型原始名称与配置备注', () => {
     const wrapper = mountSettings()
     await wrapper.get('#add-model-btn').trigger('click')
     await wrapper.get('input[placeholder="如：https://api.deepseek.com"]').setValue('https://example.test')
-    await wrapper.get('input[placeholder="填写服务商提供的接口密钥"]').setValue('synthetic-test-key')
+    await wrapper.get('input[placeholder="填写服务商提供的 API 密钥"]').setValue('synthetic-test-key')
     await wrapper.findAll('button').find(button => button.text() === '获取模型')!.trigger('click')
     await flushPromises()
     await wrapper.findAll('button').find(button => button.text() === '全选')!.trigger('click')
@@ -410,7 +408,7 @@ describe('模型原始名称与配置备注', () => {
     addLegacyModel(ids[0], '主用接口')
     addLegacyModel(ids[0], '备用接口')
     const wrapper = mountSettings()
-    const select = wrapper.findAllComponents({ name: 'Select' })[0]
+    const select = wrapper.findAllComponents({ name: 'V3Select' })[0]
     expect(select.props('options').map((option: { label: string }) => option.label))
       .toEqual([`${ids[0]}（备注：主用接口）`, `${ids[0]}（备注：备用接口）`])
   })
@@ -498,14 +496,14 @@ describe('设置草稿保护', () => {
     const models = wrapper.findAll('.model-select')
     await models[0].trigger('click')
     await wrapper.get(`input[placeholder="${aliasPlaceholder}"]`).setValue('第一份模型草稿')
-    await wrapper.get('input[placeholder="留空则保留当前接口密钥"]').setValue('synthetic-unsaved-key')
+    await wrapper.get('input[placeholder="留空则保留当前 API 密钥"]').setValue('synthetic-unsaved-key')
     await models[0].trigger('click')
     expect(wrapper.get(`input[placeholder="${aliasPlaceholder}"]`).element).toHaveProperty('value', '第一份模型草稿')
     await models[1].trigger('click')
     await wrapper.get(`input[placeholder="${aliasPlaceholder}"]`).setValue('第二份模型草稿')
     await models[0].trigger('click')
     expect(wrapper.get(`input[placeholder="${aliasPlaceholder}"]`).element).toHaveProperty('value', '第一份模型草稿')
-    expect(wrapper.get('input[placeholder="留空则保留当前接口密钥"]').element).toHaveProperty('value', 'synthetic-unsaved-key')
+    expect(wrapper.get('input[placeholder="留空则保留当前 API 密钥"]').element).toHaveProperty('value', 'synthetic-unsaved-key')
     expect(wrapper.findAll('.model-card .draft-badge')).toHaveLength(2)
     expect(useConfigStore().models.find(model => model.id === first.id)?.name).toBe('第一配置')
     await useConfigStore().saveConfig()
@@ -519,7 +517,7 @@ describe('设置草稿保护', () => {
     const wrapper = mountSettings()
     await wrapper.get('#add-model-btn').trigger('click')
     await wrapper.get('input[placeholder="如：https://api.deepseek.com"]').setValue('https://new.example.test')
-    await wrapper.get('input[placeholder="填写服务商提供的接口密钥"]').setValue('synthetic-new-draft-key')
+    await wrapper.get('input[placeholder="填写服务商提供的 API 密钥"]').setValue('synthetic-new-draft-key')
     await wrapper.findAll('button').find(button => button.text() === '获取模型')!.trigger('click')
     await flushPromises()
     await wrapper.findAll('button').find(button => button.text() === '全选')!.trigger('click')
@@ -529,11 +527,11 @@ describe('设置草稿保护', () => {
     await wrapper.get('#add-model-btn').trigger('click')
     await selectSection(wrapper, 'AI 工作流')
     await selectSection(wrapper, '模型配置')
-    const choices = wrapper.get('.model-editor').findAllComponents({ name: 'Select' })
+    const choices = wrapper.get('.model-editor').findAllComponents({ name: 'V3Select' })
       .find((select: VueWrapper<{ $props: { multiple?: boolean } }>) => select.props('multiple'))!
     expect(choices.props('value')).toEqual(ids)
     expect(choices.props('options').map((option: { value: string }) => option.value)).toEqual(ids)
-    expect(wrapper.get('input[placeholder="填写服务商提供的接口密钥"]').element).toHaveProperty('value', 'synthetic-new-draft-key')
+    expect(wrapper.get('input[placeholder="填写服务商提供的 API 密钥"]').element).toHaveProperty('value', 'synthetic-new-draft-key')
     expect(wrapper.get('.settings-draft-note').text()).toContain('未保存')
     await useConfigStore().saveConfig()
     expect(localStorage.getItem('mojian-v3-config')).not.toContain('synthetic-new-draft-key')
@@ -638,7 +636,7 @@ describe('设置草稿保护', () => {
     } else {
       await wrapper.get('#add-model-btn').trigger('click')
       await wrapper.get('input[placeholder="如：https://api.deepseek.com"]').setValue('https://example.test')
-      await wrapper.get('input[placeholder="填写服务商提供的接口密钥"]').setValue('synthetic-test-key')
+      await wrapper.get('input[placeholder="填写服务商提供的 API 密钥"]').setValue('synthetic-test-key')
       await wrapper.get(`input[placeholder="${modelPlaceholder}"]`).setValue('synthetic-new-model')
       if (kind === 'batch') {
         await wrapper.findAll('button').find(button => button.text() === '获取模型')!.trigger('click')

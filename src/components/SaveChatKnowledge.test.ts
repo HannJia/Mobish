@@ -28,9 +28,8 @@ function setup(preferred = true) {
   const wrapper = shallowMount(SaveChatKnowledge, {
     props: { show: true, content: '## 县城税制\n每亩缴粮三升。', preferredIds: preferred ? [kb.id] : [] },
     global: { renderStubDefaultSlot: true, stubs: {
-      Modal: { template: '<section><slot /><slot name="action" /></section>' },
-      Input: { props: ['value', 'disabled'], emits: ['update:value'], template: '<input :value="value" :disabled="disabled" @input="$emit(\'update:value\', $event.target.value)" />' },
-      Button: { props: ['disabled'], emits: ['click'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
+      V3Modal: { name: 'V3Modal', template: '<section><slot /><slot name="footer" /></section>' },
+      V3Input: { name: 'V3Input', props: ['value', 'disabled'], emits: ['update:value'], template: '<input :value="value" :disabled="disabled" @input="$emit(\'update:value\', $event.target.value)" />' },
     } },
   })
   return { wrapper, store, kb, flush }
@@ -175,7 +174,7 @@ describe('explicit chat knowledge writes', () => {
     finish({ title: '税制', category: '事件', summary: '税制摘要。', tags: [] })
     await flushPromises()
     expect(wrapper.get('[aria-label="知识条目摘要"]').element.getAttribute('value')).toBe('税制摘要。')
-    expect(wrapper.find('.knowledge-save-actions').exists()).toBe(true)
+    expect(wrapper.findAll('button').some(button => button.text().includes('确认保存'))).toBe(true)
     wrapper.unmount()
   })
 

@@ -125,7 +125,7 @@
   </div>
   <div v-if="coverFor" class="m-overlay" @click.self="coverFor = null" @keydown.esc="coverFor = null">
     <div class="m-modal" role="dialog" aria-modal="true" aria-label="更换封面">
-      <div class="m-modal-h"><div><h3>更换封面 ·《{{ coverFor.title }}》</h3><p>封面只影响显示，不会改变作品设定或审核结果。</p></div><button type="button" class="m-ibtn" aria-label="关闭" @click="coverFor = null"><V3Icon name="x" /></button></div>
+      <div class="m-modal-h"><div><h3>更换封面 ·《{{ coverFor.title }}》</h3><p>封面只影响显示，不会改变作品设定或审校结果。</p></div><button type="button" class="m-ibtn" aria-label="关闭" @click="coverFor = null"><V3Icon name="x" /></button></div>
       <div class="m-modal-b covers">
         <button type="button" class="pick" :class="{ on: !coverFor.coverId }" @click="pickCover('')"><span class="pc" :style="{ backgroundImage: `url(${coverUrlById(autoCover)})` }" /><small>按类型自动</small></button>
         <button v-for="c in COVER_CHOICES" :key="c.id" type="button" class="pick" :class="{ on: coverFor.coverId === c.id }" @click="pickCover(c.id)"><span class="pc" :style="{ backgroundImage: `url(${coverUrlById(c.id)})` }" /><small>{{ c.label }}</small></button>
@@ -161,7 +161,7 @@ import dawn from '@/assets/v3/hero/dawn.webp'
 import noon from '@/assets/v3/hero/noon.webp'
 import dusk from '@/assets/v3/hero/dusk.webp'
 import night from '@/assets/v3/hero/night.webp'
-import emptyShelfArt from '@/assets/v3/onboarding/step-2.webp'
+import emptyShelfArt from '@/assets/v3/empty/shelf.webp'
 import clearArt from '@/assets/v3/empty/review-clear.webp'
 import emptyArt from '@/assets/v3/empty/library.webp'
 
@@ -292,7 +292,7 @@ async function exportProject() {
   busy.value = true
   try {
     const backup = await exportProjectSnapshot()
-    downloadProjectBackup(backup, `ai-novel-writer-backup-${new Date().toISOString().slice(0, 10)}.json`)
+    downloadProjectBackup(backup, `mobish-backup-${new Date().toISOString().slice(0, 10)}.json`)
     lastBackup.value = new Date().toISOString()
     try { localStorage.setItem(BACKUP_KEY, lastBackup.value) } catch { /* 仅用于显示 */ }
     toast('项目备份已校验并导出')

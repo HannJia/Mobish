@@ -8,6 +8,7 @@ import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspac
 import { useChapterAi } from './useChapterAi'
 import type { useChapterSession } from './useChapterSession'
 import type { CandidateChange } from '@/types/reconstruction'
+import type { ChapterRevision } from '@/types/novel'
 import { useConfigStore, type ModelConfig } from '@/stores/config'
 
 const replacement = vi.hoisted(() => vi.fn())
@@ -50,7 +51,7 @@ describe('V3 author decision submission', () => {
   it('rejects a changed source during saving and leaves the candidate untouched', async () => {
     const { ai, session, accept, candidate, reviewVersion } = setup()
     vi.mocked(session.saveNow).mockImplementationOnce(async () => { reviewVersion.value = 'changed-version'; return true })
-    await expect(ai.acceptCandidate(candidate)).rejects.toThrow('正文或审核依据已经变化')
+    await expect(ai.acceptCandidate(candidate)).rejects.toThrow('正文或审校依据已经变化')
     expect(accept).not.toHaveBeenCalled()
     expect(candidate.status).toBe('proposed')
   })
@@ -61,19 +62,19 @@ describe('V3 author decision submission', () => {
     expect(reject).toHaveBeenCalledWith(candidate.novelId, candidate.id, expect.any(String),
       { expectedRecord: candidate, expectedSourceVersionId: 'review-version', authorNote: '证据不足' })
   })
-  it('正文标记复用准确引文定位，审核上下文失效后移除旧标记', () => {
+  it('正文标记复用准确引文定位，审核上下文失效后改为淡色待重审标记', () => {
     const { ai, session } = setup()
     ;(session.findings as Ref<ReviewFinding[]>).value = [{ id: 'finding', chapterId: session.chapter.value!.id, type: 'foreshadowing', severity: 'suggestion',
       title: '信件伏笔', explanation: '', evidence: [], blocksFinalization: false, status: 'open',
       sourceVersionId: buildAnalysisSourceVersionId(session.content.value), quotedText: '没有拆信', startOffset: 0, endOffset: 4 }]
     expect(ai.currentMarks.value).toEqual([expect.objectContaining({ id: 'f:finding', start: 2, end: 6, cls: 'mk-fs' })])
     session.workflow.value!.reviewCurrent = false
-    expect(ai.currentMarks.value).toEqual([])
+    expect(ai.currentMarks.value).toEqual([expect.objectContaining({ id: 'f:finding', start: 2, end: 6, cls: 'mk-stale' })])
   })
   it('正文候选只添加装饰，不写正文；上下文变化后撤下候选标记', () => {
     const { ai, session } = setup()
     const before = session.content.value
-    session.pendingRevision.value = { id: 'r', chapterId: session.chapter.value!.id, novelId: session.novel.value!.id,
+    ;(session.pendingRevision as unknown as Ref<ChapterRevision | undefined>).value = { id: 'r', chapterId: session.chapter.value!.id, novelId: session.novel.value!.id,
       baseContent: before, proposedContent: before + '他走了。', diff: '', reason: '', source: 'ai', status: 'pending', createdAt: '', updatedAt: '',
       selection: { mode: 'continue', startOffset: before.length, endOffset: before.length, contextVersion: 'ctx' } }
     expect(ai.currentMarks.value).toEqual([expect.objectContaining({ id: 'r:r', start: before.length, end: before.length, cls: 'mk-cand' })])

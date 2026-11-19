@@ -3,52 +3,38 @@
     <div class="list-header">
       <h2 class="page-title">章节列表</h2>
       <div class="header-actions">
-        <n-popconfirm
-          v-if="novel?.chapters?.length"
-          @update:show="show => captureDeletionDialog(show)"
-          @positive-click="clearAllChapters"
-        >
-          <template #trigger>
-            <n-button size="small" type="error" quaternary :disabled="deletionSaving">清空全部章节</n-button>
-          </template>
-          确定清空所有章节？正文将移至已删除章节，相关来源需要重新核对。
-        </n-popconfirm>
-        <n-button v-if="novel?.writingMode === 'ai' && novel.chapters.length" size="small" @click="openEmptyChapterRun">
-          批量生成空章
-        </n-button>
-        <n-button v-if="novel?.chapters?.length" size="small" @click="batchReviewChapters">
-          批量审校
-        </n-button>
-        <n-button v-if="novel?.chapters?.length" size="small" @click="openAutonomousRun">
-          自动写作任务
-        </n-button>
-        <n-button type="primary" size="small" :disabled="deletionSaving" @click="addNewChapter" id="add-chapter-btn">
-          + 新建章节
-        </n-button>
+        <button v-if="novel?.chapters?.length" type="button" class="m-btn sm ghost danger" :disabled="deletionSaving" @click="askChapterDeletion()">清空全部章节</button>
+        <button v-if="novel?.writingMode === 'ai' && novel.chapters.length" type="button" class="m-btn sm" @click="openEmptyChapterRun">批量生成空章</button>
+        <button v-if="novel?.chapters?.length" type="button" class="m-btn sm" @click="batchReviewChapters">批量审校</button>
+        <button v-if="novel?.chapters?.length" type="button" class="m-btn sm" @click="openAutonomousRun">自动写作任务</button>
+        <button id="add-chapter-btn" type="button" class="m-btn sm pri" :disabled="deletionSaving" @click="addNewChapter"><V3Icon name="plus" size="s" />新建章节</button>
       </div>
     </div>
 
     <section v-for="entry in pendingBatchReviews.filter(row => row.novelId === novelId)" :key="entry.input.chapterId"
-      class="paper-panel" aria-label="待保存的批量审核报告">
+      class="paper-panel" aria-label="待保存的批量审校报告">
       <strong>{{ entry.title }}</strong>
-      <p role="alert">{{ entry.error || '审核报告尚未保存，原有审核保留。' }}</p>
+      <p role="alert">{{ entry.error || '审校报告尚未保存，原有审校保留。' }}</p>
       <details><summary>查看未保存的报告</summary><pre>{{ entry.input.report }}</pre></details>
-      <n-button :loading="entry.saving" @click="retryBatchReview(entry)">重试保存审核报告</n-button>
-      <n-button :disabled="entry.saving" @click="pendingBatchReviews = pendingBatchReviews.filter(row => row !== entry)">放弃未保存报告</n-button>
+      <div class="pending-review-actions">
+        <button type="button" class="m-btn sm pri" :aria-busy="entry.saving" :disabled="entry.saving" @click="retryBatchReview(entry)">{{ entry.saving ? '正在保存…' : '重试保存审校报告' }}</button>
+        <button type="button" class="m-btn sm ghost" :disabled="entry.saving" @click="pendingBatchReviews = pendingBatchReviews.filter(row => row !== entry)">放弃未保存报告</button>
+      </div>
     </section>
 
     <details v-if="novel?.archivedChapters?.length" class="paper-panel archived-chapters" aria-label="已删除章节">
       <summary>已删除章节（{{ novel.archivedChapters.length }}）</summary>
-      <p>保留删除时的正文和审核报告，供作者查看；不计入当前作品字数。</p>
+      <p>保留删除时的正文和审校报告，供你查看；不计入当前作品字数。</p>
       <div class="archived-chapter-links">
-        <n-button v-for="chapter in novel.archivedChapters" :key="chapter.id" size="small"
-          @click="selectedArchivedChapterId = chapter.id">{{ chapter.title || '未命名章节' }}</n-button>
+        <button v-for="chapter in novel.archivedChapters" :key="chapter.id" type="button" class="m-btn sm"
+          :class="{ pri: selectedArchivedChapterId === chapter.id }" :aria-pressed="selectedArchivedChapterId === chapter.id"
+          @click="selectedArchivedChapterId = chapter.id">{{ chapter.title || '未命名章节' }}</button>
       </div>
       <article v-if="selectedArchivedChapter">
         <h3>{{ selectedArchivedChapter.title }}</h3>
         <p>删除时为第 {{ selectedArchivedChapter.chapterIndex + 1 }} 章 · {{ selectedArchivedChapter.wordCount }} 字</p>
         <pre>{{ selectedArchivedChapter.content }}</pre>
-        <details v-if="selectedArchivedChapter.contentReview"><summary>删除时的审核报告（历史记录）</summary>
+        <details v-if="selectedArchivedChapter.contentReview"><summary>删除时的审校报告（历史记录）</summary>
           <pre>{{ selectedArchivedChapter.contentReview }}</pre>
         </details>
       </article>
@@ -56,10 +42,10 @@
 
     <!-- 空状态 -->
     <div v-if="!novel?.chapters?.length" class="empty-chapters paper-panel">
-      <div class="empty-icon"><svg class="ink-mountains" viewBox="0 0 220 80" aria-hidden="true"><path fill="currentColor" d="M0 80 L40 38 L62 56 L98 14 L130 50 L150 34 L188 66 L220 46 L220 80 Z" /></svg></div>
+      <img class="m-art empty-art" :src="chaptersArt" alt="">
       <h3>还没有章节</h3>
       <p>创建第一个章节，开始你的写作之旅</p>
-      <n-button type="primary" :disabled="deletionSaving" @click="addNewChapter">创建第一章</n-button>
+      <button type="button" class="m-btn pri" :disabled="deletionSaving" @click="addNewChapter">创建第一章</button>
     </div>
 
     <!-- 按卷分组章节列表 -->
@@ -91,12 +77,8 @@
             <div class="chapter-main" role="button" tabindex="0" @click="openChapter(chapter.id)" @keydown.enter.self.prevent="openChapter(chapter.id)" @keydown.space.self.prevent="openChapter(chapter.id)">
               <div class="chapter-header-row">
                 <div class="chapter-number">第 {{ chapter.chapterIndex + 1 }} 章</div>
-                <n-popconfirm @update:show="show => captureDeletionDialog(show, chapter.id)" @positive-click="removeChapter(chapter.id)">
-                  <template #trigger>
-                    <n-button size="tiny" quaternary type="error" class="delete-btn" :disabled="deletionSaving" @click.stop>删除</n-button>
-                  </template>
-                  确定删除此章节？删除后保留历史，相关来源需要重新核对。
-                </n-popconfirm>
+                <button type="button" class="m-btn xs ghost danger delete-btn" :disabled="deletionSaving"
+                  :aria-label="`删除第 ${chapter.chapterIndex + 1} 章`" @click.stop="askChapterDeletion(chapter.id)" @keydown.stop>删除</button>
               </div>
               <h4 class="chapter-title">{{ chapterTitleForDisplay(chapter.title, chapter.chapterIndex) }}</h4>
               <div class="chapter-meta">
@@ -120,25 +102,25 @@
             <!-- 单章总结内容 -->
             <div v-if="expandedSummaries.has(chapter.id)" class="summary-panel" @click.stop>
               <template v-if="editingSummaryId === chapter.id">
-                <n-input
+                <V3Input
                   v-model:value="editSummaryText"
                   :disabled="summarySaving"
                   type="textarea"
                   :rows="4"
-                  size="small"
+                  aria-label="章节总结"
                   placeholder="输入章节总结..."
                 />
                 <div class="summary-actions">
-                  <n-button size="tiny" :disabled="summarySaving" @click="editingSummaryId = ''">取消</n-button>
-                  <n-button size="tiny" type="primary" :loading="summarySaving" :disabled="summarySaving || chapter.status === 'locked'" @click="saveSummary(chapter.id)">保存并确认</n-button>
+                  <button type="button" class="m-btn xs ghost" :disabled="summarySaving" @click="editingSummaryId = ''">取消</button>
+                  <button type="button" class="m-btn xs pri" :aria-busy="summarySaving" :disabled="summarySaving || chapter.status === 'locked'" @click="saveSummary(chapter.id)">{{ summarySaving ? '正在保存…' : '保存并确认' }}</button>
                 </div>
               </template>
               <template v-else>
                 <p class="summary-text" v-if="chapter.summary">{{ chapter.summary }}</p>
                 <p class="summary-text no-content" v-else>暂无总结</p>
-                <p v-if="chapter.summary && getChapterSummaryStatus(chapter) !== 'current'" class="summary-text no-content">总结来源未确认或正文已经变化，暂不用于 AI 写作和审核。请核对正文后编辑并确认。</p>
+                <p v-if="chapter.summary && getChapterSummaryStatus(chapter) !== 'current'" class="summary-text no-content">总结来源未确认或正文已经变化，暂不用于 AI 写作和审校。请核对正文后编辑并确认。</p>
                 <div class="summary-actions">
-                  <n-button size="tiny" :disabled="summarySaving || chapter.status === 'locked'" @click="startEditSummary(chapter)">{{ chapter.summary ? '编辑并核对' : '添加总结' }}</n-button>
+                  <button type="button" class="m-btn xs" :disabled="summarySaving || chapter.status === 'locked'" @click="startEditSummary(chapter)">{{ chapter.summary ? '编辑并核对' : '添加总结' }}</button>
                 </div>
               </template>
             </div>
@@ -147,28 +129,28 @@
       </div>
     </div>
 
-    <n-modal v-model:show="showAutonomousRun" preset="card" title="自动写作任务" style="width: min(560px, calc(100vw - 32px));">
+    <V3Modal v-model:show="showAutonomousRun" title="自动写作任务"
+      description="自动模式为范围内的空白章节生成候选稿并完成审校，你接受后才写入正文。">
       <div class="autonomous-run-panel">
-        <p class="autonomous-run-description">自动模式为范围内的空白章节生成候选稿，并完成审核。稿件、审核和故事变化先保存在任务中，由你接受后才写入正文。</p>
-        <AutonomousDraftPanel :novel-id="novelId" :runs="autonomousRuns" :disabled="autonomousBusy || autonomousCancelBusy" />
+        <AutonomousDraftPanel ref="draftPanelRef" :novel-id="novelId" :runs="autonomousRuns" :disabled="autonomousBusy || autonomousCancelBusy" />
 
         <div v-if="latestAutonomousRun" class="autonomous-run-status">
           <div class="autonomous-run-status-header">
             <strong>{{ aiRunStatusText(latestAutonomousRun.status) }}</strong>
             <span>{{ aiRunCheckpointText(latestAutonomousRun) }}</span>
           </div>
-          <n-progress
-            type="line"
-            :percentage="aiRunProgress(latestAutonomousRun)"
-            :show-indicator="true"
-          />
+          <div class="run-progress">
+            <div class="run-progress-track" role="progressbar" aria-label="自动写作进度" aria-valuemin="0" aria-valuemax="100"
+              :aria-valuenow="aiRunProgress(latestAutonomousRun)"><span :style="{ width: aiRunProgress(latestAutonomousRun) + '%' }" /></div>
+            <span class="run-progress-value">{{ aiRunProgress(latestAutonomousRun) }}%</span>
+          </div>
           <p class="autonomous-run-hint">{{ aiRunUsageText(latestAutonomousRun) }}</p>
           <details v-if="latestAutonomousRun.requests?.length" class="autonomous-run-ledger">
             <summary>请求记录（{{ latestAutonomousRun.requests.length }}）</summary>
             <ol>
               <li v-for="request in latestAutonomousRun.requests" :key="request.id">
-                第 {{ request.chapterIndex + 1 }} 章 · {{ { writing: '生成', review: '审核', analysis: '故事变化提取' }[request.phase] }} · {{ request.modelId }}
-                <br />{{ request.inputTokens + request.outputTokens }} Token · {{ { pending: '请求中', completed: '已返回', failed: '请求失败', interrupted: '已中断', unknown: '结果未知', not_sent: '未发送' }[request.status] }} · {{ { reservation: '已预留', reported: '接口用量', estimated: '保守估算' }[request.usageSource] }}
+                第 {{ request.chapterIndex + 1 }} 章 · {{ { writing: '生成', review: '审校', analysis: '故事变化提取' }[request.phase] }} · {{ request.modelId }}
+                <br />{{ request.inputTokens + request.outputTokens }} Token · {{ { pending: '请求中', completed: '已返回', failed: '请求失败', interrupted: '已中断', unknown: '结果未知', not_sent: '未发送' }[request.status] }} · {{ { reservation: '预估中', reported: '接口用量', estimated: '保守估算' }[request.usageSource] }}
               </li>
             </ol>
           </details>
@@ -176,76 +158,70 @@
           <details v-if="['paused', 'needs_author'].includes(latestAutonomousRun.status)" class="autonomous-run-limits">
             <summary>调整任务总额度</summary>
             <div class="autonomous-run-fields">
-              <label>任务总 Token 预算<n-input-number v-model:value="runLimitForm.tokenBudget" :min="Math.max(1, latestAutonomousRun.usedTokens || 0)" :disabled="autonomousBusy || autonomousCancelBusy" /></label>
-              <label>任务总请求上限<n-input-number v-model:value="runLimitForm.requestLimit" :min="Math.max(1, latestAutonomousRun.requests?.length || 0)" :max="2000" :disabled="autonomousBusy || autonomousCancelBusy" /></label>
+              <label>任务总 Token 预算<V3Number v-model:value="runLimitForm.tokenBudget" :min="Math.max(1, latestAutonomousRun.usedTokens || 0)" :disabled="autonomousBusy || autonomousCancelBusy" /></label>
+              <label>任务总请求上限<V3Number v-model:value="runLimitForm.requestLimit" :min="Math.max(1, latestAutonomousRun.requests?.length || 0)" :max="2000" :disabled="autonomousBusy || autonomousCancelBusy" /></label>
             </div>
             <p class="autonomous-run-hint">已记录的用量不会清零。保存额度后，由你点击“继续任务”恢复执行。</p>
-            <n-button :loading="autonomousCancelBusy" :disabled="autonomousBusy" @click="saveAutonomousLimits">保存额度</n-button>
+            <button type="button" class="m-btn sm" :aria-busy="autonomousCancelBusy" :disabled="autonomousBusy || autonomousCancelBusy" @click="saveAutonomousLimits">保存额度</button>
           </details>
           <div class="autonomous-run-actions">
-            <n-button
-              v-if="['paused', 'needs_author', 'failed'].includes(latestAutonomousRun.status)"
-              type="primary"
-              :loading="autonomousBusy"
-              :disabled="autonomousCancelBusy"
-              @click="resumeAutonomousRun"
-            >继续任务</n-button>
-            <n-button
-              v-if="latestAutonomousRun.status === 'running'"
-              :disabled="autonomousBusy === false"
-              @click="pauseAutonomousRun"
-            >暂停</n-button>
-            <n-button v-if="latestAutonomousRun.status === 'running' && !autonomousBusy" :loading="autonomousCancelBusy" @click="recoverAutonomousRun">恢复中断任务</n-button>
-            <n-button
-              v-if="['queued', 'running', 'paused', 'needs_author'].includes(latestAutonomousRun.status)"
-              type="error"
-              :loading="autonomousCancelBusy"
-              @click="cancelAutonomousRun"
-            >取消任务</n-button>
+            <button v-if="['paused', 'needs_author', 'failed'].includes(latestAutonomousRun.status)" type="button" class="m-btn pri"
+              :aria-busy="autonomousBusy" :disabled="autonomousBusy || autonomousCancelBusy" @click="resumeAutonomousRun">继续任务</button>
+            <button v-if="latestAutonomousRun.status === 'running'" type="button" class="m-btn"
+              :disabled="autonomousBusy === false" @click="pauseAutonomousRun">暂停</button>
+            <button v-if="latestAutonomousRun.status === 'running' && !autonomousBusy" type="button" class="m-btn"
+              :aria-busy="autonomousCancelBusy" :disabled="autonomousCancelBusy" @click="recoverAutonomousRun">恢复中断任务</button>
+            <button v-if="['queued', 'running', 'paused', 'needs_author'].includes(latestAutonomousRun.status)" type="button" class="m-btn ghost danger"
+              :aria-busy="autonomousCancelBusy" :disabled="autonomousCancelBusy" @click="cancelAutonomousRun">取消任务</button>
           </div>
         </div>
 
         <div v-if="!latestAutonomousRun || !['queued', 'running', 'paused', 'needs_author'].includes(latestAutonomousRun.status)" class="autonomous-run-form">
           <div class="autonomous-run-fields">
             <label>起始章节
-              <n-input-number v-model:value="autonomousForm.chapterStart" :min="1" :max="novel?.chapters.length || 1" :disabled="autonomousBusy" />
+              <V3Number v-model:value="autonomousForm.chapterStart" :min="1" :max="novel?.chapters.length || 1" :disabled="autonomousBusy" />
             </label>
             <label>结束章节
-              <n-input-number v-model:value="autonomousForm.chapterEnd" :min="autonomousForm.chapterStart || 1" :max="novel?.chapters.length || 1" :disabled="autonomousBusy" />
+              <V3Number v-model:value="autonomousForm.chapterEnd" :min="autonomousForm.chapterStart || 1" :max="novel?.chapters.length || 1" :disabled="autonomousBusy" />
             </label>
             <label>Token 预算
-              <n-input-number v-model:value="autonomousForm.tokenBudget" :min="1000" :max="2000000" :step="1000" :disabled="autonomousBusy" />
+              <V3Number v-model:value="autonomousForm.tokenBudget" :min="1000" :max="2000000" :step="1000" :disabled="autonomousBusy" />
             </label>
             <label>请求次数上限
-              <n-input-number v-model:value="autonomousForm.requestLimit" :min="1" :max="2000" :disabled="autonomousBusy" />
+              <V3Number v-model:value="autonomousForm.requestLimit" :min="1" :max="2000" :disabled="autonomousBusy" />
             </label>
             <label>每几章停下检查
-              <n-input-number v-model:value="autonomousForm.checkpointEvery" :min="0" :max="1000" :disabled="autonomousBusy" />
+              <V3Number v-model:value="autonomousForm.checkpointEvery" :min="0" :max="1000" :disabled="autonomousBusy" />
             </label>
           </div>
-          <p class="autonomous-run-hint">当前范围：第 {{ autonomousForm.chapterStart }} 至第 {{ autonomousForm.chapterEnd }} 章；任务会在章节审核需要作者处理时自动停下。</p>
-          <p class="autonomous-run-hint">检查点填 0 表示连续执行。设置为正整数时，每完成相应章数会暂停并等待作者确认。</p>
-          <p class="autonomous-run-hint">每次生成、分段审核、格式重试和故事变化提取都计入预算。发送前预留完整输入和最大输出额度；接口未返回用量时保留估算。预算是本任务的停止条件，不等同于服务商账单上限。</p>
+          <p class="autonomous-run-hint">当前范围：第 {{ autonomousForm.chapterStart }} 至第 {{ autonomousForm.chapterEnd }} 章；任务会在章节审校需要你处理时自动停下。</p>
+          <p class="autonomous-run-hint">检查点填 0 表示连续执行。设置为正整数时，每完成相应章数会暂停并等待你确认。</p>
+          <p class="autonomous-run-hint">生成、审校和提取故事变化都会计入预算，用完后任务会自动停下。预算按预估用量计算，可能与服务商账单略有出入。</p>
           <div class="autonomous-run-actions">
-            <n-button type="primary" :loading="autonomousBusy" @click="() => startAutonomousRun()">开始自动写作</n-button>
+            <button type="button" class="m-btn pri" :aria-busy="autonomousBusy" :disabled="autonomousBusy" @click="() => startAutonomousRun()">{{ autonomousBusy ? '正在启动…' : '开始自动写作' }}</button>
           </div>
         </div>
 
         <div v-if="latestAutonomousRun?.status === 'needs_author'" class="autonomous-run-boundary">
-          本次任务已在作者介入点停止：{{ latestAutonomousRun.error || '请先处理当前章节，再创建下一段自动任务。' }}
+          本次任务已停在需要你处理的地方：{{ latestAutonomousRun.error || '请先处理当前章节，再创建下一段自动任务。' }}
         </div>
         <div v-if="autonomousReviewCoverage" class="autonomous-run-coverage">
-          当前章节审核进度：{{ autonomousReviewCoverageText }}
+          当前章节审校进度：{{ autonomousReviewCoverageText }}
         </div>
       </div>
-    </n-modal>
+    </V3Modal>
   </div>
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { ref, computed, onMounted, nextTick, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NButton, NInput, NInputNumber, NModal, NPopconfirm, NProgress, useMessage } from 'naive-ui'
+import { useDialog, useMessage } from '@/v3/feedback'
+import V3Icon from '@/v3/components/V3Icon.vue'
+import V3Modal from '@/v3/components/V3Modal.vue'
+import V3Input from '@/v3/components/form/V3Input.vue'
+import V3Number from '@/v3/components/form/V3Number.vue'
 import { useNovelStore } from '@/stores/novel'
 import { chapterTitleForDisplay } from '@/v3/write/chapterNumber'
 import { useConfigStore } from '@/stores/config'
@@ -265,6 +241,7 @@ import { createAutonomousEmptyChapterProcessor } from '@/services/reconstruction
 import { extractAutonomousChapterCandidates } from '@/services/reconstructionAutonomousReview'
 import type { AiRun } from '@/types/reconstruction'
 import type { Chapter } from '@/types/novel'
+import chaptersArt from '@/assets/v3/empty/chapters.webp'
 
 const route = useRoute()
 const router = useRouter()
@@ -274,6 +251,7 @@ const configStore = useConfigStore()
 const knowledgeStore = useKnowledgeStore()
 const reconstructionStore = useReconstructionWorkspaceStore()
 const message = useMessage()
+const dialog = useDialog()
 
 const novelId = computed(() => route.params.novelId as string)
 const novel = computed(() => novelStore.getNovel(novelId.value))
@@ -287,14 +265,14 @@ async function saveBatchReview(entry: PendingBatchReview) {
     await reconstructionStore.commitChapterReview(entry.novelId, entry.input)
     pendingBatchReviews.value = pendingBatchReviews.value.filter(row => row !== entry)
   } catch (error) {
-    entry.error = '审核报告未保存：' + (error instanceof Error ? error.message : String(error))
+    entry.error = '审校报告未保存：' + (errorText(error, String(error)))
     throw error
   } finally { entry.saving = false }
 }
 
 async function retryBatchReview(entry: PendingBatchReview) {
-  try { await saveBatchReview(entry); message.success('审核报告已保存') }
-  catch (error) { message.warning(error instanceof Error ? error.message : '审核报告保存失败') }
+  try { await saveBatchReview(entry); message.success('审校报告已保存') }
+  catch (error) { message.warning(errorText(error, '审校报告保存失败')) }
 }
 const workspaceLoads = new Map<string, Promise<unknown>>()
 function ensureWorkspace(targetNovelId = novelId.value) {
@@ -383,7 +361,7 @@ function aiRunStatusText(status: AiRun['status']): string {
     completed: '已完成',
     failed: '执行失败',
     cancelled: '已取消',
-    needs_author: '等待作者处理',
+    needs_author: '等待你处理',
   }
   return labels[status]
 }
@@ -392,8 +370,8 @@ function aiRunCheckpointText(run: AiRun): string {
   if (!run.checkpoint) return '尚未产生检查点'
   const match = run.checkpoint.match(/^chapter-(\d+):(started|completed|reviewed|checkpoint|review-needs-author|needs-author)$/)
   if (!match) return '已保留上次执行位置'
-  const labels: Record<string, string> = { started: '处理尚未完成', completed: '处理完成', reviewed: '审核完成',
-    checkpoint: '达到作者检查点', 'review-needs-author': '审核等待作者处理', 'needs-author': '等待作者核对' }
+  const labels: Record<string, string> = { started: '处理尚未完成', completed: '处理完成', reviewed: '审校完成',
+    checkpoint: '到达检查点', 'review-needs-author': '审校等待你处理', 'needs-author': '等待你核对' }
   return `第 ${Number(match[1]) + 1} 章 · ${labels[match[2]]}`
 }
 
@@ -401,7 +379,7 @@ function aiRunUsageText(run: AiRun): string {
   const requests = run.requests || []
   const uncertain = requests.filter(request => request.usageSource !== 'reported').length
   return `Token 用量 ${run.usedTokens || 0} / ${run.tokenBudget || 0} · 请求 ${requests.length} / ${run.requestLimit || 0}`
-    + (uncertain ? `（${uncertain} 次含预留或估算）` : '')
+    + (uncertain ? `（其中 ${uncertain} 次为预估）` : '')
 }
 
 function aiRunProgress(run: AiRun): number {
@@ -461,7 +439,7 @@ async function startAutonomousRun(existingRun?: AiRun) {
   try {
     if (existingRun) {
       if (!['paused', 'needs_author', 'failed'].includes(existingRun.status)) {
-        message.info('只有已暂停、失败或等待作者处理的自动任务可以继续')
+        message.info('只有已暂停、失败或等待你处理的自动任务可以继续')
         return
       }
       run = existingRun
@@ -487,7 +465,7 @@ async function startAutonomousRun(existingRun?: AiRun) {
       })
     }
   } catch (error) {
-    message.warning(error instanceof Error ? error.message : String(error))
+    message.warning(errorText(error, String(error)))
     return
   }
 
@@ -512,14 +490,14 @@ async function startAutonomousRun(existingRun?: AiRun) {
     } else if (result.status === 'completed') {
       message.success('自动写作任务已完成')
     } else if (result.status === 'needs_author') {
-      message.warning(result.error || '自动写作已暂停，等待作者处理')
+      message.warning(result.error || '自动写作已暂停，等待你处理')
     } else if (result.status === 'paused') {
       message.info('自动写作任务已暂停')
     } else if (result.status === 'failed') {
       message.error(result.error || '自动写作任务失败')
     }
   } catch (error) {
-    message.error(error instanceof Error ? error.message : '自动任务保存失败')
+    message.error(errorText(error, '自动任务保存失败'))
   } finally {
     if (autonomousPromise.value === promise) autonomousPromise.value = null
     if (autonomousController.value === controller) autonomousController.value = null
@@ -539,7 +517,7 @@ async function saveAutonomousLimits() {
   try {
     await reconstructionStore.saveAiRunLimits(targetNovelId, run, { ...runLimitForm.value })
     message.success('任务额度已保存；已记录的用量保持不变。')
-  } catch (error) { message.error(error instanceof Error ? error.message : String(error)) }
+  } catch (error) { message.error(errorText(error, String(error))) }
   finally { autonomousCancelBusy.value = false }
 }
 
@@ -555,7 +533,7 @@ async function recoverAutonomousRun() {
   try {
     await persistAutonomousRun(recoverInterruptedAiRun(run, new Date().toISOString()), targetNovelId)
     message.info('已保留中断前的检查点和请求用量，请核对后继续任务。')
-  } catch (error) { message.error(error instanceof Error ? error.message : String(error)) }
+  } catch (error) { message.error(errorText(error, String(error))) }
   finally { autonomousCancelBusy.value = false }
 }
 
@@ -573,13 +551,27 @@ async function cancelAutonomousRun() {
       message.info('自动写作任务已取消')
     }
   } catch (error) {
-    message.error(error instanceof Error ? error.message : String(error))
+    message.error(errorText(error, String(error)))
   } finally {
     autonomousCancelBusy.value = false
   }
 }
 
+const draftPanelRef = ref<InstanceType<typeof AutonomousDraftPanel> | null>(null)
+/** 自动写作页章节卡片的“对比审阅”：打开任务窗口并定位到该章候选稿。 */
+async function openChapterDraft(chapterId: string): Promise<boolean> {
+  await ensureWorkspace()
+  showAutonomousRun.value = true
+  // 弹窗内容在打开后的下一轮渲染才挂载，稍等片刻再定位。
+  for (let attempt = 0; attempt < 20 && !draftPanelRef.value; attempt++) {
+    await nextTick()
+    if (!draftPanelRef.value) await new Promise(resolve => setTimeout(resolve, 25))
+  }
+  return draftPanelRef.value?.openChapterDraft(chapterId) ?? false
+}
+
 defineExpose({
+  openChapterDraft,
   ensureWorkspace,
   pauseAutonomousRun,
   resumeAutonomousRun,
@@ -685,7 +677,7 @@ async function saveSummary(chapterId: string) {
     if (!saved || getChapterSummaryStatus(saved) === 'stale' || getChapterSummaryStatus(saved) === 'unverified') {
       message.warning('保存期间正文或总结发生变化，请重新核对总结。')
     } else message.success(saved.summary.trim() ? '总结已保存并绑定核对过的正文版本' : '总结已清空')
-  } catch (error) { message.error(error instanceof Error ? error.message : '总结保存失败') }
+  } catch (error) { message.error(errorText(error, '总结保存失败')) }
   finally { summarySaving.value = false }
 }
 
@@ -708,7 +700,7 @@ const deletionBaselines = new Map<string | undefined, ChapterDeletionBaseline>()
 function captureDeletionDialog(show: boolean, chapterId?: string) {
   if (!show) return
   try { deletionBaselines.set(chapterId, novelStore.captureChapterDeletionBaseline(novelId.value, chapterId)) }
-  catch (error) { message.error(error instanceof Error ? error.message : '删除确认读取失败') }
+  catch (error) { message.error(errorText(error, '删除确认读取失败')) }
 }
 
 async function confirmChapterDeletion(chapterId?: string): Promise<boolean> {
@@ -728,13 +720,30 @@ async function confirmChapterDeletion(chapterId?: string): Promise<boolean> {
     deletionBaselines.delete(chapterId)
     return true
   } catch (error) {
-    message.error(error instanceof Error ? error.message : '章节删除保存失败')
+    message.error(errorText(error, '章节删除保存失败'))
     return false
   } finally { deletionSaving.value = false }
 }
 
 function removeChapter(chapterId: string) { return confirmChapterDeletion(chapterId) }
 function clearAllChapters() { return confirmChapterDeletion() }
+
+// 打开确认框时记下当前章节快照；确认时按这份快照删除，确认期间的编辑不会被悄悄删掉。
+// 保存失败时返回 false，对话框保持打开，可以直接重试。
+function askChapterDeletion(chapterId?: string) {
+  if (deletionSaving.value) return
+  captureDeletionDialog(true, chapterId)
+  const chapter = chapterId ? novel.value?.chapters.find(item => item.id === chapterId) : undefined
+  dialog.warning({
+    title: chapterId ? '删除章节' : '清空全部章节',
+    content: chapterId
+      ? `删除「${chapter ? chapterTitleForDisplay(chapter.title, chapter.chapterIndex) : '此章节'}」？正文会移至已删除章节保留，相关来源需要重新核对。`
+      : `清空全部 ${novel.value?.chapters.length ?? 0} 个章节？正文将移至已删除章节，相关来源需要重新核对。`,
+    positiveText: chapterId ? '删除' : '清空',
+    negativeText: '取消',
+    onPositiveClick: () => chapterId ? removeChapter(chapterId) : clearAllChapters(),
+  })
+}
 
 async function openEmptyChapterRun() {
   const targetNovelId = novelId.value
@@ -818,7 +827,7 @@ async function batchReviewChapters() {
         },
       })
       ensureCurrent()
-      if (!finalCoverage) throw new Error('审核覆盖缺失，报告未保存。')
+      if (!finalCoverage) throw new Error('审校覆盖缺失，报告未保存。')
       const entry: PendingBatchReview = { novelId: queuedNovelId, title: currentChapter.title,
         input: buildChapterReviewSubmission(input, reviewText, finalCoverage,
           reconstructionStore.getChapterReviews(queuedNovelId, currentChapter.id), reconstructionStore.getCandidates(queuedNovelId), new Date().toISOString()),
@@ -833,6 +842,11 @@ async function batchReviewChapters() {
 </script>
 
 <style scoped>
+.pending-review-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.run-progress { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; }
+.run-progress-track { flex: 1; height: 6px; border-radius: 6px; background: var(--panel-2); overflow: hidden; }
+.run-progress-track > span { display: block; height: 100%; background: var(--zhu); transition: width var(--motion-fast); }
+.run-progress-value { min-width: 38px; text-align: right; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .list-header {
   display: flex;
   flex-wrap: wrap;
@@ -946,7 +960,6 @@ async function batchReviewChapters() {
   text-align: center;
 }
 
-.empty-icon { width: 220px; color: var(--line-2); }
 
 .empty-chapters h3 {
   font-family: var(--f-serif);
@@ -1066,7 +1079,9 @@ async function batchReviewChapters() {
   transition: opacity var(--motion-fast);
 }
 
-.chapter-card:hover .delete-btn {
+.chapter-card:hover .delete-btn,
+.chapter-card:focus-within .delete-btn,
+.delete-btn:focus-visible {
   opacity: 1;
 }
 

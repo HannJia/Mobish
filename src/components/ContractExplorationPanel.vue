@@ -9,7 +9,7 @@
         <small v-if="!['completed', 'running'].includes(item.status)">本轮{{ item.status === 'failed' ? '失败' : item.status === 'interrupted' ? '中断' : '未完整完成' }}，输出已保留</small>
         <div v-if="item.status === 'completed'" class="suggestions">
           <details v-for="(suggestion, index) in item.suggestions || []" :key="index">
-            <summary>{{ cardTitle(suggestion.cardId) }}草案</summary>
+            <summary>{{ cardTitle(suggestion.cardId) }}候选</summary>
             <p v-for="(value, key) in suggestion.values" :key="key">{{ Array.isArray(value) ? value.join('、') : value }}</p>
             <button type="button" :disabled="disabled || busy" @click="emit('adopt', suggestion)">采用到卡片，等待确认</button>
           </details>

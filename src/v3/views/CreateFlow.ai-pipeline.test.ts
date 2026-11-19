@@ -16,7 +16,7 @@ import { endings, skeletons, volume, outline, planResponse } from '@/test/fixtur
 const { messages } = vi.hoisted(() => ({
   messages: { success: vi.fn(), warning: vi.fn(), info: vi.fn(), error: vi.fn() },
 }))
-vi.mock('naive-ui', async original => ({ ...await original<object>(), useMessage: () => messages,
+vi.mock('@/v3/feedback', async original => ({ ...await original<object>(), useMessage: () => messages,
   useDialog: () => ({ warning: vi.fn() }) }))
 
 const endpoint = 'http://127.0.0.1:1/offline-create-pipeline'
@@ -88,7 +88,7 @@ it('generates and mixes directions, confirms AI outline and plans, then opens on
   await flushPromises()
   await wrapper.get('input[name="creation-setup-method"][value="blank"]').setValue()
   await click('准备空白作品 →')
-  await wrapper.get('[aria-label="新作品名称"] input').setValue('合成AI创建·旧码头')
+  await wrapper.get('input[aria-label="新作品名称"]').setValue('合成AI创建·旧码头')
   await click('保存输入并创建，进入作品契约')
   await vi.waitFor(() => expect(wrapper!.find('.story-contract').exists()).toBe(true), { timeout: 10000 })
   const novels = useNovelStore()
@@ -192,4 +192,4 @@ it('generates and mixes directions, confirms AI outline and plans, then opens on
   expect(fetch).toHaveBeenCalledTimes(4)
   expect(requests.map(row => Boolean(row.stream))).toEqual([true, true, true, false])
   expect(messages.error).not.toHaveBeenCalled()
-})
+}, 60_000) // 完整走一遍创建流程（真实存储），单独运行约 5 秒，并行时需要更多时间

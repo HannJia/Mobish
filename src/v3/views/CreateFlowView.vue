@@ -10,7 +10,7 @@
   <div class="creation-flow">
     <header class="flow-head">
       <div>
-        <div class="flow-kicker">CREATE · {{ novel?.genreLabel || '新作品' }}</div>
+        <div class="flow-kicker">创作 · {{ novel?.genreLabel || '新作品' }}</div>
         <h1>作品创作流程</h1>
         <p v-if="novel">《{{ novel.title }}》的设定、骨架与大纲会在这里逐步确认。</p>
       </div>
@@ -19,14 +19,20 @@
     <ol class="flow-steps" aria-label="作品创建进度">
       <li v-for="(step, index) in steps" :key="step" :class="{ done: index < activeStep, active: index === activeStep }"
         :data-step="index" :aria-current="index === activeStep ? 'step' : undefined">
-        <span class="flow-step-number">{{ index < activeStep ? '✓' : index + 1 }}</span>
-        <span class="flow-step-label">{{ step }}</span>
+        <button v-if="canRevisit(index)" type="button" class="flow-step-hit" :title="`回到${step}`" @click="revisit(index)">
+          <span class="flow-step-number">✓</span>
+          <span class="flow-step-label">{{ step }}</span>
+        </button>
+        <template v-else>
+          <span class="flow-step-number">{{ index < activeStep ? '✓' : index + 1 }}</span>
+          <span class="flow-step-label">{{ step }}</span>
+        </template>
       </li>
     </ol>
 
     <div v-if="novel" class="flow-content">
       <CreationPlanning v-if="planningAccepted" />
-      <GenerateOutline v-else @step="activeSurfaceStep = $event" />
+      <GenerateOutline v-else ref="directionEditor" @step="activeSurfaceStep = $event" />
     </div>
     <section v-else class="flow-missing m-panel" role="alert">
       <p>找不到这部作品，可能已移入回收站。</p>
@@ -36,8 +42,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
 import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspace'
 import GenerateOutline from '@/v3/create/DirectionEditor.vue'
@@ -46,15 +52,16 @@ import CreationPlanning from './CreationPlanning.vue'
 defineOptions({ name: 'V3CreateFlowView' })
 
 const steps = ['起点', '作品契约', '故事骨架', '分卷大纲', '开始写作']
-const route = useRoute()
+const route = useRoute(), router = useRouter()
 const novels = useNovelStore()
 const workspace = useReconstructionWorkspaceStore()
 const novelId = computed(() => typeof route.params.novelId === 'string' ? route.params.novelId : '')
 const novel = computed(() => novels.getNovel(novelId.value))
 const creationDraft = computed(() => workspace.getCreationDraft(novelId.value))
 const activeSurfaceStep = ref<number>()
-const planningAccepted = computed(() => route.query?.edit !== 'direction' && Boolean(creationDraft.value?.acceptedOutline
+const planningReady = computed(() => Boolean(creationDraft.value?.acceptedOutline
   && creationDraft.value.approval.contract === 'approved' && creationDraft.value.approval.skeleton === 'approved'))
+const planningAccepted = computed(() => route.query?.edit !== 'direction' && planningReady.value)
 const activeStep = computed(() => {
   if (!planningAccepted.value && activeSurfaceStep.value !== undefined) return activeSurfaceStep.value
   if (planningAccepted.value && novel.value?.chapterPlanConfirmed && creationDraft.value?.approval['chapter-outline'] === 'approved') return 4
@@ -69,6 +76,24 @@ const activeStep = computed(() => {
   }
 })
 onMounted(() => { if (novelId.value) void workspace.hydrateFromPersistence(novelId.value).catch(() => undefined) })
+
+// 已完成的步骤可以点回去：契约、骨架回到方向编辑；分卷大纲回到规划。“起点”已经落成作品，不可回退。
+const directionEditor = ref<InstanceType<typeof GenerateOutline> | null>(null)
+function canRevisit(index: number) {
+  if (!novel.value || index === 0 || index === activeStep.value) return false
+  if (index === 3) return planningReady.value && !planningAccepted.value
+  return index < activeStep.value || planningReady.value
+}
+async function revisit(index: number) {
+  if (index <= 2) {
+    if (planningAccepted.value) await router.replace({ query: { ...route.query, edit: 'direction' } })
+    await nextTick()
+    if (index === 1) directionEditor.value?.reopenContract()
+    document.querySelector('.creation-flow')?.scrollTo?.({ top: 0, behavior: 'smooth' })
+  } else if (route.query.edit) {
+    await router.replace({ query: Object.fromEntries(Object.entries(route.query).filter(([key]) => key !== 'edit')) })
+  }
+}
 </script>
 
 <style scoped>
@@ -88,9 +113,12 @@ onMounted(() => { if (novelId.value) void workspace.hydrateFromPersistence(novel
 .flow-step-label { position: relative; z-index: 2; padding: 0 8px; background-color: var(--desk); box-shadow: 0 0 0 2px var(--desk); white-space: nowrap; }
 .flow-steps li.done .flow-step-number { border-color: var(--qing); background: var(--qing-soft); color: var(--qing); }
 .flow-steps li.active .flow-step-number { border-color: var(--zhu); background: var(--zhu); color: #fff; }
+.flow-step-hit { position: relative; z-index: 2; display: flex; align-items: center; gap: 9px; min-width: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; }
+.flow-step-hit:hover .flow-step-label { color: var(--zhu); text-decoration: underline; }
+@media (max-width: 580px) { .flow-step-hit { flex-direction: column; align-items: flex-start; gap: 5px; } }
 .flow-content { max-width: 1160px; margin: 0 auto; }
 .flow-missing { max-width: 620px; margin: 56px auto; padding: 24px; text-align: center; }
-.crumb-link { color: var(--ink-3); text-decoration: none; }.crumb-link:hover { color: var(--zhu); }.crumb-sep { color: var(--ink-4); }.crumb-book { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }.crumb-current { color: var(--ink); font-weight: 600; }
+.crumb-book { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }.crumb-current { color: var(--ink); font-weight: 600; }
 @media (max-width: 900px) {
   .creation-flow { padding: 20px 20px 40px; }
 }

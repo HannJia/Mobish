@@ -44,7 +44,7 @@ describe('EventCausalityPanel', () => {
     expect(text).toContain('盐价上涨')
     expect(text).toContain('导致')
     expect(text).toContain('火灾导致盐价上涨')
-    expect(text).toContain('待作者核对，尚非事实')
+    expect(text).toContain('待你核对，尚未确认')
     expect(text).not.toContain('event-fire')
     expect(text).not.toContain('event-price')
     expect(text).not.toContain('fromEventId')

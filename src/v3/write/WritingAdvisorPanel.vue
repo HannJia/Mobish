@@ -21,9 +21,9 @@
         </button>
       </div>
       <div class="advisor-batch-row">
-        <n-button size="small" type="primary" :disabled="analyzingModes?.length === 3" @click="emit('analyze-all')">
+        <button type="button" class="m-btn sm zhu" :disabled="analyzingModes?.length === 3" @click="emit('analyze-all')">
           {{ analyzingModes?.length ? `正在并行分析（${analyzingModes.length}/3）` : '同时分析全部范围' }}
-        </n-button>
+        </button>
         <span>三个范围并行生成，结果分别保留</span>
       </div>
 
@@ -31,17 +31,17 @@
         <div v-if="analyzing" class="advisor-loading">
           <div class="advisor-spinner"></div>
           <span>正在整理前文、计划和相关设定...</span>
-          <n-button size="tiny" quaternary @click="emit('stop')">停止</n-button>
+          <button type="button" class="m-btn xs" @click="emit('stop')">停止</button>
         </div>
 
         <div v-if="error && !stale" class="advisor-alert" role="alert">{{ error }}</div>
-        <div v-if="stale" class="advisor-alert advisor-alert--warning">正文或参考资料已经变化，当前建议仅供参考。需要更新时请点击分析，不会自动重新请求。</div>
+        <div v-if="stale" class="advisor-alert advisor-alert--warning">正文或参考资料已修改，这些建议可能已过时，可以重新分析。</div>
 
         <div v-if="!result && !analyzing" class="advisor-empty">
           <div class="advisor-empty-icon">✦</div>
           <strong>从你的正文出发，找下一步</strong>
-          <p>选择分析范围后点击分析。各标签独立保留结果，切换标签不会调用 AI。</p>
-          <n-button type="primary" size="small" @click="emit('analyze', lastMode)">分析{{ modeLabel }}</n-button>
+          <p>选择分析范围后点击分析，各范围的结果分别保留。</p>
+          <button type="button" class="m-btn sm zhu" @click="emit('analyze', lastMode)">分析{{ modeLabel }}</button>
         </div>
 
         <template v-if="result">
@@ -92,18 +92,18 @@
                 </div>
               </div>
               <div class="suggestion-actions">
-                <n-button size="tiny" :type="selectedId === suggestion.id ? 'primary' : 'default'" @click="selectSuggestion(suggestion.id)">
+                <button type="button" class="m-btn xs" :class="{ zhu: selectedId === suggestion.id }" :aria-pressed="selectedId === suggestion.id" @click="selectSuggestion(suggestion.id)">
                   {{ selectedId === suggestion.id ? '当前方向' : '选为当前方向' }}
-                </n-button>
-                <n-button size="tiny" quaternary @click="emit('copy', suggestion)">复制思路</n-button>
-                <n-button size="tiny" quaternary :disabled="stale || saving" @click="emit('promote-plan', suggestion)">转为章节计划</n-button>
-                <n-button size="tiny" quaternary :disabled="stale || saving" @click="emit('save-note', suggestion)">保存为场景笔记</n-button>
+                </button>
+                <button type="button" class="m-btn xs ghost" @click="emit('copy', suggestion)">复制思路</button>
+                <button type="button" class="m-btn xs ghost" :disabled="stale || saving" @click="emit('promote-plan', suggestion)">转为章节计划</button>
+                <button type="button" class="m-btn xs ghost" :disabled="stale || saving" @click="emit('save-note', suggestion)">保存为场景笔记</button>
               </div>
             </article>
           </section>
 
           <section v-if="result.nextChapterPlan" class="advisor-section next-plan-section">
-            <div class="section-heading"><strong>下一章计划草案</strong><span>确认后再使用</span></div>
+            <div class="section-heading"><strong>下一章计划候选</strong><span>确认后再使用</span></div>
             <h3>{{ result.nextChapterPlan.title }}</h3>
             <p v-if="result.nextChapterPlan.objective">{{ result.nextChapterPlan.objective }}</p>
             <ol v-if="result.nextChapterPlan.beats.length">
@@ -114,15 +114,14 @@
       </div>
 
       <footer v-if="result" class="advisor-footer">
-        <n-button size="small" :disabled="analyzing" @click="emit('analyze', lastMode)">重新分析</n-button>
-        <n-button size="small" quaternary @click="emit('clear')">清空本标签建议</n-button>
+        <button type="button" class="m-btn sm" :disabled="analyzing" @click="emit('analyze', lastMode)">重新分析</button>
+        <button type="button" class="m-btn sm ghost" @click="emit('clear')">清空本标签建议</button>
       </footer>
     </aside>
 </template>
 
 <script setup lang="ts">
 import { computed, shallowReactive } from 'vue'
-import { NButton } from 'naive-ui'
 import type { WritingAdviceKind, WritingAdviceMode, WritingAdviceResult, WritingAdviceSuggestion } from '@/services/writingAdvisor'
 
 const props = defineProps<{

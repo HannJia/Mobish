@@ -51,7 +51,7 @@ export function commitChapterCompletion(aggregate: StoryAggregate, input: Chapte
   const chapter = novel.chapters.find(row => row.id === input.chapterId)
   if (!chapter || chapter.status === 'locked' || chapter.content !== input.content) throw new Error('章节或正文已变化，请重新完成本章。')
   const version = storyDecisionSourceVersion(aggregate, chapter.id, knowledge)
-  if (version !== input.reviewVersion) throw new Error('审核输入已经变化，请重新审核后完成本章。')
+  if (version !== input.reviewVersion) throw new Error('审校输入已经变化，请重新审校后完成本章。')
   if (getChapterSummaryStatus(chapter) !== 'current') throw new Error('章节总结尚未保存或已经过期。')
   const signature = buildChapterReviewSignature(chapter.content, buildReviewContextVersion(novel, chapter, knowledge,
     workspace.creationDraft, workspace.canonMutations, workspace.storyMemories))
@@ -60,7 +60,7 @@ export function commitChapterCompletion(aggregate: StoryAggregate, input: Chapte
   for (const row of workspace.reviewFindings.filter(row => row.chapterId === chapter.id)) findings.set(row.id, row)
   if (!review || !canFinalizeChapter({ ...review, findings: [...findings.values()] }, version)
     || chapter.contentReviewSignature !== signature || !isReviewCoverageComplete(chapter.contentReviewCoverage, signature, chapter.content)) {
-    throw new Error('章节审核未通过或已过期，请重新审核。')
+    throw new Error('章节审校未通过或已过期，请重新审校。')
   }
   if (inspectChapterLength(chapter.content, resolveChapterLengthPolicy(novel.chapterLengthPolicy)).status !== 'within') throw new Error('章节篇幅尚未达标。')
   const contentVersion = buildAnalysisSourceVersionId(chapter.content)
@@ -70,7 +70,7 @@ export function commitChapterCompletion(aggregate: StoryAggregate, input: Chapte
   if (!input.analysisComplete) throw new Error('章节分析尚未成功保存，本章尚未完成。')
   if (input.analysisBaseline !== captureChapterAnalysisBaseline(novel, chapter, workspace.canonMutations)) throw new Error('分析依据已经变化，请重新分析后完成本章。')
   const queued = queueDataPanelAutomation(novel, chapter.chapterIndex, input.content, now, nextId)
-  if (storyDecisionSourceVersion(aggregate, chapter.id, knowledge) !== version) throw new Error('自动提案改变了审核输入，请重新审核。')
+  if (storyDecisionSourceVersion(aggregate, chapter.id, knowledge) !== version) throw new Error('自动提案改变了审校输入，请重新审校。')
   if (pending) {
     const changed = chapter.status !== 'completed' || queued.changed
     chapter.status = 'completed'

@@ -56,7 +56,7 @@ export function isAutonomousRunActive(run: AiRun): boolean { return activeRuns.h
 export function recoverInterruptedAiRun(run: AiRun, now: string): AiRun {
   if (isAutonomousRunActive(run)) throw new Error('任务仍在执行，不能恢复为中断状态。')
   if (run.status !== 'running') throw new Error('只有中断的执行中任务需要恢复。')
-  return { ...interruptAiRunRequests(run, now), status: 'paused', error: '上次任务意外中断；未收到回执的请求已按预留额度计入估算用量。' }
+  return { ...interruptAiRunRequests(run, now), status: 'paused', error: '上次任务意外中断，未完成的请求已按预估用量计入。' }
 }
 
 export async function executeAutonomousRun(input: AutonomousRunExecutorInput): Promise<AiRun> {
@@ -146,7 +146,7 @@ async function executeRun(input: AutonomousRunExecutorInput): Promise<AiRun> {
       if (result.status === 'completed' && isCompletedChapterCheckpoint(completionCheckpoint, chapterIndex)
         && run.checkpointEvery && !isLast && processed % run.checkpointEvery === 0) {
         run = finishAiRun({ ...run, checkpoint: 'chapter-' + chapterIndex + ':checkpoint' }, 'needs_author', timestamp(input),
-          `已完成 ${processed} 章，达到每 ${run.checkpointEvery} 章检查点，请作者确认后继续。`)
+          `已完成 ${processed} 章，达到每 ${run.checkpointEvery} 章检查点，请确认后继续。`)
         await input.persist(run)
         return run
       }

@@ -142,7 +142,7 @@ export function parseSearchResponse(raw: unknown, protocol: Exclude<ChatSearchPr
     searched ||= Number(object(object(data.usage).server_tool_use).web_search_requests) > 0
   } else {
     const choice = object(array(data.choices)[0])
-    if (choice.finish_reason === 'length') throw new Error('联网回复达到输出上限，请提高 Max Tokens 后重试。')
+    if (choice.finish_reason === 'length') throw new Error('联网回复达到输出上限，请在设置中提高“最大输出 Token 数”后重试。')
     const message = object(choice.message)
     content = typeof message.content === 'string' ? message.content : ''
     candidates = array(message.annotations)
@@ -189,8 +189,8 @@ export async function chatWithOptionalSearch(options: AssistantChatOptions): Pro
   if (!['https:', 'http:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
     throw new Error('API 地址必须是有效的 HTTP(S) 基地址，不能包含凭据、查询参数或片段。')
   }
-  if (!model.apiKey.trim()) throw new Error('请先在设置中填写有效接口密钥。')
-  if (model.apiKey.startsWith('enc:') || model.apiKey.includes('***')) throw new Error('接口密钥是密文或遮蔽文本，请填写当前服务商的有效密钥。')
+  if (!model.apiKey.trim()) throw new Error('请先在设置中填写有效的 API 密钥。')
+  if (model.apiKey.startsWith('enc:') || model.apiKey.includes('***')) throw new Error('API 密钥是密文或遮蔽文本，请填写当前服务商的有效密钥。')
   const protocol = resolveChatSearchProtocol(model)
   let path = '/chat/completions'
   const headers: Record<string, string> = { 'Content-Type': 'application/json', Authorization: `Bearer ${model.apiKey}` }

@@ -127,7 +127,7 @@ describe('V3 规划三栏与真实投影', () => {
     expect(wrapper!.get(`[data-scene-id="${sceneId}"]`).text()).toContain('问题仍未得到回答')
     await wrapper!.get('[data-chapter-index="1"]').trigger('click')
     expect(wrapper!.get('.plan-detail h2').text()).toBe('灯座之下')
-    expect(wrapper!.get('.plan-detail').text()).toContain('尚无单章章纲')
+    expect(wrapper!.get('.plan-detail').text()).toContain('本章还没有章纲')
     expect(replace).toHaveBeenLastCalledWith({ query: { view: 'overview', planChapter: '2', planVolume: undefined, planFocus: undefined } })
     expect(JSON.stringify(novel)).toBe(before)
     expect(JSON.stringify(workspace.getCreationDraft(novel.id))).toBe(draftBefore)

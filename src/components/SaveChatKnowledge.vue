@@ -1,50 +1,47 @@
 <template>
-  <n-modal :show="show" preset="card" title="存入知识库" class="save-chat-knowledge"
-    style="width: min(640px, calc(100vw - 32px));" :closable="!saving" :mask-closable="!saving"
-    :close-on-esc="!saving" @update:show="value => { if (!saving) emit('update:show', value) }">
+  <V3Modal :show="show" title="存入知识库" size="wide" class="save-chat-knowledge" :closable="!saving"
+    description="把这条回复整理成知识条目；保存前可以修改标题、分类、内容和摘要。"
+    @update:show="value => { if (!saving) emit('update:show', value) }">
     <div class="knowledge-draft-form">
-      <label>目标知识库</label>
-      <n-select v-model:value="target" :options="options" :disabled="saving || Boolean(pending)"
-        aria-label="目标知识库" />
+      <V3Field label="目标知识库"><V3Select v-model:value="target" :options="options" :disabled="saving || Boolean(pending)" aria-label="目标知识库" /></V3Field>
       <template v-if="target === NEW_BASE">
-        <label>新知识库名称</label>
-        <n-input v-model:value="name" :maxlength="100" :disabled="saving || Boolean(pending)" aria-label="新知识库名称" />
+        <V3Field label="新知识库名称"><V3Input v-model:value="name" :maxlength="100" :disabled="saving || Boolean(pending)" aria-label="新知识库名称" /></V3Field>
       </template>
-      <label>条目标题</label>
-      <n-input v-model:value="title" :maxlength="180" :disabled="saving || extracting || Boolean(pending)" aria-label="条目标题" />
-      <label>分类</label>
-      <n-select v-model:value="category" :options="kbCategories" :disabled="saving || extracting || Boolean(pending)" aria-label="条目分类" />
-      <label>内容</label>
-      <n-input v-model:value="draft" type="textarea" :rows="10" :disabled="saving || extracting || Boolean(pending)" aria-label="知识条目内容" />
-      <label>标签</label>
-      <n-input v-model:value="tags" placeholder="用逗号分隔" :disabled="saving || extracting || Boolean(pending)" aria-label="知识条目标签" />
-      <label>提取摘要（供后续检索与写作参考）</label>
+      <div class="knowledge-form-row">
+        <V3Field label="条目标题"><V3Input v-model:value="title" :maxlength="180" :disabled="saving || extracting || Boolean(pending)" aria-label="条目标题" /></V3Field>
+        <V3Field label="分类"><V3Select v-model:value="category" :options="kbCategories" :disabled="saving || extracting || Boolean(pending)" aria-label="条目分类" /></V3Field>
+      </div>
+      <V3Field label="内容"><V3Input v-model:value="draft" type="textarea" :rows="10" :disabled="saving || extracting || Boolean(pending)" aria-label="知识条目内容" /></V3Field>
+      <V3Field label="标签"><V3Input v-model:value="tags" placeholder="用逗号分隔" :disabled="saving || extracting || Boolean(pending)" aria-label="知识条目标签" /></V3Field>
+      <span class="m-field-l">提取摘要（供后续检索与写作参考）</span>
       <p v-if="extracting" class="knowledge-extract-status" role="status">{{ extractionStatus }}</p>
       <p v-if="extractError" class="knowledge-save-error" role="alert">{{ extractError }}；可以重试或直接按原文保存。</p>
       <p v-if="content.length > CHAT_KNOWLEDGE_EXTRACT_LIMIT" class="knowledge-extract-status">
         本条回复较长，AI 仅读取前 {{ CHAT_KNOWLEDGE_EXTRACT_LIMIT.toLocaleString() }} 字；请核对摘要是否遗漏后续信息。
       </p>
-      <n-input v-model:value="summary" type="textarea" :rows="4" :disabled="saving || Boolean(pending) || extracting"
+      <V3Input v-model:value="summary" type="textarea" :rows="4" :disabled="saving || Boolean(pending) || extracting"
         placeholder="提取完成后可编辑；留空则仅保存原文" aria-label="知识条目摘要" />
-      <p class="knowledge-extract-status">AI 提取仅供参考，请核对重要事实与数字；原回复保留在上方正文。</p>
+      <p class="knowledge-extract-status">请核对 AI 提取的重要事实与数字。</p>
       <p v-if="error" class="knowledge-save-error" role="alert">{{ error }}</p>
     </div>
-    <template #action>
-      <div class="knowledge-save-actions">
-        <n-button :disabled="saving" @click="emit('update:show', false)">取消</n-button>
-        <n-button v-if="extractError && !saving && !pending" :disabled="extracting" @click="extract">重试提取</n-button>
-        <n-button type="primary" :loading="saving" :disabled="!canSave" @click="save">
-          <template #icon><n-icon><save-outline /></n-icon></template>{{ pending ? '重试保存' : '确认保存' }}
-        </n-button>
-      </div>
+    <template #footer>
+      <button type="button" class="m-btn" :disabled="saving" @click="emit('update:show', false)">取消</button>
+      <button v-if="extractError && !saving && !pending" type="button" class="m-btn" :disabled="extracting" @click="extract">重试提取</button>
+      <button type="button" class="m-btn pri" :disabled="!canSave || saving" :aria-busy="saving" @click="save">
+        <V3Icon name="check" size="s" />{{ pending ? '重试保存' : '确认保存' }}
+      </button>
     </template>
-  </n-modal>
+  </V3Modal>
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { NButton, NIcon, NInput, NModal, NSelect } from 'naive-ui'
-import { SaveOutline } from '@vicons/ionicons5'
+import V3Icon from '@/v3/components/V3Icon.vue'
+import V3Modal from '@/v3/components/V3Modal.vue'
+import V3Field from '@/v3/components/form/V3Field.vue'
+import V3Input from '@/v3/components/form/V3Input.vue'
+import V3Select from '@/v3/components/form/V3Select.vue'
 import { kbCategories, useKnowledgeStore } from '@/stores/knowledge'
 import { useConfigStore } from '@/stores/config'
 import { CHAT_KNOWLEDGE_EXTRACT_LIMIT, extractChatKnowledge } from '@/services/chatKnowledgeExtraction'
@@ -114,7 +111,7 @@ async function extract() {
   if (!props.show || !draft.value.trim() || extracting.value || pending.value) return
   const model = config.getModelForTask('chat')
   if (!model?.apiKey.trim()) {
-    extractError.value = '请先配置可用的对话模型与接口密钥'
+    extractError.value = '请先配置可用的对话模型与 API 密钥'
     return
   }
   const request = new AbortController()
@@ -135,7 +132,7 @@ async function extract() {
     summarizedContent = source
   } catch (cause) {
     if (active && props.show && extractionController === request && !request.signal.aborted) {
-      extractError.value = cause instanceof Error ? cause.message : 'AI 提取失败'
+      extractError.value = errorText(cause, 'AI 提取失败')
     }
   } finally {
     if (extractionController === request) {
@@ -174,7 +171,7 @@ async function save() {
   } catch (cause) {
     error.value = pending.value
       ? '条目已加入本次会话，但写入本机失败。请重试保存，不会重复创建条目。'
-      : cause instanceof Error ? cause.message : '保存失败，请重试。'
+      : errorText(cause, '保存失败，请重试。')
   } finally {
     saving.value = false
   }
@@ -183,12 +180,10 @@ async function save() {
 
 <style scoped>
 .knowledge-draft-form { display: grid; gap: 8px; min-width: 0; }
-.knowledge-draft-form label { font-size: 13px; color: var(--ink-2); }
+.knowledge-draft-form .m-field { margin-bottom: 0; }
+.knowledge-form-row { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 12px; }
+@media (max-width: 520px) { .knowledge-form-row { grid-template-columns: 1fr; } }
 .knowledge-save-error { color: var(--zhu); overflow-wrap: anywhere; margin: 0; }
 .knowledge-extract-status { color: var(--ink-3); font-size: 12px; margin: 0; }
-.knowledge-save-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.knowledge-save-actions :deep(.n-button) { width: 108px; height: 36px; }
-@media (max-width: 420px) {
-  .knowledge-save-actions :deep(.n-button) { flex: 1 1 88px; width: auto; }
-}
+
 </style>

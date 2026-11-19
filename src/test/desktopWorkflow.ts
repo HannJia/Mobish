@@ -236,7 +236,10 @@ export async function runDesktopWorkflow(phase: 'write' | 'reopen' | 'verify-sta
     await setContentSelection(editor, selectionStart, selectionEnd, prose.slice(selectionStart, selectionEnd))
     await until(() => document.querySelector('.selection-tools span')?.textContent?.trim() === `${selectionEnd - selectionStart} 字`, 'Selection toolbar range is not current')
     await click('润色')
-    await until(() => document.querySelector('.desk-tabs button.on')?.textContent?.includes('候选'), 'Selection candidate not shown; synthetic phases=' + requests.join(','))
+    // 修订候选出现在页边（有页边时不切换案头标签）；随后打开“候选”标签走完整的核对与采纳路径。
+    await until(() => document.querySelector('.desk-tabs button.on')?.textContent?.includes('候选')
+      || [...document.querySelectorAll('.paper-margins .slip-head')].some(head => head.textContent?.includes('正文修订候选')), 'Selection candidate not shown; synthetic phases=' + requests.join(','))
+    if (!document.querySelector('.desk-tabs button.on')?.textContent?.includes('候选')) document.getElementById('desk-tab-candidate')?.click()
     assert(chapter.content === prose, 'Candidate replaced author text before confirmation')
     await until(() => document.querySelector('.revision-card'), 'Selection candidate detail not shown')
     await click('采纳入正文')

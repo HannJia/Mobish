@@ -7,16 +7,10 @@
         <p class="page-subtitle">全书状态、数值与变化记录</p>
       </div>
       <div class="header-actions">
-        <n-dropdown trigger="click" :options="exportOptions" @select="exportDataPanels">
-          <n-button tertiary>
-            <template #icon><n-icon><download-outline /></n-icon></template>
-            导出
-          </n-button>
-        </n-dropdown>
-        <n-button type="primary" :disabled="dataSaving" @click="openEditor()">
-          <template #icon><span style="font-size:16px">+</span></template>
-          新建数据
-        </n-button>
+        <div class="export-group" role="group" aria-label="导出数据面板">
+          <button v-for="option in exportOptions" :key="option.key" type="button" class="m-btn ghost" @click="exportDataPanels(option.key)">{{ option.label }}</button>
+        </div>
+        <button type="button" class="m-btn pri" :disabled="dataSaving" @click="openEditor()"><V3Icon name="plus" size="s" />新建数据</button>
       </div>
     </header>
 
@@ -52,31 +46,33 @@
       </div>
       <div class="story-clock-controls">
         <span>故事起点</span>
-        <n-input-number v-model:value="storyDayDraft" :disabled="dataSaving" :min="0" :max="100000000" :step="1" size="small" />
-        <n-input v-model:value="storyLabelDraft" :disabled="dataSaving" placeholder="显示名称（可选）" size="small" />
-        <n-button size="small" type="primary" :loading="dataSaving" @click="saveStoryClock">确认故事起点</n-button>
-        <n-button size="small" :disabled="dataSaving" @click="reloadOriginTime">重新读取起点</n-button>
+        <V3Number v-model:value="storyDayDraft" class="clock-num" aria-label="故事起点（故事日）" :disabled="dataSaving" :min="0" :max="100000000" clearable placeholder="故事日" />
+        <V3Input v-model:value="storyLabelDraft" class="clock-text" :disabled="dataSaving" placeholder="显示名称（可选）" />
+        <button type="button" class="m-btn pri" :disabled="dataSaving" :aria-busy="dataSaving" @click="saveStoryClock">确认故事起点</button>
+        <button type="button" class="m-btn" :disabled="dataSaving" @click="reloadOriginTime">重新读取起点</button>
       </div>
-      <p role="status">{{ originTime.known ? `已确认起点：故事日 ${originTime.endDay}` : '起点待核对；旧时钟数字不会自动成为已确认事实。' }}</p>
+      <p role="status">{{ originTime.known ? `已确认起点：故事日 ${originTime.endDay}` : '故事起点还没有确认。' }}</p>
       <p>修改起点或替换章节时间会保留历史，并使依赖旧来源的相对时间待核对。</p>
       <div class="story-clock-controls">
-        <n-select v-model:value="timeChapterId" :options="timeChapterOptions" :disabled="dataSaving" placeholder="选择要确认的章节" />
-        <n-button size="small" :disabled="dataSaving || !timeChapterId" @click="reloadChapterTime">重新读取来源</n-button>
+        <V3Select v-model:value="timeChapterId" class="clock-select" aria-label="要确认时间的章节" :options="timeChapterOptions" :disabled="dataSaving" placeholder="选择要确认的章节" />
+        <button type="button" class="m-btn" :disabled="dataSaving || !timeChapterId" @click="reloadChapterTime">重新读取来源</button>
       </div>
       <template v-if="timeChapter">
         <p role="status">{{ selectedTime.known ? `已确认：故事日 ${selectedTime.startDay}–${selectedTime.endDay}` : `开始：${selectedTime.startDay ?? '未知'}；结束：未知。${selectedTime.reason}` }}</p>
         <div class="story-clock-controls">
-          <n-select v-model:value="timeMode" :disabled="dataSaving" :options="timeModeOptions" />
+          <V3Select v-model:value="timeMode" class="clock-select" aria-label="时间方式" :disabled="dataSaving" :options="timeModeOptions" />
           <template v-if="timeMode === 'absolute'">
-            <span>开始日</span><n-input-number v-model:value="timeStart" :disabled="dataSaving" :min="0" placeholder="明确填写开始日" />
-            <span>结束日</span><n-input-number v-model:value="timeEnd" :disabled="dataSaving" :min="0" placeholder="明确填写结束日" />
+            <label class="clock-pair"><span>开始日</span><V3Number v-model:value="timeStart" class="clock-num" :disabled="dataSaving" :min="0" clearable placeholder="明确填写" /></label>
+            <label class="clock-pair"><span>结束日</span><V3Number v-model:value="timeEnd" class="clock-num" :disabled="dataSaving" :min="0" clearable placeholder="明确填写" /></label>
           </template>
-          <template v-else><span>经过天数</span><n-input-number v-model:value="timeElapsed" :disabled="dataSaving" :min="0" placeholder="包括明确的 0 天" /></template>
-          <n-input v-model:value="timeLabel" :disabled="dataSaving" placeholder="本章时间标签（可选）" />
+          <label v-else class="clock-pair"><span>经过天数</span><V3Number v-model:value="timeElapsed" class="clock-num" :disabled="dataSaving" :min="0" clearable placeholder="可填 0" /></label>
+          <V3Input v-model:value="timeLabel" class="clock-text" :disabled="dataSaving" placeholder="本章时间标签（可选）" />
         </div>
-        <n-checkbox v-if="expectedTimeRecord" v-model:checked="replaceTime" :disabled="dataSaving">我已核对正文，明确替换本章原时间确认（保留历史）</n-checkbox>
-        <n-button :loading="dataSaving" :disabled="timeChapter.status === 'locked' || (!!expectedTimeRecord && !replaceTime)" @click="saveChapterTime">确认本章时间</n-button>
-        <n-button :disabled="dataSaving || !selectedTime.known" @click="queueChapterDataChanges">按本章结束日推算数据</n-button>
+        <label v-if="expectedTimeRecord" class="m-check"><input v-model="replaceTime" type="checkbox" :disabled="dataSaving">我已核对正文，明确替换本章原时间确认（保留历史）</label>
+        <div class="story-clock-controls">
+          <button type="button" class="m-btn pri" :disabled="dataSaving || timeChapter.status === 'locked' || (!!expectedTimeRecord && !replaceTime)" :aria-busy="dataSaving" @click="saveChapterTime">确认本章时间</button>
+          <button type="button" class="m-btn" :disabled="dataSaving || !selectedTime.known" @click="queueChapterDataChanges">按本章结束日推算数据</button>
+        </div>
         <p>重新确认过的旧规则将从本章结束日重新累计；新的推算结果仍需逐项确认后写入。</p>
       </template>
       <details>
@@ -91,9 +87,9 @@
     </section>
 
     <div class="filter-bar">
-      <n-input v-model:value="query" clearable placeholder="搜索名称、关键词或字段" />
-      <n-select v-model:value="categoryFilter" :options="categoryFilterOptions" />
-      <n-select v-model:value="recentFilter" :options="recentFilterOptions" />
+      <V3Input v-model:value="query" clearable aria-label="搜索数据" placeholder="搜索名称、关键词或字段" />
+      <V3Select v-model:value="categoryFilter" aria-label="分类" :options="categoryFilterOptions" />
+      <V3Select v-model:value="recentFilter" aria-label="出现范围" :options="recentFilterOptions" />
     </div>
 
     <div class="data-layout">
@@ -113,24 +109,13 @@
           >
             <div class="object-card-header">
               <div>
-                <n-tag size="small">{{ item.category }}</n-tag>
+                <span class="m-tag">{{ item.category }}</span>
                 <h3>{{ item.name }}</h3>
               </div>
               <div class="icon-actions">
-                <n-button quaternary circle size="small" title="编辑数据" :disabled="dataSaving" @click.stop="openEditor(item)">
-                  <template #icon><n-icon><create-outline /></n-icon></template>
-                </n-button>
-                <n-button v-if="item.versions?.length" quaternary circle size="small" title="查看历史版本" :disabled="dataSaving" @click.stop="openVersionModal(item)">
-                  <template #icon><n-icon><time-outline /></n-icon></template>
-                </n-button>
-                <n-popconfirm @positive-click="removeItem(item.id)">
-                  <template #trigger>
-                    <n-button quaternary circle size="small" title="删除数据" :disabled="dataSaving" @click.stop="prepareDelete(item.id)">
-                      <template #icon><n-icon><trash-outline /></n-icon></template>
-                    </n-button>
-                  </template>
-                  删除该数据对象及其全部变更记录？
-                </n-popconfirm>
+                <button type="button" class="m-ibtn" title="编辑数据" aria-label="编辑数据" :disabled="dataSaving" @click.stop="openEditor(item)"><V3Icon name="edit" size="s" /></button>
+                <button v-if="item.versions?.length" type="button" class="m-ibtn" title="查看历史版本" aria-label="查看历史版本" :disabled="dataSaving" @click.stop="openVersionModal(item)"><V3Icon name="clock" size="s" /></button>
+                <button type="button" class="m-ibtn danger" title="删除数据" aria-label="删除数据" :disabled="dataSaving" @click.stop="confirmRemoveItem(item)"><V3Icon name="trash" size="s" /></button>
               </div>
             </div>
 
@@ -152,14 +137,14 @@
             </div>
           </article>
         </div>
-        <n-empty v-else description="没有符合条件的数据对象" />
+        <div v-else class="m-empty"><b>{{ dataPanels.length ? '没有符合条件的数据' : '还没有数据对象' }}</b><p>{{ dataPanels.length ? '换个关键词或分类试试。' : '用“新建数据”记录资源、装备、角色数值等会随剧情变化的内容。' }}</p></div>
       </section>
 
       <aside class="timeline-section">
         <section v-if="selectedItem" class="selected-data-detail">
-          <div class="selected-data-title"><h3>{{ selectedItem.name }}</h3><n-tag size="small">{{ selectedItem.category }}</n-tag></div>
+          <div class="selected-data-title"><h3>{{ selectedItem.name }}</h3><span class="m-tag">{{ selectedItem.category }}</span></div>
           <p v-if="selectedItem.relatedKeywords.length" class="selected-data-keywords">{{ selectedItem.relatedKeywords.join(' · ') }}</p>
-          <div class="selected-data-header"><h4>基础信息</h4><n-button size="small" text :disabled="dataSaving" @click="openEditor(selectedItem)">编辑</n-button></div>
+          <div class="selected-data-header"><h4>基础信息</h4><button type="button" class="m-link" :disabled="dataSaving" @click="openEditor(selectedItem)">编辑</button></div>
           <dl class="selected-data-fields"><div v-for="field in selectedItem.fields" :key="field.id"><dt>{{ field.name }}</dt><dd>{{ field.value }}{{ field.unit ? ' ' + field.unit : '' }}</dd></div></dl>
           <EquipmentSummary :item="selectedItem" :items="dataPanels" />
         </section>
@@ -168,11 +153,11 @@
             <h3>变化时间线</h3>
             <span>{{ selectedItem?.name || '全部对象' }}</span>
           </div>
-          <n-button v-if="selectedItemId" text @click="selectedItemId = ''">查看全部</n-button>
+          <button v-if="selectedItemId" type="button" class="m-link" @click="selectedItemId = ''">查看全部</button>
         </div>
         <div class="timeline-filters">
-          <n-select v-model:value="historyStatus" size="small" :options="historyStatusOptions" />
-          <n-select v-model:value="historyField" size="small" :options="historyFieldOptions" />
+          <V3Select v-model:value="historyStatus" aria-label="变更状态" :options="historyStatusOptions" />
+          <V3Select v-model:value="historyField" aria-label="字段" :options="historyFieldOptions" />
         </div>
         <div v-if="timelineChanges.length" class="change-timeline">
           <div v-for="change in timelineChanges" :key="change.id" class="timeline-entry">
@@ -180,69 +165,70 @@
             <div>
               <div class="timeline-entry-header">
                 <strong>第 {{ change.chapterIndex + 1 }} 章 · {{ change.itemName }} · {{ change.fieldName }}</strong>
-                <n-tag size="small" :type="changeStatusType(change.status)">{{ changeStatusLabel(change.status) }}</n-tag>
+                <span class="m-tag" :class="changeStatusTone(change.status)">{{ changeStatusLabel(change.status) }}</span>
               </div>
               <p>{{ change.oldValue }} → {{ change.newValue }}</p>
               <small>{{ change.reason }}</small>
               <div v-if="change.status === 'pending'" class="change-actions">
-                <n-button size="tiny" type="primary" :disabled="dataSaving" @click="confirmChange(change.id)">应用</n-button>
-                <n-button size="tiny" :disabled="dataSaving" @click="rejectChange(change.id)">忽略</n-button>
+                <button type="button" class="m-btn xs pri" :disabled="dataSaving" @click="confirmChange(change.id)">应用</button>
+                <button type="button" class="m-btn xs" :disabled="dataSaving" @click="rejectChange(change.id)">忽略</button>
               </div>
             </div>
           </div>
         </div>
-        <n-empty v-else description="暂无变化记录" />
+        <div v-else class="m-empty"><p>暂无变化记录</p></div>
       </aside>
     </div>
 
-    <n-modal v-model:show="showEditor" preset="card" :title="editingItemId ? '编辑数据' : '新建数据'" class="editor-modal" :mask-closable="!dataSaving" :close-on-esc="!dataSaving" :closable="!dataSaving">
-      <n-form label-placement="top" :disabled="dataSaving" :inert="dataSaving">
-        <div class="form-grid">
-          <n-form-item label="名称"><n-input v-model:value="form.name" placeholder="数据对象名称" /></n-form-item>
-          <n-form-item label="分类"><n-select v-model:value="form.category" :options="categoryOptions" /></n-form-item>
-          <n-form-item v-if="form.category === '装备' || form.category === '道具'" label="归属对象">
-            <n-select v-model:value="form.ownerItemId" clearable :options="ownerOptions" placeholder="选择归属的角色或对象" />
-          </n-form-item>
-          <n-form-item v-if="form.category === '装备' || form.category === '道具'" label="装备状态">
-            <n-select v-model:value="form.equipmentState" :options="equipmentStateOptions" />
-          </n-form-item>
-          <n-form-item label="关联关键词" class="span-2"><n-input v-model:value="form.keywords" placeholder="用顿号或逗号分隔" /></n-form-item>
-          <n-form-item label="字段与自动规则" class="span-2">
+    <V3Modal v-model:show="showEditor" :title="editingItemId ? '编辑数据' : '新建数据'" size="wide" :closable="!dataSaving">
+      <fieldset class="m-fieldset" :disabled="dataSaving" :inert="dataSaving">
+        <div class="m-form-grid">
+          <V3Field label="名称"><V3Input v-model:value="form.name" placeholder="数据对象名称" /></V3Field>
+          <V3Field label="分类"><V3Select v-model:value="form.category" :options="categoryOptions" /></V3Field>
+          <template v-if="isEquipment">
+            <V3Field label="归属对象">
+              <V3Select :value="form.ownerItemId || null" clearable :options="ownerOptions" placeholder="不归属任何对象" @update:value="form.ownerItemId = $event ?? ''" />
+            </V3Field>
+            <V3Field label="装备状态"><V3Select v-model:value="form.equipmentState" :options="equipmentStateOptions" /></V3Field>
+          </template>
+          <V3Field label="关联关键词" span><V3Input v-model:value="form.keywords" placeholder="用顿号或逗号分隔" /></V3Field>
+          <div class="m-field span-2" role="group" aria-label="字段与自动规则">
+            <span class="m-field-l">字段与自动规则</span>
             <DataPanelFieldEditor v-model:fields="structuredFields" v-model:automation-text="form.automation" />
-          </n-form-item>
-          <n-form-item v-if="form.category === '装备' || form.category === '道具'" class="span-2">
-            <EquipmentFieldEditor v-model:fields="structuredFields" />
-          </n-form-item>
+          </div>
+          <div v-if="isEquipment" class="m-field span-2"><EquipmentFieldEditor v-model:fields="structuredFields" /></div>
         </div>
-      </n-form>
+      </fieldset>
       <template #footer>
-        <div class="modal-actions">
-          <n-button :disabled="dataSaving" @click="showEditor = false">取消</n-button>
-          <n-button type="primary" :loading="dataSaving" @click="saveItem">保存</n-button>
-        </div>
+        <button type="button" class="m-btn" :disabled="dataSaving" @click="showEditor = false">取消</button>
+        <button type="button" class="m-btn pri" :disabled="dataSaving" :aria-busy="dataSaving" @click="saveItem">保存</button>
       </template>
-    </n-modal>
+    </V3Modal>
 
-    <n-modal v-model:show="showVersionModal" preset="card" title="数据面板版本" class="editor-modal" :mask-closable="!dataSaving" :close-on-esc="!dataSaving" :closable="!dataSaving">
-      <div v-if="versionItem" class="version-dialog">
-        <p><strong>{{ versionItem.name }}</strong> · 当前版本</p>
-        <n-select v-model:value="selectedVersionId" :options="versionOptions" :disabled="dataSaving" />
-        <n-button type="warning" :disabled="!selectedVersionId || dataSaving" :loading="dataSaving" @click="restoreVersion">恢复此版本</n-button>
-      </div>
-    </n-modal>
+    <V3Modal v-model:show="showVersionModal" title="数据面板版本" size="small" :closable="!dataSaving"
+      :description="versionItem ? `恢复「${versionItem.name}」到下列某次修改前的状态，当前内容会先存为新版本。` : undefined">
+      <V3Field v-if="versionItem" label="历史版本"><V3Select v-model:value="selectedVersionId" :options="versionOptions" :disabled="dataSaving" /></V3Field>
+      <template #footer>
+        <button type="button" class="m-btn" :disabled="dataSaving" @click="showVersionModal = false">取消</button>
+        <button type="button" class="m-btn pri" :disabled="!selectedVersionId || dataSaving" :aria-busy="dataSaving" @click="restoreVersion">恢复此版本</button>
+      </template>
+    </V3Modal>
   </div>
   </BookPage>
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import BookPage from '@/v3/components/BookPage.vue'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import {
-  NButton, NDropdown, NEmpty, NForm, NFormItem, NIcon, NInput, NInputNumber, NModal,
-  NPopconfirm, NSelect, NTag, NCheckbox, useMessage,
-} from 'naive-ui'
-import { CreateOutline, DownloadOutline, TrashOutline, TimeOutline } from '@vicons/ionicons5'
+import { useDialog, useMessage } from '@/v3/feedback'
+import V3Icon from '@/v3/components/V3Icon.vue'
+import V3Modal from '@/v3/components/V3Modal.vue'
+import V3Field from '@/v3/components/form/V3Field.vue'
+import V3Input from '@/v3/components/form/V3Input.vue'
+import V3Number from '@/v3/components/form/V3Number.vue'
+import V3Select from '@/v3/components/form/V3Select.vue'
 import { useNovelStore } from '@/stores/novel'
 import DataPanelFieldEditor from '@/components/data-panel/DataPanelFieldEditor.vue'
 import EquipmentFieldEditor from '@/components/data-panel/EquipmentFieldEditor.vue'
@@ -264,6 +250,7 @@ import { storyTimeHistory, projectStoryTime, projectStoryTimeOrigin, storyTimeSo
 const route = useRoute()
 const novelStore = useNovelStore()
 const message = useMessage()
+const dialog = useDialog()
 const novelId = computed(() => route.params.novelId as string)
 const novel = computed(() => novelStore.getNovel(novelId.value))
 const referenceIssues = computed(() => novel.value ? projectDataPanelReferences(novel.value).issues : [])
@@ -343,6 +330,7 @@ const exportOptions = [
   { label: '导出 JSON', key: 'json' },
   { label: '导出 Markdown', key: 'markdown' },
 ]
+const isEquipment = computed(() => form.value.category === '装备' || form.value.category === '道具')
 const ownerOptions = computed(() => dataPanels.value
   .filter(item => item.id !== editingItemId.value && item.category === '角色')
   .map(item => ({ label: `${item.name}（${item.category}）`, value: item.id })))
@@ -404,7 +392,7 @@ async function runDataMutation(action: () => Promise<boolean>): Promise<boolean>
   try {
     return await action()
   } catch (error) {
-    message.error(error instanceof Error ? error.message : '数据保存失败，请重试')
+    message.error(errorText(error, '数据保存失败，请重试'))
     return false
   } finally {
     dataSaving.value = false
@@ -443,7 +431,7 @@ function saveChapterTime() {
     }, timeBaseline.value)
     if (!clock) return false
     if (source.novelId === novelId.value && source.chapterId === timeChapterId.value) reloadChapterTime()
-    message.success('本章时间已确认，相关审核及依赖时间需要重新核对')
+    message.success('本章时间已确认，相关审校及依赖时间需要重新核对')
     return true
   })
 }
@@ -552,9 +540,12 @@ function rejectChange(id: string) {
   })
 }
 
-function prepareDelete(itemId: string) {
+// 打开确认框时记下基线，确认删除时按这个基线校验，避免删掉期间已被改动的数据。
+function confirmRemoveItem(item: DataPanelItem) {
   if (dataSaving.value) return
-  deleteBaselines.set(`${novelId.value}:${itemId}`, novelStore.captureDataPanelEditBaseline(novelId.value, itemId))
+  deleteBaselines.set(`${novelId.value}:${item.id}`, novelStore.captureDataPanelEditBaseline(novelId.value, item.id))
+  dialog.warning({ title: '删除数据', content: `删除「${item.name}」及其全部变更记录？`, positiveText: '删除', negativeText: '取消',
+    onPositiveClick: () => { void removeItem(item.id) } })
 }
 
 function removeItem(itemId: string) {
@@ -574,8 +565,8 @@ function changeStatusLabel(status: DataPanelChange['status']): string {
   return status === 'pending' ? '待确认' : status === 'accepted' ? '已应用' : '已忽略'
 }
 
-function changeStatusType(status: DataPanelChange['status']): 'warning' | 'success' | 'default' {
-  return status === 'pending' ? 'warning' : status === 'accepted' ? 'success' : 'default'
+function changeStatusTone(status: DataPanelChange['status']): string {
+  return status === 'pending' ? 'jin' : status === 'accepted' ? 'qing' : 'line'
 }
 
 function download(filename: string, content: string, type: string) {
@@ -612,8 +603,7 @@ function exportDataPanels(key: string) {
 .object-card-header,
 .icon-actions,
 .timeline-header,
-.timeline-entry-header,
-.modal-actions {
+.timeline-entry-header {
   display: flex;
   align-items: center;
 }
@@ -626,8 +616,8 @@ function exportDataPanels(key: string) {
 }
 
 .data-header { gap: 16px; flex-wrap: wrap; }
-.header-actions, .icon-actions, .modal-actions { gap: 8px; }
-.modal-actions { justify-content: flex-end; }
+.header-actions, .icon-actions { gap: 8px; }
+.icon-actions { gap: 2px; }
 .change-actions { display: flex; gap: 8px; margin-top: 8px; }
 
 .data-header { margin-bottom: 16px; }
@@ -693,13 +683,17 @@ function exportDataPanels(key: string) {
   justify-content: flex-start;
 }
 
-.story-clock-controls > .n-select { min-width: 220px; flex: 1; }
-.story-clock-controls > .n-input-number { width: 160px; }
-.story-clock-controls > .n-input { min-width: 180px; flex: 1; }
+.story-clock-controls > .clock-select { width: auto; min-width: 220px; flex: 1 1 220px; }
+.story-clock-controls .clock-num { width: 120px; }
+.story-clock-controls > .clock-text { min-width: 180px; flex: 1 1 180px; }
+.clock-pair { display: inline-flex; align-items: center; gap: 6px; }
+.export-group { display: inline-flex; gap: 2px; }
+.m-ibtn.danger:hover { color: var(--zhu); }
+.m-ibtn:disabled { opacity: .45; cursor: not-allowed; }
 .story-clock-panel p { margin: 0; color: var(--ink-2); }
 .story-clock-panel details { overflow-wrap: anywhere; }
 
-.story-clock-controls > span {
+.story-clock-controls > span, .clock-pair > span {
   color: var(--ink-2);
   font-size: 13px;
 }
@@ -816,9 +810,7 @@ function exportDataPanels(key: string) {
 .timeline-entry p { margin: 5px 0; color: var(--zhu); font-weight: 600; font-variant-numeric: tabular-nums; }
 .timeline-entry small { display: block; color: var(--ink-3); line-height: 1.5; }
 
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
 .span-2 { grid-column: 1 / -1; }
-.editor-modal { width: min(680px, calc(100vw - 32px)); }
 
 @media (max-width: 1050px) {
   .data-layout { grid-template-columns: 1fr; }
@@ -828,8 +820,7 @@ function exportDataPanels(key: string) {
 @media (max-width: 720px) {
   .data-header { align-items: flex-start; flex-direction: column; }
   .data-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .filter-bar, .object-grid, .form-grid { grid-template-columns: 1fr; }
-  .span-2 { grid-column: auto; }
+  .filter-bar, .object-grid { grid-template-columns: 1fr; }
 }
 
 .data-summary { display: flex; flex-wrap: wrap; gap: 20px; margin: 8px 0 16px; }

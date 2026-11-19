@@ -28,7 +28,7 @@ describe('WritingAdvisorSidebar', () => {
     const wrapper = shallowMount(WritingAdvisorSidebar, { props: baseProps })
     expect(wrapper.text()).toContain('追查标记来源')
     expect(wrapper.text()).toContain('第 3 章')
-    expect(wrapper.text()).toContain('下一章计划草案')
+    expect(wrapper.text()).toContain('下一章计划候选')
   })
 
   it('空状态提供当前场景分析入口', () => {
@@ -56,9 +56,9 @@ describe('WritingAdvisorSidebar', () => {
 
   it('提供同时分析全部范围的入口', async () => {
     const wrapper = shallowMount(WritingAdvisorSidebar, { props: baseProps, global: { renderStubDefaultSlot: true } })
-    const button = wrapper.findAllComponents({ name: 'Button' }).find(item => item.text() === '同时分析全部范围')!
+    const button = wrapper.findAll('button').find(item => item.text() === '同时分析全部范围')!
     expect(button.exists()).toBe(true)
-    button.vm.$emit('click')
+    await button.trigger('click')
     expect(wrapper.emitted('analyze-all')).toHaveLength(1)
     wrapper.unmount()
   })
@@ -77,32 +77,30 @@ describe('WritingAdvisorSidebar', () => {
     const wrapper = shallowMount(WritingAdvisorSidebar, {
       props: { ...baseProps, analyzing: true, stale: true, error: '正文已变化' },
     })
-    expect(wrapper.text()).toContain('正文或参考资料已经变化')
+    expect(wrapper.text()).toContain('正文或参考资料已修改')
   })
 
-  it('首次分析按钮遵从所选标签，不固定生成场景分析', () => {
+  it('首次分析按钮遵从所选标签，不固定生成场景分析', async () => {
     const wrapper = shallowMount(WritingAdvisorSidebar, {
       props: { ...baseProps, result: null, lastMode: 'paragraph' },
       global: { renderStubDefaultSlot: true },
     })
-    const analyze = wrapper.findAllComponents({ name: 'Button' }).find(button => button.text() === '分析当前段落')!
+    const analyze = wrapper.findAll('button').find(button => button.text() === '分析当前段落')!
     expect(analyze.exists()).toBe(true)
-    analyze.vm.$emit('click')
+    await analyze.trigger('click')
     expect(wrapper.emitted('analyze')?.[0]).toEqual(['paragraph'])
     wrapper.unmount()
   })
 
   it('不同标签独立保留选中方向，相同建议 ID 不会串选', async () => {
     const wrapper = shallowMount(WritingAdvisorSidebar, { props: baseProps, global: { renderStubDefaultSlot: true } })
-    const choose = () => wrapper.findAllComponents({ name: 'Button' }).find(button => button.text() === '选为当前方向')!
-    choose().vm.$emit('click')
-    await wrapper.vm.$nextTick()
+    const choose = () => wrapper.findAll('button').find(button => button.text() === '选为当前方向')!
+    await choose().trigger('click')
     expect(wrapper.find('.suggestion-card.selected').exists()).toBe(true)
     const paragraph: WritingAdviceResult = { ...result, mode: 'paragraph', focusLabel: '当前段落' }
     await wrapper.setProps({ result: paragraph, lastMode: 'paragraph' })
     expect(wrapper.find('.suggestion-card.selected').exists()).toBe(false)
-    choose().vm.$emit('click')
-    await wrapper.vm.$nextTick()
+    await choose().trigger('click')
     await wrapper.setProps({ result, lastMode: 'scene' })
     expect(wrapper.find('.suggestion-card.selected').exists()).toBe(true)
     await wrapper.setProps({ result: { ...result } })

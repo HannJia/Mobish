@@ -1,11 +1,11 @@
 <template>
   <section class="history-panel paper-panel" aria-labelledby="project-history-title">
     <h2 id="project-history-title">项目历史与单作品恢复</h2>
-    <p>{{ desktop ? '桌面每次持久化提交都会保留快照，也可手动建立恢复点。' : '可为作品手动保存本地恢复点；记录保存在当前浏览器中，清除浏览器数据会同时清除这些记录。' }}</p>
-      <p>先选择作品和版本，查看只读快照与差异，再明确确认恢复。</p>
+    <p>{{ desktop ? '每次保存都会自动留一个版本，你也可以手动建立恢复点。' : '可为作品手动保存本地恢复点；记录保存在当前浏览器中，清除浏览器数据会同时清除这些记录。' }}</p>
+      <p>先选择作品和版本，查看与当前内容的差异，再确认恢复。</p>
       <div v-if="desktop" class="history-retention">
       <h3>自动版本保留</h3>
-      <p>裁剪版本只会停止恢复该快照；提交记录、正文、Canon 与计费账本仍保留。</p>
+      <p>清理后，这些旧版本不能再恢复；正文和已确认的故事设定不受影响。</p>
       <p v-if="retentionError" role="alert">{{ retentionError }}</p><p v-if="retentionNotice" role="status">{{ retentionNotice }}</p>
       <template v-if="retention">
         <label>保留最近版本数（空白表示不按数量限制）<input v-model.number="retentionKeepLatest" type="number" min="1" max="1000000" :disabled="busy" @input="resetRetentionPreview" /></label>
@@ -14,19 +14,19 @@
           <legend>固定可恢复版本</legend>
           <label v-for="entry in entries" :key="entry.revision" class="retention-pin">
             <input v-model="retentionPins" type="checkbox" :value="entry.revision" :disabled="!!entry.prunedAt" @change="resetRetentionPreview" />
-            {{ entry.createdAt }} · {{ entry.label || '自动快照' }} · {{ entry.revision.slice(0, 16) }}
+            {{ entry.createdAt }} · {{ entry.label || '自动保存' }}
           </label>
         </fieldset>
         <button :disabled="busy" @click="previewRetention">预览保留策略</button>
         <div v-if="retentionPreview" class="retention-preview">
         <template v-if="!retentionPreviewStale">
-          <p>将停止恢复 {{ retentionPreview.prunedRevisions.length }} 个版本；提交记录及正文不会删除。</p>
+          <p>将清理 {{ retentionPreview.prunedRevisions.length }} 个旧版本，清理后不能再恢复；正文不受影响。</p>
           <ul><li v-for="item in retentionPreview.prunedRevisions" :key="item">{{ historyLabel(item) }}</li></ul>
-          <p>请求账本归档来源：{{ retentionPreview.archiveSources.length }}</p>
+          <p>这些版本中的 AI 用量记录会保留：{{ retentionPreview.archiveSources.length }} 份</p>
           <ul><li v-for="source in retentionPreview.archiveSources" :key="source.revision + source.projectId">
-            {{ historyLabel(source.revision) }} · {{ bookLabel(source.projectId) }} · 快照 {{ source.snapshot.slice(0, 16) }}
+            {{ historyLabel(source.revision) }} · {{ bookLabel(source.projectId) }}
           </li></ul>
-          <label><input v-model="retentionAcknowledged" type="checkbox" :disabled="busy" />我已确认以上版本将不可恢复，相关请求账本会保留</label>
+          <label><input v-model="retentionAcknowledged" type="checkbox" :disabled="busy" />我已确认这些版本清理后不能再恢复</label>
           <button :disabled="busy || !retentionAcknowledged" @click="confirmRetention">确认应用保留策略</button>
           <button :disabled="busy" @click="cancelRetentionPreview">取消预览</button>
         </template>
@@ -37,7 +37,7 @@
       <p v-else role="status">正在读取桌面保留策略…</p>
     </div>
     <div v-else class="history-retention">
-      <h3>历史保留策略</h3><p>浏览器存储不支持作者控制的版本裁剪；可管理桌面项目历史。</p>
+      <h3>历史保留策略</h3><p>浏览器版不支持清理旧版本，桌面版可以管理项目历史。</p>
     </div>
     <div class="history-actions">
       <label>作品<select v-model="novelId" :disabled="busy" @change="clearPreview"><option value="">请选择作品</option><option v-for="book in books" :key="book.id" :value="book.id">{{ book.title }}</option></select></label>
@@ -51,12 +51,12 @@
       <button :disabled="busy || !currentBook" @click="repairIndex">从正式内容重建索引</button>
       <p v-if="indexStatus" role="status">上次检查结果：{{ indexStatus.reason }}。后续保存后可重新检查。</p>
       <p v-for="warning in projectIndexWarnings.filter(row => row.projectId === novelId)" :key="warning.projectId" role="alert">正式内容已保存；曾有一次索引更新未完成，请检查当前状态或重建。{{ warning.message }}</p>
-      <details v-if="indexStatus"><summary>索引版本信息</summary><p>检查时的正式快照：{{ indexStatus.snapshot }}<br />所需索引格式版本：{{ indexStatus.schemaVersion }} · 所需数据版本：{{ indexStatus.dataVersion }}</p></details>
+      <details v-if="indexStatus"><summary>诊断信息</summary><p>检查时的版本：{{ indexStatus.snapshot }}<br />所需索引格式版本：{{ indexStatus.schemaVersion }} · 所需数据版本：{{ indexStatus.dataVersion }}</p></details>
     </div>
     <div class="history-capacity">
       <h3>历史容量与保留</h3>
       <p>{{ desktop ? '统计当前设备全部作品的项目存储。' : '统计当前浏览器保存的恢复点记录。' }}</p>
-      <p>默认保留全部恢复点。先预览容量和保护范围，再由作者确认清理孤立文件。</p>
+      <p>默认保留全部恢复点。先预览容量和保护范围，再确认清理孤立文件。</p>
       <button :disabled="busy" @click="inspectCapacity">预览历史容量与可回收文件</button>
       <div v-if="capacity">
         <p>{{ desktop ? '项目文件' : '恢复点记录' }}：{{ capacity.totalFiles }} 项，{{ formatBytes(capacity.totalBytes) }}；保护 {{ capacity.protectedVersions }} 个版本。</p>
@@ -70,21 +70,21 @@
       </div>
     </div>
     <p v-if="!entries.length">尚无恢复点。保存第一个手动恢复点后即可查看历史。</p>
-    <label>历史版本<select v-model="revision" :disabled="busy" @change="selectVersion"><option value="">请选择版本</option><option v-for="entry in entries" :key="entry.revision" :value="entry.revision">{{ entry.createdAt }} · {{ entry.label || '自动快照' }} · {{ entry.pinned ? '固定' : '' }}{{ entry.prunedAt ? '已裁剪（不可恢复）' : '' }} · {{ entry.revision.slice(0, 16) }}</option></select></label>
-    <p v-if="selectedEntry?.prunedAt" role="status">此版本已裁剪，仅保留审计记录与付费账本，不可预览或恢复。</p>
-    <p v-if="selectedEntry?.action">记录：{{ selectedEntry.action.label }}；作品 ID：{{ selectedEntry.action.novelId }}<span v-if="selectedEntry.action.sourceRevision">；来源版本：{{ selectedEntry.action.sourceRevision }}</span></p>
+    <label>历史版本<select v-model="revision" :disabled="busy" @change="selectVersion"><option value="">请选择版本</option><option v-for="entry in entries" :key="entry.revision" :value="entry.revision">{{ entry.createdAt }} · {{ entry.label || '自动保存' }}{{ entry.pinned ? ' · 固定' : '' }}{{ entry.prunedAt ? ' · 已清理（不可恢复）' : '' }}</option></select></label>
+    <p v-if="selectedEntry?.prunedAt" role="status">这个版本已清理，不能再预览或恢复。</p>
+    <p v-if="selectedEntry?.action">记录：{{ selectedEntry.action.label }}</p>
     <button :disabled="busy || !revision || !novelId || !!selectedEntry?.prunedAt" @click="preview">只读预览与当前版本比较</button>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
     <div v-if="comparison">
-      <h3>{{ comparison.historical.novel?.title }} · 历史快照</h3>
+      <h3>{{ comparison.historical.novel?.title }} · 历史版本</h3>
       <p>{{ comparison.diff.scopeStatement }}</p>
       <p v-for="note in comparison.diff.budgetNotes" :key="note">{{ note }}</p>
       <label>查看历史章节<select v-model="chapterId"><option value="">请选择章节</option><option v-for="chapter in historicalChapters" :key="chapter.id" :value="chapter.id">{{ chapter.title }}</option></select></label>
       <textarea v-if="historicalChapter" :value="historicalChapter.content" readonly aria-label="历史章节正文，只读" rows="12" />
-      <label>查看快照记录（含无变化的作者历史）<select v-model="snapshotSection" @change="snapshotRow = ''; snapshotDetail = ''"><option value="">请选择记录类型</option><option v-for="section in snapshotSections" :key="section.key" :value="section.key">{{ section.label }}</option></select></label>
+      <label>查看这个版本的记录<select v-model="snapshotSection" @change="snapshotRow = ''; snapshotDetail = ''"><option value="">请选择记录类型</option><option v-for="section in snapshotSections" :key="section.key" :value="section.key">{{ section.label }}</option></select></label>
       <label v-if="snapshotSection">历史记录<select v-model="snapshotRow" @change="showSnapshotRow"><option value="">请选择记录</option><option v-for="(row, index) in snapshotRows" :key="index" :value="String(index)">{{ row.title || row.name || row.id || '作品设定' }}</option></select></label>
       <pre v-if="snapshotDetail" aria-label="历史记录，只读">{{ snapshotDetail }}</pre>
-      <p>差异方向：当前 → 所选历史版本。账本实际恢复采用累计合并；审核和任务状态会按上方规则停用。</p>
+      <p>差异按“当前 → 所选版本”显示。恢复后，AI 用量记录会保留，相关章节需要重新审校。</p>
       <details v-for="section in comparison.diff.sections" :key="section.key">
         <summary>{{ section.label }}：{{ section.summary }}</summary>
         <ul><li v-for="change in section.changes" :key="change.id">
@@ -94,7 +94,7 @@
       </details>
       <div v-if="changeDetail" class="history-diff"><h4>{{ changeDetail.label }}</h4><pre>{{ changeDetail.value }}</pre></div>
       <div class="history-confirm">
-        <label><input v-model="acknowledged" type="checkbox" :disabled="busy" />我已查看差异，选择仅恢复这部作品；旧审核需要重审，付费任务不会自动继续。</label>
+        <label><input v-model="acknowledged" type="checkbox" :disabled="busy" />我已查看差异，选择仅恢复这部作品；旧审校需要重审，付费任务不会自动继续。</label>
         <label>输入作品名以确认<input v-model="confirmationTitle" :disabled="busy" autocomplete="off" /></label>
         <button :disabled="busy || !acknowledged || confirmationTitle !== comparison.historical.novel?.title" @click="restore">恢复《{{ comparison.historical.novel?.title }}》</button>
       </div>
@@ -103,6 +103,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { computed, onMounted, ref, shallowRef } from 'vue'
 import { useNovelStore } from '@/stores/novel'
 import { usesProjectKernel, inspectProjectIndex, projectIndexWarnings, readKernelHistoryRetention, previewKernelHistoryRetention, confirmKernelHistoryRetention } from '@/services/projectKernelClient'
@@ -134,9 +135,9 @@ const snapshotSections = [
   { key: 'novel.volumes', label: '分卷' }, { key: 'novel.characters', label: '人物' }, { key: 'novel.eventLog', label: '事件' },
   { key: 'novel.chapterPlans', label: '章纲' }, { key: 'novel.storyArcs', label: '剧情弧线' }, { key: 'novel.dataPanels', label: '数据面板' },
   { key: 'chapterRevisions', label: '章节修订历史' }, { key: 'workspace.creationDraft', label: '创建与场景规划' },
-  { key: 'workspace.candidates', label: '候选与作者决定' }, { key: 'workspace.canonMutations', label: 'Canon 决定历史' },
-  { key: 'workspace.chapterReviews', label: '章节审核' }, { key: 'workspace.reviewFindings', label: '审核发现' },
-  { key: 'workspace.storyMemories', label: '故事记忆' }, { key: 'workspace.impactReports', label: '影响报告' }, { key: 'workspace.aiRuns', label: '任务与账本' },
+  { key: 'workspace.candidates', label: '候选与作者决定' }, { key: 'workspace.canonMutations', label: '故事典籍记录' },
+  { key: 'workspace.chapterReviews', label: '章节审校' }, { key: 'workspace.reviewFindings', label: '审校发现' },
+  { key: 'workspace.storyMemories', label: '故事记忆' }, { key: 'workspace.impactReports', label: '影响报告' }, { key: 'workspace.aiRuns', label: '任务与 AI 用量' },
 ]
 const snapshotRows = computed<Record<string, unknown>[]>(() => {
   const scope = comparison.value?.historical
@@ -164,13 +165,13 @@ async function work(action: () => Promise<void>) {
   try { await action() } catch (cause) {
     error.value = cause instanceof Error && cause.name === 'QuotaExceededError'
       ? '浏览器本地存储空间不足，本次操作未完成。请先从书架导出项目备份，再使用桌面版继续管理历史；已有恢复点不会自动删除。'
-      : cause instanceof Error ? cause.message : String(cause)
+      : errorText(cause, String(cause))
   } finally { busy.value = false }
 }
 async function refresh() { await work(async () => { clearPreview(); entries.value = await listProjectHistory(); if (desktop) await loadRetention() }) }
 async function inspectIndex() { await work(async () => { indexStatus.value = null; indexStatus.value = await inspectProjectIndex(novelId.value) }) }
 async function repairIndex() { await work(async () => { indexStatus.value = null; indexStatus.value = await rebuildCurrentProjectIndex(novelId.value); notice.value = '作品索引已从正式内容重建。' }) }
-function historyLabel(revision: string) { const entry = entries.value.find(row => row.revision === revision); return entry ? entry.createdAt + ' · ' + (entry.label || '自动快照') + ' · ' + revision.slice(0, 16) : revision }
+function historyLabel(revision: string) { const entry = entries.value.find(row => row.revision === revision); return entry ? entry.createdAt + ' · ' + (entry.label || '自动保存') : revision }
 function bookLabel(projectId: string) { return books.value.find(book => book.id === projectId)?.title || projectId }
 function cancelRetentionPreview() { retentionPreview.value = null; retentionAcknowledged.value = false; retentionPreviewStale.value = false }
 async function loadRetention() {
@@ -209,7 +210,7 @@ async function confirmRetention() {
     retentionKeepSince.value = nextRetention.policy.keepSince ? new Date(nextRetention.policy.keepSince).toISOString().slice(0, 16) : ''
     retentionPins.value = [...nextRetention.pinnedRevisions]
     cancelRetentionPreview()
-    retentionNotice.value = '保留策略已保存；提交记录、正文和请求账本仍保留。'
+    retentionNotice.value = '保留设置已保存，正文不受影响。'
   })
 }
 function formatBytes(bytes: number) { return bytes < 1024 ? bytes + ' B' : bytes < 1024 * 1024 ? (bytes / 1024).toFixed(1) + ' KB' : (bytes / (1024 * 1024)).toFixed(1) + ' MB' }
@@ -232,7 +233,7 @@ async function preview() { await work(async () => { if (selectedEntry.value?.pru
 async function restore() {
   const value = comparison.value
   if (!value || !acknowledged.value || confirmationTitle.value !== value.historical.novel?.title) return
-  await work(async () => { await restoreProjectHistory(value.token); clearPreview(); entries.value = await listProjectHistory(); notice.value = '该作品已恢复并保存；恢复前保护点与作者历史可在版本列表中查看。' })
+  await work(async () => { await restoreProjectHistory(value.token); clearPreview(); entries.value = await listProjectHistory(); notice.value = '该作品已恢复并保存；恢复前的版本可以在版本列表中查看。' })
 }
 function showChange(change: ProjectHistoryChange) {
   if (!detailCache.has(change.id)) {

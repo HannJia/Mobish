@@ -9,16 +9,16 @@ function chapterLabel(chapterIndex: number): string {
 function findMatchingChapter(novel: Novel, draft: AiChapterDraft): Chapter {
   const chapter = novel.chapters.find(item => item.id === draft.chapterId)
   if (!chapter) {
-    throw new Error(`自动草稿${chapterLabel(draft.chapterIndex)}对应的章节已删除，无法构造工作视图。`)
+    throw new Error(`自动候选稿${chapterLabel(draft.chapterIndex)}对应的章节已删除，无法构造工作视图。`)
   }
 
   if (chapter.chapterIndex !== draft.chapterIndex) {
-    throw new Error(`自动草稿${chapterLabel(draft.chapterIndex)}的章节索引已变化，当前章节已重排，请先处理章节结构。`)
+    throw new Error(`自动候选稿${chapterLabel(draft.chapterIndex)}的章节索引已变化，当前章节已重排，请先处理章节结构。`)
   }
 
   const chapterAtIndex = novel.chapters.find(item => item.chapterIndex === draft.chapterIndex)
   if (!chapterAtIndex || chapterAtIndex.id !== draft.chapterId) {
-    throw new Error(`自动草稿${chapterLabel(draft.chapterIndex)}的章节 ID 与索引不匹配，请先处理章节结构。`)
+    throw new Error(`自动候选稿${chapterLabel(draft.chapterIndex)}的章节 ID 与索引不匹配，请先处理章节结构。`)
   }
 
   return chapter
@@ -31,7 +31,7 @@ function findMatchingChapter(novel: Novel, draft: AiChapterDraft): Chapter {
  */
 export function buildAutonomousDraftNovel(novel: Novel, run: AiRun, throughChapterIndex: number): Novel {
   if (!Number.isInteger(throughChapterIndex) || throughChapterIndex < 0) {
-    throw new Error('自动草稿工作视图的目标章节索引无效。')
+    throw new Error('自动候选稿工作视图的目标章节索引无效。')
   }
 
   const drafts = (run.chapterDrafts ?? []).filter(draft => draft.chapterIndex <= throughChapterIndex)
@@ -41,12 +41,12 @@ export function buildAutonomousDraftNovel(novel: Novel, run: AiRun, throughChapt
     const chapter = findMatchingChapter(novel, draft)
 
     if (draft.status === 'rejected' && draft.chapterIndex < throughChapterIndex) {
-      throw new Error(`自动草稿${chapterLabel(draft.chapterIndex)}已拒绝，请先处理前章后再继续。`)
+      throw new Error(`自动候选稿${chapterLabel(draft.chapterIndex)}已拒绝，请先处理前章后再继续。`)
     }
 
     if (draft.status === 'accepted') {
       if (chapter.content !== draft.content) {
-        throw new Error(`自动草稿${chapterLabel(draft.chapterIndex)}已接受，但正式正文与草稿正文不一致。`)
+        throw new Error(`自动候选稿${chapterLabel(draft.chapterIndex)}已接受，但正式正文与候选稿正文不一致。`)
       }
       continue
     }
@@ -54,10 +54,10 @@ export function buildAutonomousDraftNovel(novel: Novel, run: AiRun, throughChapt
     if (draft.status !== 'pending') continue
 
     if (chapter.status === 'locked') {
-      throw new Error(`自动草稿${chapterLabel(draft.chapterIndex)}无法构造工作视图：正式章节已锁定。`)
+      throw new Error(`自动候选稿${chapterLabel(draft.chapterIndex)}无法构造工作视图：正式章节已锁定。`)
     }
     if (chapter.content !== draft.baseContent) {
-      throw new Error(`自动草稿${chapterLabel(draft.chapterIndex)}无法构造工作视图：正式正文已变化，请重新生成或处理该草稿。`)
+      throw new Error(`自动候选稿${chapterLabel(draft.chapterIndex)}无法构造工作视图：正式正文已变化，请重新生成或处理该草稿。`)
     }
 
     overlays.set(draft.chapterId, draft)
@@ -82,8 +82,8 @@ export function buildAutonomousDraftNovel(novel: Novel, run: AiRun, throughChapt
 
 /** Edit a pending autonomous draft without mutating its previous revision. */
 export function editAutonomousDraft(draft: AiChapterDraft, content: string, contextVersion: string, now: string): AiChapterDraft {
-  if (draft.status !== 'pending') throw new Error('只有 pending 状态的自动草稿可以编辑。')
-  if (!content.trim()) throw new Error('自动草稿正文不能为空。')
+  if (draft.status !== 'pending') throw new Error('只有待处理的自动候选稿可以编辑。')
+  if (!content.trim()) throw new Error('自动候选稿正文不能为空。')
 
   const sameRevision = draft.content === content && draft.contextVersion === contextVersion
   const existingHistory = draft.history.map(item => ({ ...item }))

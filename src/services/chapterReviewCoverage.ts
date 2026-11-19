@@ -58,9 +58,9 @@ export async function requestChapterReviewWithCoverage(
     coverage.globalStatus = chunks.length > 1 ? 'pending' : 'not-needed'
     if (recovery) {
       const previous = recovery.checkpoint, sourceVersionId = buildAnalysisSourceVersionId(source)
-      if (previous !== undefined && !isReviewCheckpoint(previous)) throw new Error('分段审核断点损坏，不能继续使用')
+      if (previous !== undefined && !isReviewCheckpoint(previous)) throw new Error('分段审校断点损坏，不能继续使用')
       if (previous?.binding === recovery.binding && previous.sourceVersionId === sourceVersionId) {
-        if (!isReviewCheckpoint(previous, source)) throw new Error('分段审核断点与正文范围不一致')
+        if (!isReviewCheckpoint(previous, source)) throw new Error('分段审校断点与正文范围不一致')
         coverage.checkpoint = copyReviewCheckpoint(previous)
       } else coverage.checkpoint = { version: 1, binding: recovery.binding, sourceVersionId, totalCharacters: source.length, totalChunks: chunks.length, chunks: [] }
       coverage.completedChunks = coverage.checkpoint.chunks.length

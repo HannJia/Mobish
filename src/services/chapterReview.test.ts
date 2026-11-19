@@ -45,7 +45,7 @@ describe('covered content review request lifecycle forwarding', () => {
     const partial = vi.fn(), save = vi.fn()
     await expect(requestCoveredContentReview({ ...reviewOptions('正文'), model: { ...model, maxTokens: 1024 },
       onChunk: partial, onCheckpoint: save,
-    })).rejects.toThrow('达到输出上限（length）；已输出 1024 tokens；设置上限 1024 tokens')
+    })).rejects.toThrow('达到输出上限（length）；已输出 1024 Token；设置上限 1024 Token')
     expect(partial).toHaveBeenCalledWith(pass)
     expect(save).not.toHaveBeenCalled()
     expect(callAI).toHaveBeenCalledOnce()
@@ -113,7 +113,7 @@ describe('covered content review request lifecycle forwarding', () => {
     const save = vi.fn(async () => undefined)
     await expect(requestCoveredContentReview({ ...reviewOptions('正文'),
       buildContext: text => ({ chapterContent: text, characters: text ? detail : '相同角色' } as ReviewContext), onCheckpoint: save,
-    })).rejects.toThrow('审核设定')
+    })).rejects.toThrow('审校设定')
     expect(save).not.toHaveBeenCalled()
   })
 
@@ -126,7 +126,7 @@ describe('covered content review request lifecycle forwarding', () => {
     const save = vi.fn(async () => undefined)
     await expect(requestCoveredContentReview({ ...reviewOptions('正文'),
       buildContext: text => ({ chapterContent: text, outlineContext: context } as unknown as ReviewContext), onCheckpoint: save,
-    })).rejects.toThrow('审核设定')
+    })).rejects.toThrow('审校设定')
     expect(save).not.toHaveBeenCalled()
   })
 

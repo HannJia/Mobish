@@ -56,7 +56,7 @@ export function assertAiRunCanProcessChapter(run: AiRun, chapterIndex: number): 
 }
 
 export function startAiRun(run: AiRun, now: string): AiRun {
-  if (!['queued', 'paused', 'needs_author', 'failed'].includes(run.status)) throw new Error('只有排队、暂停、失败或等待作者处理的 AI 运行可以启动')
+  if (!['queued', 'paused', 'needs_author', 'failed'].includes(run.status)) throw new Error('只有排队、暂停、失败或等待你处理的 AI 运行可以启动')
   return { ...run, status: 'running', error: undefined, updatedAt: now }
 }
 

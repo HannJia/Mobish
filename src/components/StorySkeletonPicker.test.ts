@@ -10,7 +10,7 @@ const skeleton = (key: string, over: Partial<PlotSkeleton> = {}): PlotSkeleton =
     { id: 'b-' + key + '-2', title: key + '转折', description: key + '的转折内容', kind: 'turning_point', relatedPlotlineIds: [], relatedCharacterIds: [] }],
   approval: 'draft', updatedAt: '2026-11-09T00:00:00Z', ...over,
 })
-const stubs = { NButton: { props: ['disabled'], emits: ['click'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' } }
+const stubs = {}
 function mountPicker(props: Record<string, unknown> = {}) {
   return mount(StorySkeletonPicker, { props: { skeletons: [skeleton('甲'), skeleton('乙'), skeleton('丙')], selectedId: 'sk-甲', ...props }, global: { stubs } })
 }
@@ -85,7 +85,7 @@ describe('故事骨架并排比较', () => {
   it('点方案标题只切换编辑对象，并标出当前编辑、正式方向与未完整方案', async () => {
     const wrapper = mountPicker({ confirmedId: 'sk-乙', skeletons: [skeleton('甲'), skeleton('乙'), skeleton('丙', { complete: false })] })
     const tags = wrapper.findAll('.colh').map(node => node.find('.col-tags').text())
-    expect(tags).toEqual(['编辑中', '正式方向', '未完整，需作者补齐保存'])
+    expect(tags).toEqual(['编辑中', '正式方向', '未完整，需要补齐后保存'])
     await wrapper.findAll('.col-title')[2].trigger('click')
     expect(wrapper.emitted('select')![0]).toEqual(['sk-丙'])
     expect(wrapper.emitted('confirm')).toBeUndefined()

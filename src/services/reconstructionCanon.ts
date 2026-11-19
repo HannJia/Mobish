@@ -40,7 +40,7 @@ function parseCandidateValue(candidate: CandidateChange): CandidateValue {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error()
     return value as CandidateValue
   } catch {
-    throw new CanonMutationError('候选变化的数据格式无效，无法写入故事 Canon')
+    throw new CanonMutationError('候选变化的数据格式无效，无法写入故事典籍')
   }
 }
 
@@ -280,7 +280,7 @@ export function applyCandidateChangeToCanon(novel: Novel, candidate: CandidateCh
   if (candidate.type === 'event_causality') throw new CanonMutationError('事件因果必须在专属面板核对打开基线、方向和证据后确认。')
   if (candidate.novelId && candidate.novelId !== novel.id) throw new CanonMutationError('候选不属于当前小说')
   if (candidate.status !== 'accepted' && candidate.status !== 'edited') {
-    throw new CanonMutationError('只有作者确认后的候选才能写入 Canon')
+    throw new CanonMutationError('候选需要你确认后才能写入故事典籍')
   }
   const existing = records.find(record => record.novelId === novel.id && record.candidateId === candidate.id)
   if (existing) {
@@ -305,7 +305,7 @@ export function applyCandidateChangeToCanon(novel: Novel, candidate: CandidateCh
   else if (candidate.type === 'foreshadowing') result = addCanonicalEvent(novel, candidate, value, now, '伏笔')
   else if (candidate.type === 'fact' && value.kind === 'character') result = addCanonicalCharacter(novel, candidate, value)
   else if (candidate.type === 'fact') result = addCanonicalEvent(novel, candidate, value, now)
-  else throw new CanonMutationError('暂不支持将 ' + candidate.type + ' 候选写入 Canon')
+  else throw new CanonMutationError('暂不支持把这类候选写入故事典籍')
 
   const chapter = chapterForCandidate(novel, candidate)!
   const source: EntitySource = { kind: 'chapter', chapterId: chapter.id, chapterIndex: chapter.chapterIndex,

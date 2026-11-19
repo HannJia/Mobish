@@ -45,9 +45,7 @@
                 <button class="action-btn" @click="copyContent(formatChatReply(msg.content, msg.search))" title="复制内容">
                   复制
                 </button>
-                <n-button size="tiny" quaternary :disabled="thinking" @click="openKnowledgeDraft(msg.content, msg.search)">
-                  <template #icon><n-icon><save-outline /></n-icon></template>存入知识库
-                </n-button>
+                <button type="button" class="action-btn" :disabled="thinking" @click="openKnowledgeDraft(msg.content, msg.search)">存入知识库</button>
               </div>
             </div>
           </div>
@@ -64,26 +62,12 @@
 
         <p v-if="error" class="chat-error" role="alert">{{ error }}</p>
         <div class="chat-input-area">
-          <n-input
-            v-model:value="inputText"
-            type="textarea"
-            :rows="2"
-            placeholder="输入问题或修改建议..."
-            :maxlength="12000"
-            @keydown.enter.ctrl="handleSendKeydown"
-            size="small"
-          />
-          <n-button v-if="thinking" size="small" @click="stop">停止</n-button>
-          <n-button v-else
-            type="primary"
-            size="small"
-            @click="sendMessage"
-            :loading="thinking"
-            :disabled="!inputText.trim()"
-          >
-            发送
-          </n-button>
+          <textarea v-model="inputText" class="chat-input" rows="2" maxlength="12000" aria-label="向 AI 提问"
+            placeholder="输入问题或修改建议，Enter 发送，Shift+Enter 换行" @keydown.enter="handleSendKeydown" />
+          <button v-if="thinking" type="button" class="m-btn sm" @click="stop">停止</button>
+          <button v-else type="button" class="m-btn sm zhu" :disabled="!inputText.trim()" @click="sendMessage">发送</button>
         </div>
+        <p class="chat-scope">范围：{{ scopeLabel }}</p>
       </div>
     <SaveChatKnowledge :key="novelId" v-model:show="showKnowledgeDraft" :content="knowledgeDraft"
       :preferred-ids="novel?.knowledgeBaseIds || []" @saved="knowledgeSaved" />
@@ -92,9 +76,8 @@
 
 <script setup lang="ts">
 import { getCurrentChapterSummary } from '@/services/derivedSources'
-import { ref, nextTick, watch } from 'vue'
-import { NButton, NIcon, NInput, useDialog } from 'naive-ui'
-import { SaveOutline } from '@vicons/ionicons5'
+import { computed, ref, nextTick, watch } from 'vue'
+import { useDialog } from '@/v3/feedback'
 import { useAssistantChat } from '@/composables/useAssistantChat'
 import { useNovelStore } from '@/stores/novel'
 import SaveChatKnowledge from '@/components/SaveChatKnowledge.vue'
@@ -149,11 +132,19 @@ async function copyContent(text: string) {
   try { await navigator.clipboard.writeText(text) }
   catch { error.value = '复制失败，请选中文本手动复制。' }
 }
+// Enter 发送，Shift+Enter 换行；输入法组字时不发送。
 function handleSendKeydown(event: KeyboardEvent) {
-  if (event.isComposing || event.keyCode === 229) return
+  if (event.isComposing || event.keyCode === 229 || event.shiftKey) return
   event.preventDefault()
+  if (thinking.value || !inputText.value.trim()) return
   void sendMessage()
 }
+// 与实际发送的上下文一致：本章之前的设定与章节摘要，加上本章当前正文。
+const scopeLabel = computed(() => {
+  const chapter = props.chapterId ? novel.value?.chapters.find(item => item.id === props.chapterId) : undefined
+  if (!chapter) return '全书已确认设定与章节摘要'
+  return chapter.chapterIndex > 0 ? `第1–${chapter.chapterIndex}章摘要与已确认设定 + 本章正文` : '已确认设定 + 本章正文'
+})
 
 watch(() => [messages.value.length, streamText.value, thinking.value], scrollToBottom)
 watch(() => props.novelId, () => { showKnowledgeDraft.value = false })
@@ -431,6 +422,10 @@ function wholeBookAnalysis() {
 .book-chat .chat-window { position: static; inset: auto; width: 100%; max-width: none; height: 100%; max-height: none; border: 0; border-radius: 0; box-shadow: none; }
 .book-chat .chat-messages { min-height: 0; }
 .book-chat .chat-header { justify-content: flex-end; padding: 10px 16px; }
-.book-chat .chat-input-area { padding: 12px; }
+.book-chat .chat-input-area { padding: 12px 12px 6px; }
+.chat-input { flex: 1; min-width: 0; min-height: 44px; max-height: 160px; resize: vertical; padding: 7px 10px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--paper); color: var(--ink); font: 13px/1.6 var(--f-ui); }
+.chat-input:focus { border-color: var(--zhu); box-shadow: 0 0 0 3px var(--zhu-soft); }
+.chat-scope { flex-shrink: 0; margin: 0; padding: 0 12px 10px; color: var(--ink-4); font-size: 11px; }
+.action-btn:disabled { opacity: .5; cursor: not-allowed; }
 
 </style>

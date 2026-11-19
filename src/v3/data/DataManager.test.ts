@@ -3,26 +3,28 @@ vi.mock('@/v3/components/BookPage.vue', () => ({ default: { template: '<div><slo
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, nextTick, reactive } from 'vue'
 import { flushPromises, shallowMount, type VueWrapper } from '@vue/test-utils'
-import { NButton, NInput, NInputNumber, NModal, NPopconfirm, NSelect } from 'naive-ui'
+import V3Modal from '@/v3/components/V3Modal.vue'
+import V3Input from '@/v3/components/form/V3Input.vue'
+import V3Number from '@/v3/components/form/V3Number.vue'
+import V3Select from '@/v3/components/form/V3Select.vue'
 import DataPanelWorkspace from '@/v3/data/DataManager.vue'
 import DataPanelFieldEditor from '@/components/data-panel/DataPanelFieldEditor.vue'
 import type { Chapter, DataPanelItem } from '@/types/novel'
 
-const { store, messages } = vi.hoisted(() => ({
+const { store, messages, dialog } = vi.hoisted(() => ({
   store: {
     getNovel: vi.fn(), captureDataPanelEditBaseline: vi.fn(), captureDataClockBaseline: vi.fn(),
     addDataPanelItem: vi.fn(), updateDataPanelItem: vi.fn(), restoreDataPanelVersion: vi.fn(),
     deleteDataPanelItem: vi.fn(), applyDataPanelChange: vi.fn(), rejectDataPanelChange: vi.fn(),
     setStoryClock: vi.fn(), queueAutomaticDataPanelChanges: vi.fn(),
   },
-  messages: { success: vi.fn(), warning: vi.fn(), error: vi.fn() },
+  messages: { success: vi.fn(), warning: vi.fn(), error: vi.fn(), info: vi.fn() },
+  dialog: { warning: vi.fn() },
 }))
 vi.mock('@/stores/novel', () => ({ useNovelStore: () => store }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { novelId: 'synthetic-book' }, query: { chapterId: 'chapter-1' } }) }))
-vi.mock('naive-ui', async original => ({ ...await original<object>(), useMessage: () => messages }))
-const Button = defineComponent({ props: ['disabled', 'loading'], template: '<button :disabled="disabled || loading"><slot /></button>' })
+vi.mock('@/v3/feedback', async original => ({ ...await original<object>(), useMessage: () => messages, useDialog: () => dialog }))
 const Modal = defineComponent({ props: ['show', 'title'], template: '<section v-if="show"><slot /><slot name="footer" /></section>' })
-const Popconfirm = defineComponent({ emits: ['positive-click'], template: `<div><slot name="trigger" /><button @click="$emit('positive-click')">确认删除</button></div>` })
 const now = '2026-10-31T09:00:00.000Z'
 const conflict = '正文来源或当前数据已变化，请重新核对/分析'
 const chapter: Chapter = { id: 'chapter-1', volumeIndex: 0, chapterIndex: 0, title: '第一章', content: '正文', summary: '',
@@ -41,7 +43,7 @@ function setup() {
   store.getNovel.mockReturnValue(book)
   store.captureDataPanelEditBaseline.mockReturnValue('opened-data')
   store.captureDataClockBaseline.mockReturnValue('loaded-clock')
-  wrapper = shallowMount(DataPanelWorkspace, { global: { renderStubDefaultSlot: true, stubs: { Button, Modal, Popconfirm } } })
+  wrapper = shallowMount(DataPanelWorkspace, { global: { renderStubDefaultSlot: true, stubs: { V3Modal: Modal } } })
   return { book, item }
 }
 function button(label: string) {
@@ -49,8 +51,8 @@ function button(label: string) {
   expect(found, `button ${label}`).toBeDefined()
   return found!
 }
-function modal(title: string) { return wrapper.findAllComponents(NModal).find(value => value.props('title') === title)! }
-function nameInput() { return wrapper.findAllComponents(NInput).find(value => value.attributes('placeholder') === '数据对象名称')! }
+function modal(title: string) { return wrapper.findAllComponents(V3Modal).find(value => value.props('title') === title)! }
+function nameInput() { return wrapper.findAllComponents(V3Input).find(value => value.attributes('placeholder') === '数据对象名称')! }
 async function click(label: string) { await button(label).trigger('click'); await flushPromises() }
 beforeEach(() => { vi.resetAllMocks() })
 afterEach(() => { wrapper?.unmount() })
@@ -83,7 +85,7 @@ describe('data workspace async persistence', () => {
     await click('保存')
     expect(modal('编辑数据').props('show')).toBe(true)
     expect(button('取消').attributes('disabled')).toBeDefined()
-    wrapper.findAllComponents(NButton).find(value => value.text() === '保存')!.vm.$emit('click')
+    await button('保存').trigger('click')
     await nextTick()
     expect(store.updateDataPanelItem).toHaveBeenCalledTimes(1)
     expect(messages.success).not.toHaveBeenCalled()
@@ -125,8 +127,8 @@ describe('data workspace async persistence', () => {
 
   it('preserves a clock draft and its original baseline across background updates and failed saves', async () => {
     const { book } = setup()
-    const day = wrapper.getComponent(NInputNumber)
-    const label = wrapper.findAllComponents(NInput).find(value => value.attributes('placeholder') === '显示名称（可选）')!
+    const day = wrapper.getComponent(V3Number)
+    const label = wrapper.findAllComponents(V3Input).find(value => value.attributes('placeholder') === '显示名称（可选）')!
     day.vm.$emit('update:value', 8); label.vm.$emit('update:value', '作者指定日')
     book.storyClock = { currentDay: 20, label: '后台时钟', updatedAt: now }
     store.captureDataClockBaseline.mockReturnValue('background-clock')
@@ -158,7 +160,7 @@ describe('data workspace async persistence', () => {
     await click('恢复此版本')
     expect(messages.error).toHaveBeenCalledWith('恢复写盘失败')
     expect(modal('数据面板版本').props('show')).toBe(true)
-    expect(modal('数据面板版本').getComponent(NSelect).props('value')).toBe('version')
+    expect(modal('数据面板版本').getComponent(V3Select).props('value')).toBe('version')
     await click('恢复此版本')
     expect(modal('数据面板版本').props('show')).toBe(true)
     await click('恢复此版本')
@@ -168,16 +170,17 @@ describe('data workspace async persistence', () => {
 
   it('retains the selected object after delete failure and uses the confirmation-opening baseline', async () => {
     setup()
-    const confirm = wrapper.getComponent(NPopconfirm)
     await wrapper.get('[title="删除数据"]').trigger('click')
+    expect(dialog.warning).toHaveBeenCalledTimes(1)
+    const confirm = () => dialog.warning.mock.calls[0][0].onPositiveClick()
     store.captureDataPanelEditBaseline.mockReturnValue('changed-data')
     store.deleteDataPanelItem.mockRejectedValueOnce(new Error('删除写盘失败')).mockResolvedValueOnce(false).mockResolvedValueOnce(true)
-    confirm.vm.$emit('positive-click'); await flushPromises()
+    confirm(); await flushPromises()
     expect(messages.error).toHaveBeenCalledWith('删除写盘失败')
     expect(wrapper.find('.selected-data-detail').exists()).toBe(true)
-    confirm.vm.$emit('positive-click'); await flushPromises()
+    confirm(); await flushPromises()
     expect(messages.success).not.toHaveBeenCalled()
-    confirm.vm.$emit('positive-click'); await flushPromises()
+    confirm(); await flushPromises()
     expect(wrapper.find('.selected-data-detail').exists()).toBe(false)
     for (const args of store.deleteDataPanelItem.mock.calls) expect(args).toEqual(['synthetic-book', 'panel', 'opened-data'])
   })

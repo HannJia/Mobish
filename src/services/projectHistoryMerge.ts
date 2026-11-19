@@ -55,7 +55,7 @@ export function prepareHistoryRestore(current: ProjectBackup, historical: Projec
     if (request.status === 'not_sent' && occurredRequests.has(JSON.stringify([run.id, request.id]))) throw new Error('历史已发生或未知请求不能改为未发送：' + request.id)
   }
   if ([...(live.novel?.chapters || []), ...(live.novel?.archivedChapters || [])].some(row => row.status === 'locked')) {
-    throw new Error('作品含锁定章节，请先由作者解锁后再恢复。')
+    throw new Error('作品含锁定章节，请先解锁再恢复。')
   }
   const result = historyClone(historical)
   const novel = result.novel!, workspace = result.workspace!

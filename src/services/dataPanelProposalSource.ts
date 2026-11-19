@@ -72,7 +72,7 @@ function automationTime(novel: Novel, proposal: Proposal, steps: DataPanelRuleSt
   if (!rules.length) return undefined
   const chapter = novel.chapters.find(row => row.chapterIndex === proposal.chapterIndex)
   const end = chapter ? captureStoryTimePoint(novel, chapter.id) : undefined
-  if (!end || rules.some(rule => !dataPanelTimeCursorIsCurrent(novel, rule, proposal.chapterIndex))) throw new Error('自动推算的章节时间或已结算时间来源失效，请先由作者核对。')
+  if (!end || rules.some(rule => !dataPanelTimeCursorIsCurrent(novel, rule, proposal.chapterIndex))) throw new Error('自动推算的章节时间或已结算时间来源失效，请先核对。')
   return { end, cursors: rules.map(rule => ({ ruleId: rule.id, cursor: JSON.parse(JSON.stringify(rule.storyTimeCursor!)) })) }
 }
 

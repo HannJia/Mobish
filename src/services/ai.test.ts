@@ -121,7 +121,7 @@ describe.each([false, true])('AI transport (stream=%s)', stream => {
     const result = await callAI(options())
     expect(result.finishReason).toBe('length')
     expect(result.usage).toEqual(usage)
-    expect(structuredOutputDiagnostic(result)).toContain('推理用量：608 token')
+    expect(structuredOutputDiagnostic(result)).toContain('推理用量：608 Token')
     expect(fetcher).toHaveBeenCalledOnce()
     expect(JSON.parse(fetcher.mock.calls[0][1].body).max_tokens).toBe(900)
   })

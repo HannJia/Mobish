@@ -80,7 +80,7 @@ export function commitEventCausality(aggregate: StoryAggregate, input: EventCaus
 export function saveEventCausalityProposal(aggregate: StoryAggregate, input: EventCausalityEdit,
   action: 'save' | 'defer' | 'reject', now: string): CandidateChange {
   const { novel, workspace } = aggregate
-  if (!input.openBaseline || input.openBaseline !== captureEventCausalityBaseline(novel,workspace.canonMutations)) throw new Error('来源或正式决定已变化，作者输入已保留，请重新核对。')
+  if (!input.openBaseline || input.openBaseline !== captureEventCausalityBaseline(novel,workspace.canonMutations)) throw new Error('来源或正式决定已变化，你的输入已保留，请重新核对。')
   const previous = workspace.candidates.find(c => c.id === input.candidateId)
   if (!previous || previous.type !== 'event_causality' || !['proposed','deferred'].includes(previous.status)
     || JSON.stringify(previous) !== input.expectedCandidate || (previous.novelId && previous.novelId !== novel.id)

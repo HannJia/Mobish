@@ -74,7 +74,7 @@ export function useAssistantChat(novelId: () => string, chapterId: () => string 
     if (!inputText.value.trim() || thinking.value || !novel.value) return
     const model = config.getModelForTask('chat')
     if (!model?.apiKey.trim()) {
-      error.value = '请先在设置中配置对话 / 联网模型（默认跟随大纲模型）及有效接口密钥。'
+      error.value = '请先在设置中配置对话 / 联网模型（默认跟随大纲模型）及有效的 API 密钥。'
       return
     }
     if (inputText.value.length > 12000) {

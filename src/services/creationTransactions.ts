@@ -147,8 +147,8 @@ export function applyCreationEdit(aggregate: StoryAggregate, edit: CreationEdit,
       if (accepted.contentSignature === buildAnalysisSourceVersionId(content) && accepted.directionSignature === creationDirectionSignature(draft) && content === novel.outline.trim()) return false
       throw new Error('正式故事方向或大纲已变化，请先核对并保存大纲候选，再确认规划')
     }
-    if (candidate?.complete === false) throw new Error('大纲候选未完整生成，请先补齐并保存作者修改')
-    if (!content || content !== (candidate?.content ?? novel.outline).trim()) throw new Error('待确认的大纲已经变化，请先保存作者修改')
+    if (candidate?.complete === false) throw new Error('大纲候选未完整生成，请先补齐并保存你的修改')
+    if (!content || content !== (candidate?.content ?? novel.outline).trim()) throw new Error('待确认的大纲已经变化，请先保存你的修改')
     if (candidate && (candidate.contextBaseline !== captureStoryContextBaseline(novel)
       || candidate.directionSignature !== creationDirectionSignature(draft))) throw new Error('大纲候选的来源设定或故事方向已经变化，请重新生成或编辑核对后保存')
     if (candidate?.skeletonId && candidate.skeletonId !== draft.selectedSkeletonId) throw new Error('请先确认这份大纲对应的故事骨架，或核对当前方向后重新保存大纲')

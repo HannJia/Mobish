@@ -2,16 +2,10 @@
   <div class="model-search-test" :class="{ 'model-search-test--compact': compact }">
     <p v-if="!compact || busy || result || cancelled" class="search-protocol">{{ description }}<span v-if="!result"> · 尚未验证服务商能力</span></p>
     <div class="search-actions">
-      <n-button :size="compact ? 'tiny' : 'small'" :quaternary="compact" :disabled="busy || !model.baseUrl.trim() || !model.modelName.trim() || !model.apiKey.trim()"
-        :loading="busy" @click="confirmTest">
-        <template #icon><n-icon><globe-outline /></n-icon></template>测试联网
-      </n-button>
-      <n-button v-if="busy" :size="compact ? 'tiny' : 'small'" :quaternary="compact" @click="stop">
-        <template #icon><n-icon><stop-outline /></n-icon></template>停止测试
-      </n-button>
-      <n-button v-if="result" :size="compact ? 'tiny' : 'small'" quaternary @click="copyDiagnostic">
-        <template #icon><n-icon><copy-outline /></n-icon></template>复制诊断
-      </n-button>
+      <button type="button" :class="btnClass" :aria-busy="busy" :disabled="busy || !model.baseUrl.trim() || !model.modelName.trim() || !model.apiKey.trim()"
+        @click="confirmTest"><V3Icon name="search" size="s" />测试联网</button>
+      <button v-if="busy" type="button" :class="btnClass" @click="stop"><V3Icon name="stop" size="s" />停止测试</button>
+      <button v-if="result" type="button" class="m-btn ghost" :class="compact ? 'xs' : 'sm'" @click="copyDiagnostic"><V3Icon name="file" size="s" />复制诊断</button>
     </div>
     <p v-if="busy" class="search-result" role="status">正在请求搜索接口…</p>
     <div v-else-if="result" class="search-result" :class="`search-${result.status}`" role="status">
@@ -25,8 +19,8 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { NButton, NIcon, useDialog, useMessage } from 'naive-ui'
-import { GlobeOutline, StopOutline, CopyOutline } from '@vicons/ionicons5'
+import { useDialog, useMessage } from '@/v3/feedback'
+import V3Icon from '@/v3/components/V3Icon.vue'
 import type { ModelConfig } from '@/stores/config'
 import { searchProtocolDescription, testChatSearch, type ChatSearchTestResult } from '@/services/chatSearch'
 
@@ -37,6 +31,7 @@ const busy = ref(false)
 const cancelled = ref(false)
 const result = ref<ChatSearchTestResult | null>(null)
 const testedAt = ref('')
+const btnClass = computed(() => ['m-btn', props.compact ? 'xs ghost' : 'sm'])
 const description = computed(() => searchProtocolDescription(props.model))
 let controller: AbortController | null = null
 
@@ -52,7 +47,7 @@ function confirmTest() {
   const snapshot = { ...props.model }
   dialog.warning({
     title: '测试联网搜索？',
-    content: '会向当前模型接口发送一次搜索测试请求，可能产生模型和搜索费用，不发送小说内容，不会自动改协议或重复测试。',
+    content: '会发送一次搜索测试请求（可能产生少量费用），不包含小说内容。',
     positiveText: '开始测试', negativeText: '取消',
     onPositiveClick: () => {
       if (!busy.value && sameSettings(snapshot, props.model)) void run(snapshot)

@@ -116,6 +116,8 @@ describe('desktop file and instance safety', () => {
     const html = fs.readFileSync(path.resolve('index.html'), 'utf8')
     expect(html).toContain('http://127.0.0.1:11434')
     expect(html).toContain('http://localhost:11434')
+    // CSP 不支持 IPv6 字面量地址，写进去会被浏览器忽略并报错。
+    expect(html).not.toContain('[::1]')
     expect(html).not.toContain("'unsafe-eval'")
     expect(html).not.toMatch(/connect-src[^;]*\shttp:(?:\s|;)/)
   })

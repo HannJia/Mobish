@@ -29,6 +29,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { computed, ref, watch } from 'vue'
 import type { Chapter, Novel } from '@/types/novel'
 import { useNovelStore } from '@/stores/novel'
@@ -84,7 +85,7 @@ async function confirm() {
     }, captured.baseline)
     if (!result) throw new Error('作品已不存在，时间未保存。')
     emit('saved'); readSource()
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
+  } catch (cause) { error.value = errorText(cause, String(cause)) }
   finally { saving.value = false }
 }
 </script>

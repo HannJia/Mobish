@@ -131,7 +131,7 @@ describe('scene planning workbench', () => {
     vi.spyOn(workspace, 'commitScenePlanningEdit').mockImplementationOnce((...args) => new Promise((resolve, reject) => {
       finish = () => { void commit(...args).then(resolve, reject) }
     }))
-    await button('保存章计划草稿').trigger('click'); await flushPromises()
+    await button('保存章计划').trigger('click'); await flushPromises()
     expect(finish).toBeTypeOf('function')
     expect(wrapper.get('select[aria-label="场景目标章节"]').attributes('disabled')).toBeDefined()
     await wrapper.setProps({ initialPlanId: plans[1].id }); await flushPromises()
@@ -220,7 +220,7 @@ describe('scene planning workbench', () => {
       await flushPromises()
       await wrapper.find('form').trigger('submit')
       await vi.waitFor(() => expect(commits.mock.calls.some(([, edit]) => edit.action === 'chapter')).toBe(true))
-      await vi.waitFor(() => expect(button('保存章计划草稿').attributes('disabled')).toBeUndefined())
+      await vi.waitFor(() => expect(button('保存章计划').attributes('disabled')).toBeUndefined())
       expect(commits.mock.calls.filter(([, edit]) => edit.action === 'chapter').map(([, edit]) => edit)).toEqual([
         expect.objectContaining({ action: 'chapter', plan: expect.objectContaining({ openingState: '尚未取得原始账册', endingState: '双方保留原始账册' }) }),
       ])
@@ -250,7 +250,7 @@ describe('scene planning workbench', () => {
     workspace.getCreationDraft(novel.id)!.contract.endingDirection = '作者更改结局'
     finish({ content: JSON.stringify({ scenes: [{ title: '迟到结果', purpose: '找人', outputState: '找到', requiredActions: [], informationChanges: [] }] }), finishReason: 'stop' } as never)
     await flushPromises()
-    expect(wrapper.findAll('[role="status"]').map(item => item.text()).join(' ')).toContain('规划已变化')
+    expect(wrapper.findAll('[role="status"]').map(item => item.text()).join(' ')).toContain('规划已被修改')
     expect(workspace.getCreationDraft(novel.id)!.scenePlans).toHaveLength(0)
     wrapper.unmount()
   })
@@ -284,7 +284,7 @@ describe('scene planning workbench', () => {
     await wrapper.find('form').trigger('submit'); await flushPromises()
     expect(wrapper.findAll('[role="status"]').map(item => item.text()).join(' ')).toContain('本章计划有未保存修改')
     expect(novel.chapterPlans![0].objective).toBe('另一窗口更新的目标')
-    await button('保留输入快照并重新读取规划').trigger('click'); await flushPromises()
+    await button('保留输入并重新读取规划').trigger('click'); await flushPromises()
     expect(wrapper.get('textarea[aria-label="章节目标"]').element).toHaveProperty('value', '另一窗口更新的目标')
     wrapper.unmount()
   })
@@ -310,7 +310,7 @@ describe('scene planning workbench', () => {
     await flushPromises()
     finish({ content: JSON.stringify({ scenes: [{ title: '旧目标候选', purpose: '找人', outputState: '找到', requiredActions: [], informationChanges: [] }] }), finishReason: 'stop' } as never)
     await flushPromises()
-    expect(wrapper.findAll('[role="status"]').map(item => item.text()).join(' ')).toContain('已变化')
+    expect(wrapper.findAll('[role="status"]').map(item => item.text()).join(' ')).toContain('已被修改')
     await wrapper.find('form').trigger('submit'); await flushPromises()
     expect(wrapper.get('[role="alert"]').text()).toContain('已变化')
     expect(workspace.getCreationDraft(novel.id)!.scenePlans).toHaveLength(0)

@@ -44,13 +44,13 @@ export function parseProjectBackup(raw: string): ProjectBackup {
   if (raw.length > MAX_PROJECT_BACKUP_BYTES || new Blob([raw]).size > MAX_PROJECT_BACKUP_BYTES) throw new Error('备份文件超过 256 MB 安全上限')
   const value = JSON.parse(raw) as Partial<ProjectBackup>
   if (!value || value.format !== 'ai-novel-writer-backup' || value.version !== 3 || !Array.isArray(value.novels) || !Array.isArray(value.knowledgeBases)) {
-    throw new Error('仅支持完整的 V3 项目备份文件')
+    throw new Error('这个备份文件来自不支持的旧版本或不完整，无法导入。')
   }
   validateProjectBackup(value)
   return value as ProjectBackup
 }
 
-export function downloadProjectBackup(backup: ProjectBackup, filename = 'ai-novel-writer-backup.json') {
+export function downloadProjectBackup(backup: ProjectBackup, filename = 'mobish-backup.json') {
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')

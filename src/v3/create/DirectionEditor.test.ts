@@ -14,8 +14,6 @@ import type { PlotSkeleton } from '@/types/reconstruction'
 import { contractCards, contractCardSignature } from '@/services/storyContract'
 
 const { route, push } = vi.hoisted(() => ({ route: { params: { novelId: '' }, query: {} }, push: vi.fn() }))
-const nButtonStub = { props: ['disabled'], emits: ['click'],
-  template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' }
 const testModel = { id: 'test', modelName: 'test', maxTokens: 4096, temperature: 0.7, topP: 1 }
 vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => ({ push }) }))
 vi.mock('@/services/ai', async importOriginal => ({
@@ -27,7 +25,7 @@ vi.mock('@/services/storyAggregate', async importOriginal => ({
   readStoryAggregate: vi.fn(async () => ({ novel: null, workspace: { candidates: [], reviewFindings: [], canonMutations: [] } })),
   saveStoryAggregate: vi.fn(async () => {}),
 }))
-vi.mock('naive-ui', async importOriginal => ({
+vi.mock('@/v3/feedback', async importOriginal => ({
   ...await importOriginal<object>(), useMessage: () => ({ success: vi.fn(), warning: vi.fn(), info: vi.fn(), error: vi.fn() }),
 }))
 beforeEach(() => {
@@ -188,7 +186,6 @@ describe('editable generated outline', () => {
         beats: [{ title: '找到旧信', description: '主角发现一封被隐藏的旧信。', kind: 'opening' }] },
     ] }), finishReason: 'stop' })
     const options = { global: { renderStubDefaultSlot: true, stubs: {
-      NButton: nButtonStub,
       StorySkeletonPicker: false,
       StoryContractEditor: false,
     } } }
@@ -230,7 +227,7 @@ describe('editable generated outline', () => {
     vi.spyOn(config, 'getModelForTask').mockReturnValue(testModel as never)
     let reply!: (value: { content: string; finishReason: string }) => void
     vi.mocked(callAI).mockImplementationOnce(() => new Promise(resolve => { reply = resolve }))
-    const wrapper = shallowMount(GenerateOutline, { global: { stubs: { NButton: nButtonStub,
+    const wrapper = shallowMount(GenerateOutline, { global: { stubs: {
       StorySkeletonPicker: false, StoryContractEditor: false } } })
     await flushPromises()
     await confirmContract(wrapper, novel.id)
@@ -254,12 +251,11 @@ describe('editable generated outline', () => {
       writingStyle: store.defaultWritingStyle(), settings: store.defaultSettings() })
     route.params.novelId = novel.id
     const wrapper = shallowMount(GenerateOutline, { global: { renderStubDefaultSlot: true, stubs: {
-      Button: { props: ['disabled'], emits: ['click'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
     } } })
     await flushPromises()
     expect(wrapper.find('[aria-label="手动准备大纲"]').exists()).toBe(false)
     await confirmContract(wrapper, novel.id)
-    wrapper.get('[aria-label="手动准备大纲"]').getComponent({ name: 'Input' }).vm.$emit('update:value', '## 小说简介\n作者自己的故事\n## 第一卷：启程\n预估章节数：10章\n预估字数：2万字')
+    wrapper.get('[aria-label="手动准备大纲"]').getComponent({ name: 'V3Input' }).vm.$emit('update:value', '## 小说简介\n作者自己的故事\n## 第一卷：启程\n预估章节数：10章\n预估字数：2万字')
     await flushPromises()
     await vi.waitFor(() => expect(wrapper.findAll('button').find(button => button.text() === '保存大纲并核对骨架')!.attributes('disabled')).toBeUndefined())
     await wrapper.findAll('button').find(button => button.text() === '保存大纲并核对骨架')!.trigger('click')
@@ -308,7 +304,7 @@ describe('editable generated outline', () => {
         { title: '找到证人', description: '主角找到事故的第一位知情人。', kind: 'opening' },
       ] },
     ] }) } as never)
-    const wrapper = shallowMount(GenerateOutline, { global: { renderStubDefaultSlot: true, stubs: { NButton: nButtonStub,
+    const wrapper = shallowMount(GenerateOutline, { global: { renderStubDefaultSlot: true, stubs: {
       StorySkeletonPicker: false, StoryContractEditor: false } } })
     await flushPromises()
     expect(callAI).not.toHaveBeenCalled()
@@ -353,7 +349,6 @@ describe('editable generated outline', () => {
     store.updateOutline(novel.id, '## 第一卷：旧计划\n预估章节数：20章\n预估字数：4.4万字')
     route.params.novelId = novel.id
     const wrapper = shallowMount(GenerateOutline, { global: { renderStubDefaultSlot: true, stubs: {
-      Button: { props: ['disabled'], emits: ['click'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
     } } })
     await flushPromises()
     expect(callAI).not.toHaveBeenCalled()
@@ -367,7 +362,7 @@ describe('editable generated outline', () => {
     await wrapper.findAll('button').find(item => item.text() === '编辑大纲')!.trigger('click')
     const confirm = wrapper.findAll('button').find(item => item.text().includes('确认并规划分卷'))!
     expect(confirm.attributes('disabled')).toBeDefined()
-    wrapper.findAllComponents({ name: 'Input' })[0].vm.$emit('update:value', '## 第一卷：下海\n**预估章节数：** 约97章\n**预估字数：** 约21.3万字')
+    wrapper.findAllComponents({ name: 'V3Input' })[0].vm.$emit('update:value', '## 第一卷：下海\n**预估章节数：** 约97章\n**预估字数：** 约21.3万字')
     await flushPromises()
     await wrapper.findAll('button').find(item => item.text() === '保存修改')!.trigger('click')
     await vi.waitFor(() => expect(confirm.attributes('disabled')).toBeUndefined())
@@ -386,12 +381,11 @@ describe('editable generated outline', () => {
     store.updateOutline(novel.id, '## 第一卷：原来的方向')
     route.params.novelId = novel.id
     const wrapper = shallowMount(GenerateOutline, { global: { renderStubDefaultSlot: true, stubs: {
-      Button: { props: ['disabled'], emits: ['click'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
     } } })
     await flushPromises()
     await confirmImportedSkeleton(wrapper, novel.id)
     await wrapper.findAll('button').find(button => button.text() === '编辑大纲')!.trigger('click')
-    const input = wrapper.get('.outline-output-scroll').getComponent({ name: 'Input' })
+    const input = wrapper.get('.outline-output-scroll').getComponent({ name: 'V3Input' })
     input.vm.$emit('update:value', '## 第一卷：作者保留的修改')
     await flushPromises()
     let rejectSave!: (reason: Error) => void
@@ -423,12 +417,11 @@ describe('editable generated outline', () => {
     store.updateOutline(novel.id, '## 第一卷：原方向')
     route.params.novelId = novel.id
     const wrapper = shallowMount(GenerateOutline, { global: { renderStubDefaultSlot: true, stubs: {
-      Button: { props: ['disabled'], emits: ['click'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
     } } })
     await flushPromises()
     await confirmImportedSkeleton(wrapper, novel.id)
     await wrapper.findAll('button').find(button => button.text() === '编辑大纲')!.trigger('click')
-    const input = wrapper.get('.outline-output-scroll').getComponent({ name: 'Input' })
+    const input = wrapper.get('.outline-output-scroll').getComponent({ name: 'V3Input' })
     input.vm.$emit('update:value', '## 第一卷：旧窗口的手工输入')
     store.updateOutline(novel.id, '## 第一卷：另一个窗口刚保存的内容')
     await flushPromises()
@@ -450,7 +443,6 @@ describe('editable generated outline', () => {
     let saved!: () => void
     push.mockImplementationOnce(() => new Promise<void>(resolve => { saved = resolve }))
     const wrapper = shallowMount(GenerateOutline, { global: { renderStubDefaultSlot: true, stubs: {
-      Button: { props: ['disabled'], emits: ['click'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
     } } })
     await flushPromises()
     await confirmImportedSkeleton(wrapper, novel.id)

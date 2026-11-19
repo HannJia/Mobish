@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { defineComponent, reactive } from 'vue'
 import { flushPromises, shallowMount, enableAutoUnmount } from '@vue/test-utils'
-import { NInputNumber, NModal, NPopconfirm } from 'naive-ui'
 import ChapterList from '@/v3/chapters/ChapterTasks.vue'
 import AutonomousDraftPanel from '@/components/AutonomousDraftPanel.vue'
 import { useNovelStore } from '@/stores/novel'
@@ -17,7 +16,8 @@ import { saveReconstructionRun } from '@/services/db/reconstructionRuns'
 import { buildChapterReviewInput } from '@/services/chapterReviewInput'
 import { saveStoryAggregate } from '@/services/storyAggregate'
 
-const { route, push, messages } = vi.hoisted(() => ({
+const { route, push, messages, dialog } = vi.hoisted(() => ({
+  dialog: { warning: vi.fn() },
   route: { params: { novelId: '' }, query: {} },
   push: vi.fn(),
   messages: { success: vi.fn(), warning: vi.fn(), info: vi.fn(), error: vi.fn() },
@@ -25,8 +25,8 @@ const { route, push, messages } = vi.hoisted(() => ({
 enableAutoUnmount(afterEach)
 const reactiveRoute = reactive(route)
 vi.mock('vue-router', () => ({ useRoute: () => reactiveRoute, useRouter: () => ({ push }) }))
-vi.mock('naive-ui', async original => ({
-  ...await original<object>(), useMessage: () => messages,
+vi.mock('@/v3/feedback', async original => ({
+  ...await original<object>(), useMessage: () => messages, useDialog: () => dialog,
 }))
 vi.mock('@/services/ai', async original => ({ ...await original<object>(), callAI: vi.fn() }))
 vi.mock('@/services/db/novels', () => ({
@@ -68,11 +68,6 @@ vi.mock('@/services/storyAggregate', () => ({
   } })),
   saveStoryAggregate: vi.fn().mockResolvedValue(undefined),
 }))
-
-const Button = defineComponent({
-  props: ['disabled', 'loading'],
-  template: '<button :disabled="disabled || loading"><slot /></button>',
-})
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -136,7 +131,7 @@ describe('chapter list summary confirmation', () => {
     reactiveRoute.params.novelId = book.id
     const Input = defineComponent({ props: ['value', 'disabled'], emits: ['update:value'],
       template: `<textarea :value="value" :disabled="disabled" @input="$emit('update:value', $event.target.value)" />` })
-    const wrapper = shallowMount(ChapterList, { global: { stubs: { Button, Input }, renderStubDefaultSlot: true } })
+    const wrapper = shallowMount(ChapterList, { global: { stubs: { V3Input: Input }, renderStubDefaultSlot: true } })
     await flushPromises()
     await wrapper.get('.summary-toggle').trigger('click')
     expect(wrapper.get('.summary-indicator').text()).toBe('总结待核对')
@@ -191,7 +186,7 @@ describe('ChapterList deletion confirmation', () => {
     book.archivedChapters = [{ ...chapter, archivedAt: book.updatedAt }]
     book.chapters = []; book.currentWordCount = 0
     reactiveRoute.params.novelId = book.id
-    const wrapper = shallowMount(ChapterList, { global: { stubs: { Button }, renderStubDefaultSlot: true } })
+    const wrapper = shallowMount(ChapterList, { global: { renderStubDefaultSlot: true } })
     await flushPromises()
     expect(wrapper.find('.chapter-card').exists()).toBe(false)
     await wrapper.get('[aria-label="已删除章节"] button').trigger('click')
@@ -211,14 +206,15 @@ describe('ChapterList deletion confirmation', () => {
     const deleting = vi.spyOn(store, 'deleteChapter').mockImplementation(() => new Promise(resolve => { finish = resolve }))
     const clearing = vi.spyOn(store, 'clearChapters').mockImplementation(() => new Promise(resolve => { finish = resolve }))
     const capture = vi.spyOn(store, 'captureChapterDeletionBaseline')
-    const wrapper = shallowMount(ChapterList, { global: { stubs: { Button }, renderStubDefaultSlot: true } })
+    const wrapper = shallowMount(ChapterList, { global: { renderStubDefaultSlot: true } })
     await flushPromises()
-    const popup = wrapper.findAllComponents(NPopconfirm).find(node => node.text().includes(all ? '确定清空所有章节' : '确定删除此章节'))!
-    popup.vm.$emit('update:show', true)
+    await wrapper.findAll('button').find(node => node.text() === (all ? '清空全部章节' : '删除'))!.trigger('click')
+    const confirmOptions = dialog.warning.mock.calls.slice(-1)[0][0] as { content: string; onPositiveClick: () => Promise<boolean> }
+    expect(confirmOptions.content).toContain(all ? '清空全部 1 个章节' : '合成')
     const opening = capture.mock.results.slice(-1)[0].value
     // A later edit must not be silently substituted for the snapshot the author saw.
     store.updateChapter(book.id, chapter.id, { title: '确认期间的作者编辑' })
-    const result = (popup.props('onPositiveClick') as () => Promise<boolean>)()
+    const result = confirmOptions.onPositiveClick()
     if (all) expect(clearing).toHaveBeenCalledWith(book.id, opening)
     else expect(deleting).toHaveBeenCalledWith(book.id, chapter.id, opening)
     expect(messages.success).not.toHaveBeenCalled()
@@ -236,11 +232,12 @@ describe('ChapterList deletion confirmation', () => {
     const action = all ? vi.spyOn(store, 'clearChapters') : vi.spyOn(store, 'deleteChapter')
     action.mockRejectedValueOnce(new Error('合成删除保存失败')).mockResolvedValue(true)
     const before = JSON.stringify(book)
-    const wrapper = shallowMount(ChapterList, { global: { stubs: { Button }, renderStubDefaultSlot: true } })
+    const wrapper = shallowMount(ChapterList, { global: { renderStubDefaultSlot: true } })
     await flushPromises()
-    const popup = wrapper.findAllComponents(NPopconfirm).find(node => node.text().includes(all ? '确定清空所有章节' : '确定删除此章节'))!
-    popup.vm.$emit('update:show', true)
-    const confirm = popup.props('onPositiveClick') as () => Promise<boolean>
+    await wrapper.findAll('button').find(node => node.text() === (all ? '清空全部章节' : '删除'))!.trigger('click')
+    const confirmOptions = dialog.warning.mock.calls.slice(-1)[0][0] as { content: string; onPositiveClick: () => Promise<boolean> }
+    expect(confirmOptions.content).toContain(all ? '清空全部 1 个章节' : '合成')
+    const confirm = confirmOptions.onPositiveClick
     expect(await confirm()).toBe(false)
     expect(JSON.stringify(book)).toBe(before)
     expect(messages.success).not.toHaveBeenCalled()
@@ -264,7 +261,7 @@ describe('ChapterList batch review integration', () => {
       source: createStoryMemoryBinding(novel, scope, '林澈在渡口。', 'author', '2026-10-28T00:00:00.000Z'), history: [] }
     vi.spyOn(workspace, 'getStoryMemories').mockImplementation(() => [memory])
     reactiveRoute.params.novelId = novel.id
-    const wrapper = shallowMount(ChapterList, { global: { stubs: { Button }, renderStubDefaultSlot: true } })
+    const wrapper = shallowMount(ChapterList, { global: { renderStubDefaultSlot: true } })
     await flushPromises()
     vi.mocked(callAI).mockImplementation(async options => {
       memory.summary = '林澈仍在渡口等船。'
@@ -274,7 +271,7 @@ describe('ChapterList batch review integration', () => {
     })
     await wrapper.findAll('button').find(button => button.text() === '批量生成空章')!.trigger('click')
     await flushPromises()
-    expect(wrapper.getComponent(NModal).props('show')).toBe(true)
+    expect(wrapper.getComponent({ name: 'V3Modal' }).props('show')).toBe(true)
     expect(callAI).not.toHaveBeenCalled()
     await wrapper.findAll('button').find(button => button.text() === '开始自动写作')!.trigger('click')
     await flushPromises()
@@ -299,7 +296,7 @@ describe('ChapterList batch review integration', () => {
     mockReviewAI()
 
     const wrapper = shallowMount(ChapterList, {
-      global: { stubs: { Button }, renderStubDefaultSlot: true },
+      global: { renderStubDefaultSlot: true },
     })
     await flushPromises()
 
@@ -345,7 +342,7 @@ describe('ChapterList batch review integration', () => {
     reactiveRoute.params.novelId = book.id
     const chapter = store.addChapter(book.id, { title: '待审章', content: '合成正文。'.repeat(50) })!
     mockReviewAI()
-    const wrapper = shallowMount(ChapterList, { global: { stubs: { Button }, renderStubDefaultSlot: true } })
+    const wrapper = shallowMount(ChapterList, { global: { renderStubDefaultSlot: true } })
     await flushPromises()
     await wrapper.findAll('button').find(button => button.text() === '批量审校')!.trigger('click')
     await flushPromises()
@@ -354,19 +351,19 @@ describe('ChapterList batch review integration', () => {
     await flushPromises()
     expect(chapter.contentReview).toBe('')
     expect(workspace.getChapterReviews(book.id)).toEqual([])
-    expect(wrapper.get('[aria-label="待保存的批量审核报告"]').text()).toContain('模拟审核保存失败')
+    expect(wrapper.get('[aria-label="待保存的批量审校报告"]').text()).toContain('模拟审核保存失败')
     const requests = vi.mocked(callAI).mock.calls.length
     if (changed) store.updateChapter(book.id, chapter.id, { title: '作者改变了标题' })
-    await wrapper.findAll('button').find(button => button.text() === '重试保存审核报告')!.trigger('click')
+    await wrapper.findAll('button').find(button => button.text() === '重试保存审校报告')!.trigger('click')
     await flushPromises()
     expect(vi.mocked(callAI).mock.calls).toHaveLength(requests)
     if (changed) {
       expect(chapter.contentReview).toBe('')
-      expect(wrapper.get('[aria-label="待保存的批量审核报告"]').text()).toContain('审核依据已变化')
+      expect(wrapper.get('[aria-label="待保存的批量审校报告"]').text()).toContain('审校依据已变化')
     } else {
       expect(chapter.contentReview).toContain('总体判断：可通过')
       expect(workspace.getLatestChapterReview(book.id, chapter.id)?.status).toBe('ready_to_finalize')
-      expect(wrapper.find('[aria-label="待保存的批量审核报告"]').exists()).toBe(false)
+      expect(wrapper.find('[aria-label="待保存的批量审校报告"]').exists()).toBe(false)
     }
   })
 
@@ -379,7 +376,7 @@ describe('ChapterList batch review integration', () => {
     const chapter = store.addChapter(book.id, { title: '时间矛盾', content: source })!
     store.updateChapter(book.id, chapter.id, { status: 'finalized' })
     mockReviewAI()
-    const wrapper = shallowMount(ChapterList, { global: { stubs: { Button }, renderStubDefaultSlot: true } })
+    const wrapper = shallowMount(ChapterList, { global: { renderStubDefaultSlot: true } })
     await flushPromises()
     await wrapper.findAll('button').find(button => button.text() === '批量审校')!.trigger('click')
     await flushPromises()
@@ -412,7 +409,7 @@ describe('ChapterList batch review integration', () => {
     })
 
     const wrapper = shallowMount(ChapterList, {
-      global: { stubs: { Button }, renderStubDefaultSlot: true },
+      global: { renderStubDefaultSlot: true },
     })
     await flushPromises()
 
@@ -462,7 +459,7 @@ describe('ChapterList batch review integration', () => {
     })
 
     const wrapper = shallowMount(ChapterList, {
-      global: { stubs: { Button }, renderStubDefaultSlot: true },
+      global: { renderStubDefaultSlot: true },
     })
     await flushPromises()
 
@@ -499,7 +496,7 @@ describe('ChapterList batch review integration', () => {
     mockReviewAI()
 
     const wrapper = shallowMount(ChapterList, {
-      global: { stubs: { Button }, renderStubDefaultSlot: true },
+      global: { renderStubDefaultSlot: true },
     })
     await flushPromises()
 
@@ -525,7 +522,7 @@ describe('ChapterList batch review integration', () => {
     // The second queue scenario contains only a locked chapter; deletion has its own transaction tests.
     book.chapters = book.chapters.filter(row => row.id !== draft.id)
     const wrapperOnlyLocked = shallowMount(ChapterList, {
-      global: { stubs: { Button }, renderStubDefaultSlot: true },
+      global: { renderStubDefaultSlot: true },
     })
     await flushPromises()
 
@@ -557,7 +554,7 @@ describe('ChapterList autonomous run integration', () => {
     reactiveRoute.params.novelId = book.id
     return { store, book }
   }
-  const mountList = () => shallowMount(ChapterList, { global: { stubs: { Button }, renderStubDefaultSlot: true } })
+  const mountList = () => shallowMount(ChapterList, { global: { renderStubDefaultSlot: true } })
 
   it('opens the candidate task with a contiguous empty range and visible budgets without dispatching on open or remount', async () => {
     const { book } = shortcutBook()
@@ -569,13 +566,13 @@ describe('ChapterList autonomous run integration', () => {
     await wrapper.findAll('button').find(button => button.text() === '批量生成空章')!.trigger('click')
     await flushPromises()
 
-    expect(wrapper.getComponent(NModal).props('show')).toBe(true)
+    expect(wrapper.getComponent({ name: 'V3Modal' }).props('show')).toBe(true)
     expect(wrapper.getComponent(AutonomousDraftPanel).props()).toMatchObject({ novelId: book.id, runs: [] })
-    expect(wrapper.text()).toContain('由你接受后才写入正文')
+    expect(wrapper.getComponent({ name: 'V3Modal' }).props('description')).toContain('你接受后才写入正文')
     expect(wrapper.text()).toContain('当前范围：第 3 至第 4 章')
     expect(wrapper.text()).toContain('Token 预算')
     expect(wrapper.text()).toContain('请求次数上限')
-    expect(wrapper.findAllComponents(NInputNumber).map(input => input.props('value'))).toEqual([3, 4, 120000, 200, 0])
+    expect(wrapper.findAllComponents({ name: 'V3Number' }).map(input => input.props('value'))).toEqual([3, 4, 120000, 200, 0])
     expect(enqueuedTasks.batches).toHaveLength(0)
     expect(autonomous.processor).not.toHaveBeenCalled()
     expect(autonomous.execute).not.toHaveBeenCalled()
@@ -586,7 +583,7 @@ describe('ChapterList autonomous run integration', () => {
     wrapper.unmount()
     const reopened = mountList()
     await flushPromises()
-    expect(reopened.getComponent(NModal).props('show')).toBe(false)
+    expect(reopened.getComponent({ name: 'V3Modal' }).props('show')).toBe(false)
     expect(autonomous.execute).not.toHaveBeenCalled()
     expect(callAI).not.toHaveBeenCalled()
   })
@@ -605,7 +602,7 @@ describe('ChapterList autonomous run integration', () => {
     await wrapper.findAll('button').find(button => button.text() === '批量生成空章')!.trigger('click')
     await flushPromises()
     expect(callAI).not.toHaveBeenCalled()
-    const inputs = wrapper.findAllComponents(NInputNumber)
+    const inputs = wrapper.findAllComponents({ name: 'V3Number' })
     inputs[1].vm.$emit('update:value', 3)
     inputs[2].vm.$emit('update:value', 50000)
     inputs[3].vm.$emit('update:value', 12)
@@ -645,7 +642,7 @@ describe('ChapterList autonomous run integration', () => {
     workspace.replaceAiRun(book.id, run)
     await wrapper.findAll('button').find(button => button.text() === '批量生成空章')!.trigger('click')
     await flushPromises()
-    expect(wrapper.getComponent(NModal).props('show')).toBe(true)
+    expect(wrapper.getComponent({ name: 'V3Modal' }).props('show')).toBe(true)
     expect(wrapper.find('.autonomous-run-form').exists()).toBe(false)
     expect(wrapper.getComponent(AutonomousDraftPanel).props('runs')).toEqual([run])
     expect(workspace.getAiRun(book.id, run.id)).toEqual(run)
@@ -662,7 +659,7 @@ describe('ChapterList autonomous run integration', () => {
     await flushPromises()
     await wrapper.findAll('button').find(button => button.text() === '批量生成空章')!.trigger('click')
     await flushPromises()
-    expect(wrapper.getComponent(NModal).props('show')).toBe(false)
+    expect(wrapper.getComponent({ name: 'V3Modal' }).props('show')).toBe(false)
     expect(messages.info).toHaveBeenCalledWith('没有需要批量生成的空白章节')
     expect(enqueuedTasks.batches).toHaveLength(0)
     expect(autonomous.execute).not.toHaveBeenCalled()
@@ -675,7 +672,7 @@ describe('ChapterList autonomous run integration', () => {
       writingMode: 'manual', settings: store.defaultSettings(), writingStyle: store.defaultWritingStyle() })
     reactiveRoute.params.novelId = book.id
     store.addChapter(book.id, { title: '第一章' })
-    const wrapper = shallowMount(ChapterList, { global: { stubs: { Button }, renderStubDefaultSlot: true } })
+    const wrapper = shallowMount(ChapterList, { global: { renderStubDefaultSlot: true } })
     await flushPromises()
     const now = '2026-10-28T00:00:00.000Z'
     const run = { ...createAiRun({ id: 'interrupted', mode: 'autonomous', taskType: 'draft', targetId: book.id,
@@ -692,7 +689,7 @@ describe('ChapterList autonomous run integration', () => {
     expect(recovered.requests?.[0]).toMatchObject({ status: 'interrupted', usageSource: 'estimated' })
     expect(autonomous.execute).not.toHaveBeenCalled()
     expect(callAI).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('1 次含预留或估算')
+    expect(wrapper.text()).toContain('其中 1 次为预估')
   })
 
   it('keeps an interrupted task unchanged when recovery cannot be saved', async () => {
@@ -701,7 +698,7 @@ describe('ChapterList autonomous run integration', () => {
       writingMode: 'manual', settings: store.defaultSettings(), writingStyle: store.defaultWritingStyle() })
     reactiveRoute.params.novelId = book.id
     store.addChapter(book.id, { title: '第一章' })
-    const wrapper = shallowMount(ChapterList, { global: { stubs: { Button }, renderStubDefaultSlot: true } })
+    const wrapper = shallowMount(ChapterList, { global: { renderStubDefaultSlot: true } })
     await flushPromises()
     const run = { ...createAiRun({ id: 'interrupted', mode: 'autonomous', taskType: 'draft', targetId: book.id,
       chapterStart: 0, chapterEnd: 0, tokenBudget: 1000, now: '2026-10-28T00:00:00.000Z' }), status: 'running' as const }
@@ -727,7 +724,7 @@ describe('ChapterList autonomous run integration', () => {
     store.addChapter(book.id, { title: '第二章' })
 
     const wrapper = shallowMount(ChapterList, {
-      global: { stubs: { Button }, renderStubDefaultSlot: true },
+      global: { renderStubDefaultSlot: true },
     })
     await flushPromises()
 

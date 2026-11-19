@@ -356,7 +356,7 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
         if (!pending && run.status !== 'running') return run
         const next = JSON.parse(JSON.stringify(run)) as AiRun
         next.status = 'paused'
-        next.error = '应用重启或页面离开时发现未完成请求；已标记为中断，需作者明确继续。'
+        next.error = '应用重启或页面离开时发现未完成请求；已标记为中断，需要你确认后继续。'
         next.updatedAt = new Date().toISOString()
         next.memoryTask!.stage = 'interrupted'
         next.memoryTask!.usageEstimated = true
@@ -602,7 +602,7 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
   async function transactStory<R, P = undefined>(novelId: string, operation: (aggregate: StoryAggregate, prepared: P) => R,
     skipPersistence?: (value: R) => boolean, assertLive?: () => void, options?: StoryTransactionOptions<P>): Promise<R> {
     const assertAvailable = () => {
-      if (projectTransferBusy.value || cloudApplyBusy.value || appUpdateInstalling.value) throw new Error('项目正在恢复、同步或准备更新，请稍后再处理审核。')
+      if (projectTransferBusy.value || cloudApplyBusy.value || appUpdateInstalling.value) throw new Error('项目正在恢复、同步或准备更新，请稍后再处理审校。')
     }
     assertAvailable()
     return serializePersistence(novelId, async () => {
@@ -720,7 +720,7 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
   async function captureDecision<T extends CandidateChange | ReviewFinding>(novelId: string, record: T | undefined, options?: StoryDecisionOptions<T>): Promise<StoryDecisionOptions<T>> {
     if (options) return JSON.parse(JSON.stringify(options))
     const novel = useNovelStore().getNovel(novelId)
-    if (!novel || !record?.chapterId) throw new Error('找不到来源章节或审核记录。')
+    if (!novel || !record?.chapterId) throw new Error('找不到来源章节或审校记录。')
     const expectedRecord = JSON.parse(JSON.stringify(record)), capturedNovel = JSON.parse(JSON.stringify(novel))
     const knowledge = JSON.parse(JSON.stringify(useKnowledgeStore().knowledgeBases))
     const local = JSON.parse(JSON.stringify(snapshotForPersistence(novelId)))

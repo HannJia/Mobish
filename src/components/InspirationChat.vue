@@ -12,7 +12,7 @@
       <button class="inspiration-search-toggle" :class="{ enabled: webSearch }" :aria-pressed="webSearch"
         title="开启或关闭联网搜索，下条灵感消息生效" @click="webSearch = !webSearch">联网{{ webSearch ? '开' : '关' }}</button>
       <span>{{ webSearch ? '允许按需搜索近期事件和背景；查询词可能外发并额外计费。' : '未启用网页搜索；灵感对话仍需调用已配置 API。' }}</span>
-      <n-select
+      <V3Select
         class="inspiration-session-select"
         :value="selectedSessionId"
         :options="sessionOptions"
@@ -25,12 +25,12 @@
     </div>
     <div class="inspiration-knowledge-toolbar">
       <label for="inspiration-knowledge">参考知识库</label>
-      <n-select id="inspiration-knowledge" v-model:value="knowledgeIds" multiple clearable
-        :options="knowledgeOptions" :max-tag-count="1" :disabled="busy" placeholder="不读取知识库"
+      <V3Select id="inspiration-knowledge" v-model:value="knowledgeIds" multiple clearable
+        :options="knowledgeOptions" :disabled="busy" placeholder="不读取知识库"
         aria-label="灵感参考知识库" />
-      <n-button size="small" :disabled="busy" @click="openKnowledgeDraft('')">
-        <template #icon><n-icon><add-outline /></n-icon></template>新建知识条目
-      </n-button>
+      <button type="button" class="m-btn sm" :disabled="busy" @click="openKnowledgeDraft('')">
+        <V3Icon name="plus" size="s" />新建知识条目
+      </button>
     </div>
 
         </details>
@@ -46,16 +46,15 @@
       <p id="inspiration-current-prompt" class="inspiration-sticky-text" :class="{ expanded: promptExpanded }">{{ latestPrompt }}</p>
     </aside>
     <div ref="historyElement" class="inspiration-history" tabindex="0" aria-live="polite" aria-label="灵感对话">
-      <div v-if="!history.length && !busy" class="inspiration-empty-guide"><n-icon :size="38"><bulb-outline /></n-icon><h3>写下故事的第一点灵感</h3><p>人物、场景、一句台词，都可以成为起点。</p><div><button v-for="prompt in ['先帮我构思一个主角', '一起确定故事的背景', '从一个核心冲突开始']" :key="prompt" type="button" @click="input = input.trim() ? input + '\n' + prompt : prompt">{{ prompt }}</button></div></div>
+      <div v-if="!history.length && !busy" class="inspiration-empty-guide"><V3Icon name="bulb" size="l" /><h3>写下故事的第一点灵感</h3><p>人物、场景、一句台词，都可以成为起点。</p><div><button v-for="prompt in ['先帮我构思一个主角', '一起确定故事的背景', '从一个核心冲突开始']" :key="prompt" type="button" @click="input = input.trim() ? input + '\n' + prompt : prompt">{{ prompt }}</button></div></div>
       <article v-for="(item, index) in history" :key="index" :data-message-index="index"
         class="inspiration-message" :class="item.role">
         <strong>{{ item.role === 'user' ? '我' : 'AI' }}</strong>
         <div v-html="renderMd(item.role === 'assistant' ? formatChatReply(item.content, item.search) : item.content)"></div>
         <ChatSearchEvidence :record="item.search" />
-        <n-button v-if="item.role === 'assistant'" size="tiny" quaternary :disabled="busy"
-          @click="openKnowledgeDraft(item.content, item.search)">
-          <template #icon><n-icon><save-outline /></n-icon></template>存入知识库
-        </n-button>
+        <button type="button" class="m-btn ghost xs" v-if="item.role === 'assistant'" :disabled="busy" @click="openKnowledgeDraft(item.content, item.search)">
+          <V3Icon name="check" size="s" />存入知识库
+        </button>
       </article>
       <article v-if="streamReplyText" data-streaming-assistant class="inspiration-message assistant">
         <strong>AI</strong><div v-html="renderMd(streamReplyText)"></div>
@@ -76,14 +75,14 @@
       <aside v-if="pendingIdea" class="inspiration-carried-idea" aria-label="已带入的一句话灵感">
         <strong>已带入一句话灵感</strong><p>{{ pendingIdea }}</p><small>发送时会与下方草稿一起带入讨论。</small>
       </aside>
-      <n-input v-model:value="input" type="textarea" :rows="3" :maxlength="4000" :disabled="busy"
+      <V3Input v-model:value="input" type="textarea" :rows="3" :maxlength="4000" :disabled="busy"
         placeholder="我想写一个怎样的故事？" aria-label="小说灵感"
         @keydown="handleInputKeydown" @compositionstart="composing = true"
         @compositionend="composing = false" @blur="composing = false" />
       <div v-if="error" role="alert" class="inspiration-error">{{ error }}</div>
       <div class="inspiration-actions">
         <p class="inspiration-input-hint">回车发送 · 上档键＋回车换行</p>
-        <n-button v-if="retryAvailable && !busy && !pendingIdea" @click="respond">重试回复</n-button>
+        <button type="button" class="m-btn" v-if="retryAvailable && !busy && !pendingIdea" @click="respond">重试回复</button>
         <div class="inspiration-send-group">
           <div v-if="contextStatus" class="inspiration-context-status" role="status">
             <button type="button" class="inspiration-context-summary" :aria-label="contextTooltip">
@@ -99,10 +98,10 @@
             <progress class="inspiration-context-progress-native" :value="contextPercent" max="100"
               aria-label="灵感对话上下文使用量"></progress>
           </div>
-          <n-button v-if="busy" @click="stop"><template #icon><n-icon><stop-outline /></n-icon></template>停止</n-button>
-          <n-button v-else :disabled="!input.trim() && !pendingIdea" type="primary" @click="send">
-            <template #icon><n-icon><send-outline /></n-icon></template>发送
-          </n-button>
+          <button type="button" class="m-btn" v-if="busy" @click="stop"><V3Icon name="stop" size="s" />停止</button>
+          <button type="button" class="m-btn pri" v-else :disabled="!input.trim() && !pendingIdea" @click="send">
+            <V3Icon name="send" size="s" />发送
+          </button>
         </div>
       </div>
     </div>
@@ -118,9 +117,11 @@
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { NButton, NIcon, NInput, NSelect } from 'naive-ui'
-import { AddOutline, BulbOutline, SaveOutline, SendOutline, StopOutline } from '@vicons/ionicons5'
+import V3Icon from '@/v3/components/V3Icon.vue'
+import V3Input from '@/v3/components/form/V3Input.vue'
+import V3Select from '@/v3/components/form/V3Select.vue'
 import { useConfigStore } from '@/stores/config'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import {
@@ -482,7 +483,7 @@ function startDiscussion(idea: string) {
 async function respond() {
   if (busy.value) return
   const model = config.getModelForTask('chat')
-  if (!model?.apiKey.trim()) { error.value = '请先在设置中配置对话 / 联网模型（默认跟随大纲模型）及有效接口密钥，再重试回复'; return }
+  if (!model?.apiKey.trim()) { error.value = '请先在设置中配置对话 / 联网模型（默认跟随大纲模型）及有效的 API 密钥，再重试回复'; return }
   const request = new AbortController()
   controller = request
   busy.value = true
@@ -531,7 +532,7 @@ async function respond() {
       await scrollToReplyStart(request, replyIndex)
     }
   } catch (err) {
-    if (controller === request && !request.signal.aborted) error.value = err instanceof Error ? err.message : '对话失败'
+    if (controller === request && !request.signal.aborted) error.value = errorText(err, '对话失败')
   } finally {
     if (controller === request) stop()
   }
@@ -539,7 +540,7 @@ async function respond() {
 async function extract() {
   if (busy.value || !props.active) return
   const model = config.getModelForTask('outline')
-  if (!model?.apiKey.trim()) { error.value = '请先在设置中配置大纲模型及有效接口密钥。'; return }
+  if (!model?.apiKey.trim()) { error.value = '请先在设置中配置大纲模型及有效的 API 密钥。'; return }
   commitPendingIdea()
   if (importedIdea.value && input.value.trim() === importedIdea.value && !history.value.some(item => item.role === 'user' && item.content.includes(importedIdea.value))) {
     history.value.push({ role: 'user', content: importedIdea.value })
@@ -571,7 +572,7 @@ async function extract() {
       persistCurrentHistory()
     }
   } catch (err) {
-    if (controller === request && !request.signal.aborted) error.value = err instanceof Error ? err.message : '整理失败'
+    if (controller === request && !request.signal.aborted) error.value = errorText(err, '整理失败')
   } finally {
     if (controller === request) stop()
   }
@@ -616,7 +617,7 @@ onBeforeUnmount(() => { persistCurrentHistory(); stop() })
 .inspiration-session-select { margin-left: auto; width: min(300px, 100%); }
 .inspiration-knowledge-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-bottom: 8px; flex-shrink: 0; }
 .inspiration-knowledge-toolbar label { font-size: 12px; color: var(--ink-2); }
-.inspiration-knowledge-toolbar :deep(.n-select) { flex: 1 1 220px; min-width: 0; }
+.inspiration-knowledge-toolbar .m-multi, .inspiration-knowledge-toolbar .m-select { flex: 1 1 220px; min-width: 0; }
 .inspiration-search-toggle { cursor: pointer; flex-shrink: 0; border: 1px solid var(--line-2); border-radius: 100px; padding: 4px 12px; background: var(--paper); color: var(--ink-2); transition: all var(--motion-fast); }
 .inspiration-search-toggle:hover { border-color: var(--dai); color: var(--dai); }
 .inspiration-search-toggle.enabled { color: var(--dai); border-color: var(--dai); background: var(--dai-soft); }
@@ -701,7 +702,7 @@ onBeforeUnmount(() => { persistCurrentHistory(); stop() })
 .inspiration-message.assistant::before { content: '墨'; position: absolute; top: 4px; left: -42px; display: grid; place-items: center; width: 30px; height: 32px; border-radius: 50%; background: var(--zhu); color: var(--on-accent); font: 20px var(--f-serif); }
 .inspiration-message.assistant > strong { display: none; }
 .inspiration-composer { margin: auto 0 0; padding: 12px; }
-.inspiration-composer :deep(.n-input) { background: transparent; }
+.inspiration-composer .m-textarea { background: transparent; }
 .inspiration-workspace > :deep(.inspiration-settings) { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .inspiration-sticky-prompt { margin: 0 0 8px; padding: 8px 12px; background: var(--panel); }
 @media (max-width: 1100px) { .inspiration-chat { padding: 0 20px 20px; } .inspiration-workspace { grid-template-columns: minmax(0, 1fr) 300px; } .inspiration-conversation { padding: 18px; } }
@@ -725,7 +726,7 @@ onBeforeUnmount(() => { persistCurrentHistory(); stop() })
   .inspiration-options { margin: 6px 0; }
 }
 .inspiration-empty-guide { margin: auto; max-width: 440px; text-align: center; padding: 28px; color: var(--ink-2); }
-.inspiration-empty-guide > .n-icon { color: var(--dai); margin-bottom: 16px; }
+.inspiration-empty-guide > .icon { color: var(--dai); margin-bottom: 16px; }
 .inspiration-empty-guide h3 { font-size: 24px; color: var(--ink); margin-bottom: 8px; }
 .inspiration-empty-guide p { font-size: 14px; line-height: 1.8; }
 .inspiration-empty-guide > div { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 24px; }

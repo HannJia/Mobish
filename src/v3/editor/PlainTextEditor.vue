@@ -337,6 +337,7 @@ defineExpose({ getSelectionOffsets, revealRange, focus, coordsAtOffset, replaceD
 .v3 .pte .mk-fs { text-decoration: underline double var(--qing) 1.5px }
 .v3 .pte .mk-ok { text-decoration: underline solid color-mix(in srgb, var(--qing) 45%, transparent) 1px }
 .v3 .pte .mk-off { text-decoration: none; background: none; cursor: text }
+.v3 .pte .mk-stale { text-decoration: underline dashed color-mix(in srgb, var(--ink-3) 55%, transparent) 1px }
 .v3 .pte .mk-cand { background: var(--slip); box-shadow: 0 0 0 2px var(--slip-line); text-decoration: none }
 .v3 .pte.readonly .pte-doc { caret-color: transparent }
 .v3 .pte .pte-doc p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--ink-4); float: left; height: 0; pointer-events: none }

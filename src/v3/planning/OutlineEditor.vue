@@ -4,31 +4,31 @@
     <div class="outline-header">
       <h2 class="page-title">总大纲</h2>
       <div class="header-actions" v-if="novel?.outline">
-        <n-button size="small" :disabled="saving || modifying" @click="startEdit" v-if="!editing">
+        <button type="button" class="m-btn sm" :disabled="saving || modifying" @click="startEdit" v-if="!editing">
           编辑
-        </n-button>
-        <n-button size="small" :disabled="saving" @click="editing = false" v-if="editing">
+        </button>
+        <button type="button" class="m-btn sm" :disabled="saving" @click="editing = false" v-if="editing">
           预览
-        </n-button>
-        <n-button size="small" type="primary" :disabled="saving || modifying || editing" @click="regenerate" :loading="regenerating">
+        </button>
+        <button type="button" class="m-btn pri sm" :disabled="(saving || modifying || editing) || (regenerating)" @click="regenerate" :aria-busy="regenerating">
           重新生成
-        </n-button>
+        </button>
       </div>
     </div>
 
     <!-- 无大纲 -->
     <div v-if="!novel?.outline" class="empty-outline paper-panel">
-      <div class="empty-icon"><svg class="ink-mountains" viewBox="0 0 220 80" aria-hidden="true"><path fill="currentColor" d="M0 80 L40 38 L62 56 L98 14 L130 50 L150 34 L188 66 L220 46 L220 80 Z" /></svg></div>
+      <img class="m-art empty-art" :src="outlineArt" alt="">
       <h3>还没有大纲</h3>
       <p>前往大纲生成页面，让 AI 为你构思整本小说的大纲</p>
-      <n-button type="primary" @click="$router.push(`/generate/${novelId}`)">
+      <button type="button" class="m-btn pri" @click="$router.push(`/generate/${novelId}`)">
         生成大纲
-      </n-button>
+      </button>
     </div>
 
     <!-- 编辑模式 -->
     <div v-else-if="editing" class="outline-editor paper-panel">
-      <n-input
+      <V3Input
         v-model:value="editContent"
         :disabled="saving"
         type="textarea"
@@ -36,8 +36,8 @@
         placeholder="在此编辑大纲内容（Markdown 格式）"
       />
       <div class="editor-actions">
-        <n-button :disabled="saving" @click="editing = false">取消</n-button>
-        <n-button type="primary" :disabled="saving" :loading="saving" @click="saveEdit">保存</n-button>
+        <button type="button" class="m-btn" :disabled="saving" @click="editing = false">取消</button>
+        <button type="button" class="m-btn pri" :disabled="saving" @click="saveEdit" :aria-busy="saving">保存</button>
       </div>
     </div>
 
@@ -52,30 +52,22 @@
         <div class="modify-header">
           <h3>AI 助手</h3><span class="outline-assistant-tab">局部修改</span>
         </div>
-        <n-input
+        <V3Input
           v-model:value="modifyInstruction"
           :disabled="saving || modifying"
           type="textarea"
           :rows="2"
-          size="small"
           placeholder="描述你想修改的内容，例如：&#10;• 把主角身份改为修仙门派弃徒&#10;• 增加一条暗线：宝物争夺&#10;• 减少恋爱戏份，增加打斗描写"
         />
-        <n-button
-          size="small"
-          type="primary"
-          @click="aiModifyOutline"
-          :loading="modifying"
-          :disabled="saving || modifying || !modifyInstruction.trim()"
-          style="margin-top:6px;align-self:flex-end;"
-        >
+        <button type="button" class="m-btn pri sm" @click="aiModifyOutline" :disabled="saving || modifying || !modifyInstruction.trim()" :aria-busy="modifying">
           {{ modifying ? 'AI 修改中...' : '生成修改建议' }}
-        </n-button>
+        </button>
         <div v-if="modifyPreview" class="modify-preview">
           <div class="modify-label">修改预览：</div>
           <div class="modify-content" v-html="renderMd(modifyPreview)"></div>
           <div class="modify-actions">
-            <n-button size="tiny" :disabled="saving || modifying" @click="modifyPreview = ''">放弃</n-button>
-            <n-button size="tiny" type="primary" :disabled="saving || modifying || !modifyComplete" @click="acceptModify">采纳修改</n-button>
+            <button type="button" class="m-btn xs" :disabled="saving || modifying" @click="modifyPreview = ''">放弃</button>
+            <button type="button" class="m-btn pri xs" :disabled="saving || modifying || !modifyComplete" @click="acceptModify">采纳修改</button>
           </div>
         </div>
       </aside>
@@ -85,15 +77,18 @@
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import BookPage from '@/v3/components/BookPage.vue'
 import { ref, computed, onDeactivated, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NButton, NInput, useMessage } from 'naive-ui'
+import { useMessage } from '@/v3/feedback'
+import V3Input from '@/v3/components/form/V3Input.vue'
 import { useNovelStore } from '@/stores/novel'
 import { useConfigStore } from '@/stores/config'
 import { callAI } from '@/services/ai'
 import { renderMd } from '@/utils/markdown'
 import { captureStoryContextBaseline } from '@/services/storyImpactTransactions'
+import outlineArt from '@/assets/v3/empty/outline.webp'
 
 const route = useRoute()
 const router = useRouter()
@@ -139,7 +134,7 @@ async function saveEdit() {
     await novelStore.updateOutlineWithImpact(novelId.value, editContent.value, editBaseline.value)
     editing.value = false
     message.success('大纲已保存')
-  } catch (error) { message.error(error instanceof Error ? error.message : '大纲保存失败') }
+  } catch (error) { message.error(errorText(error, '大纲保存失败')) }
   finally { saving.value = false }
 }
 
@@ -200,7 +195,7 @@ async function acceptModify() {
       modifyPreview.value = ''
       modifyInstruction.value = ''
       message.success('大纲已更新')
-    } catch (error) { message.error(error instanceof Error ? error.message : '大纲保存失败') }
+    } catch (error) { message.error(errorText(error, '大纲保存失败')) }
     finally { saving.value = false }
   }
 }
@@ -229,7 +224,6 @@ async function acceptModify() {
   text-align: center;
 }
 
-.empty-icon { font-size: 48px; }
 .empty-outline h3 { font-size: 18px; color: var(--ink); }
 .empty-outline p { font-size: 14px; color: var(--ink-3); margin-bottom: 8px; }
 
@@ -325,7 +319,7 @@ async function acceptModify() {
 .modify-header { display: flex; flex-direction: column; align-items: stretch; gap: 16px; }
 .modify-header h3 { font-size: 22px; }
 .outline-assistant-tab { padding-bottom: 12px; border-bottom: 2px solid var(--zhu); color: var(--zhu); text-align: center; }
-.ai-modify-panel > :deep(.n-button) { align-self: stretch !important; margin-top: 12px !important; }
+.ai-modify-panel > .m-btn { align-self: stretch !important; margin-top: 12px !important; }
 @media (max-width: 1100px) { .outline-reading-container { grid-template-columns: minmax(0, 1fr) 280px; } }
 @media (max-width: 900px) { .outline-reading-container { grid-template-columns: 1fr; } .ai-modify-panel { position: static; } }
 </style>

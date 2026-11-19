@@ -6,7 +6,7 @@ import { testChatSearch } from '@/services/chatSearch'
 import type { ModelConfig } from '@/stores/config'
 
 const dialog = vi.hoisted(() => ({ warning: vi.fn() }))
-vi.mock('naive-ui', async original => ({
+vi.mock('@/v3/feedback', async original => ({
   ...await original<object>(), useDialog: () => dialog,
   useMessage: () => ({ success: vi.fn(), error: vi.fn() }),
 }))
@@ -19,7 +19,6 @@ const mounted: ReturnType<typeof shallowMount>[] = []
 function mount() {
   const wrapper = shallowMount(ModelSearchTest, { props: { model: { ...model } }, global: {
     renderStubDefaultSlot: true, stubs: {
-      Button: { props: ['disabled'], emits: ['click'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
     },
   } })
   mounted.push(wrapper)
@@ -37,7 +36,7 @@ describe('model search diagnostics', () => {
     expect(wrapper.text()).toContain('自动推测：Claude Messages')
     expect(testChatSearch).not.toHaveBeenCalled()
     await wrapper.findAll('button').find(button => button.text() === '测试联网')!.trigger('click')
-    expect(dialog.warning.mock.calls[0][0].content).toContain('可能产生模型和搜索费用')
+    expect(dialog.warning.mock.calls[0][0].content).toContain('可能产生少量费用')
     expect(testChatSearch).not.toHaveBeenCalled()
     dialog.warning.mock.calls[0][0].onPositiveClick()
     await flushPromises()

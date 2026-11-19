@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, shallowMount } from '@vue/test-utils'
-import { NInput } from 'naive-ui'
+import V3Input from '@/v3/components/form/V3Input.vue'
 import VolumeOutline from '@/v3/planning/VolumePlanner.vue'
 import { useNovelStore } from '@/stores/novel'
 import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspace'
@@ -11,10 +11,10 @@ import { callAI } from '@/services/ai'
 import type { ReconstructionWorkspaceSnapshot } from '@/types/reconstruction'
 import { createEmptyCreationDraft } from '@/types/reconstruction'
 
-const { route, error } = vi.hoisted(() => ({ route: { params: { novelId: '' } }, error: vi.fn() }))
+const { route, error, dialog } = vi.hoisted(() => ({ route: { params: { novelId: '' } }, error: vi.fn(), dialog: { warning: vi.fn() } }))
 vi.mock('vue-router', () => ({ useRoute: () => route }))
 vi.mock('@/services/ai', () => ({ callAI: vi.fn() }))
-vi.mock('naive-ui', async original => ({ ...await original<object>(), useMessage: () => ({ error, success: vi.fn(), warning: vi.fn(), info: vi.fn() }) }))
+vi.mock('@/v3/feedback', async original => ({ ...await original<object>(), useMessage: () => ({ error, success: vi.fn(), warning: vi.fn(), info: vi.fn() }), useDialog: () => dialog }))
 let wrapper: ReturnType<typeof shallowMount>
 type VolumeOutlineProps = { compact?: boolean; chapterPlanConfirmed?: boolean }
 function setup(props: VolumeOutlineProps = {}) {
@@ -31,7 +31,6 @@ function setup(props: VolumeOutlineProps = {}) {
   vi.spyOn(useReconstructionWorkspaceStore(), 'transactStory').mockImplementation(async (id, operation) => operation({ novel: store.getNovel(id)!, workspace: snapshot }))
   vi.spyOn(useConfigStore(), 'getModelForTask').mockReturnValue({ id: 'test', modelName: 'test' } as never)
   wrapper = shallowMount(VolumeOutline, { props, global: { renderStubDefaultSlot: true, stubs: {
-    Button: { props: ['disabled'], emits: ['click'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
   } } })
   return { store, novel }
 }
@@ -41,6 +40,20 @@ beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks(); vi.mocked(
 afterEach(() => wrapper?.unmount())
 
 describe('volume planning persistence and request baselines', () => {
+  it('confirms deletion with the volume name and deletes against the baseline captured on open', async () => {
+    const { store, novel } = setup()
+    const remove = vi.spyOn(store, 'deleteVolumeWithImpact').mockResolvedValue(true as never)
+    const capture = vi.spyOn(store, 'capturePlanningEditBaseline')
+    await button('删除').trigger('click')
+    expect(remove).not.toHaveBeenCalled()
+    const options = dialog.warning.mock.calls[0][0] as { content: string; onPositiveClick: () => void }
+    expect(options.content).toContain('第 1 卷「卷0」')
+    const opening = capture.mock.results.slice(-1)[0].value
+    options.onPositiveClick(); await flushPromises()
+    expect(remove).toHaveBeenCalledWith(novel.id, 'volume-0', opening)
+  })
+
+
   it('renders explicit card fields and separates real chapters from estimates', async () => {
     const { store, novel } = setup()
     novel.volumes[0].summary = '卷纲概要\n**目标**：寻找失踪账册。\n- **冲突**: 守灯人拒绝交出钥匙。\n### 收束：揭开旧案。'
@@ -104,7 +117,7 @@ describe('volume planning persistence and request baselines', () => {
   it('retains form input after failed save, blocks duplicate actions, and permits retry', async () => {
     const { store, novel } = setup()
     await button('编辑').trigger('click')
-    wrapper.findAllComponents(NInput)[2].vm.$emit('update:value', '作者手写的新卷纲')
+    wrapper.findAllComponents(V3Input)[2].vm.$emit('update:value', '作者手写的新卷纲')
     await flushPromises()
     let reject!: (error: Error) => void
     vi.spyOn(store, 'updateVolumeWithImpact').mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail }))
@@ -114,7 +127,7 @@ describe('volume planning persistence and request baselines', () => {
     expect(button('确认分卷并生成章节计划').attributes('disabled')).toBeDefined()
     reject(new Error('磁盘失败')); await flushPromises()
     expect(novel.chapterPlanConfirmed).toBe(true)
-    expect(wrapper.findAllComponents(NInput)[2].props('value')).toBe('作者手写的新卷纲')
+    expect(wrapper.findAllComponents(V3Input)[2].props('value')).toBe('作者手写的新卷纲')
     await button('保存').trigger('click'); await flushPromises()
     expect(novel.volumes[0].summary).toBe('作者手写的新卷纲')
     expect(novel.chapterPlanConfirmed).toBe(false)
@@ -124,13 +137,13 @@ describe('volume planning persistence and request baselines', () => {
   it('retains the original form baseline when switching between volume drafts', async () => {
     const { store, novel } = setup()
     await button('编辑').trigger('click')
-    wrapper.findAllComponents(NInput)[2].vm.$emit('update:value', '未保存的作者输入')
+    wrapper.findAllComponents(V3Input)[2].vm.$emit('update:value', '未保存的作者输入')
     await wrapper.findAll('.volc')[1].trigger('click')
     await store.updateVolumeWithImpact(novel.id, novel.volumes[0].id, { summary: '另一个窗口已保存' })
     await wrapper.findAll('.volc')[0].trigger('click')
     await button('保存').trigger('click'); await flushPromises()
     expect(novel.volumes[0].summary).toBe('另一个窗口已保存')
-    expect(wrapper.findAllComponents(NInput)[2].props('value')).toBe('未保存的作者输入')
+    expect(wrapper.findAllComponents(V3Input)[2].props('value')).toBe('未保存的作者输入')
     expect(error).toHaveBeenCalledWith(expect.stringContaining('已经变化'))
   })
 

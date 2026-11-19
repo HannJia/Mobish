@@ -28,7 +28,7 @@ export function retainCompletedCandidateSource(novel: Novel, chapterId: string) 
 
 /** Open the private per-novel registration scope used by the transaction coordinator. */
 export function beginChapterReviewInvalidationScope(novel: Novel) {
-  if (scopes.has(novel)) throw new Error('故事审核事务不能嵌套执行')
+  if (scopes.has(novel)) throw new Error('故事审校事务不能嵌套执行')
   const scope: ReviewInvalidationScope = { requests: [], completedSources: new Map() }
   scopes.set(novel, scope)
   return scope

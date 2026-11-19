@@ -1,7 +1,7 @@
 <template>
   <section class="outline-import" aria-label="已有大纲文件或粘贴">
     <h3>已有大纲</h3>
-    <p>选择本地 UTF-8 TXT、Markdown（.md / .markdown）或 DOCX，文件最多 10 MB，文字最多 50 万字符。DOCX 只提取文字，图片、样式和批注不作为大纲。读取在本机完成。</p>
+    <p>选择本地 UTF-8 TXT、Markdown（.md / .markdown）或 DOCX，文件最多 10 MB，文字最多 50 万字符。DOCX 只读取其中的文字。文件在本机读取，不会上传。</p>
     <label>选择大纲文件<input type="file" accept=".txt,.md,.markdown,.docx" :disabled="disabled" @change="chooseFile" /></label>
     <p v-if="reading" role="status">正在读取文件；你仍可编辑，迟到结果不会替换新输入。</p>
     <p v-if="modelValue?.source === 'file'">来源：{{ modelValue.fileName }} · {{ modelValue.format?.toUpperCase() }} · {{ modelValue.fileBytes }} 字节</p>
@@ -12,12 +12,13 @@
     <details v-if="modelValue?.source === 'file'"><summary>文件原始提取文字（保留来源）</summary><pre>{{ modelValue.originalText.slice(0, 12000) }}</pre><p v-if="modelValue.originalText.length > 12000">此处只预览前 12000 字符，完整原文随候选保存。</p></details>
     <div class="actions"><button :disabled="disabled || reading || !modelValue?.text.trim()" @click="save">保存这份大纲候选</button>
       <button v-if="modelValue?.source === 'file'" :disabled="disabled" @click="usePastedSource">将当前文字另存为粘贴来源</button></div>
-    <p v-if="saved" role="status">候选已确认留存，点击下方创建后与作品一起落盘。</p>
+    <p v-if="saved" role="status">大纲已保存，点击下方“创建”后会和作品一起保存。</p>
     <p v-else role="status">请先保存当前候选，再创建作品；读取文件本身不会创建或批准规划。</p>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
   </section>
 </template>
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { onBeforeUnmount, ref, watch } from 'vue'
 import type { CreationOutlineInput } from '@/types/creationEntry'
 import { assertCreationOutlineInput } from '@/services/creationEntryInput'
@@ -44,7 +45,7 @@ async function chooseFile(event: Event) {
     if (disposed || ticket !== request || props.disabled) return
     if (revision !== inputRevision) { notice.value = '文件已读取，但你已修改输入，本次结果未替换。需要时请重新选择该文件。'; return }
     emit('update:modelValue', value)
-  } catch (cause) { if (!disposed && ticket === request) error.value = '读取失败，当前输入已保留：' + (cause instanceof Error ? cause.message : '无法读取文件') }
+  } catch (cause) { if (!disposed && ticket === request) error.value = '读取失败，当前输入已保留：' + (errorText(cause, '无法读取文件')) }
   finally { if (!disposed && ticket === request) { reading.value = false; emit('reading', false) } }
 }
 function usePastedSource() {
@@ -58,7 +59,7 @@ function save() {
       originalText: props.modelValue.source === 'paste' && !props.modelValue.originalText ? props.modelValue.text : props.modelValue.originalText, savedAt: new Date().toISOString() }
     assertCreationOutlineInput(value, 'outline', true)
     emit('update:modelValue', value); emit('save', value); error.value = ''
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : '大纲候选无法保存' }
+  } catch (cause) { error.value = errorText(cause, '大纲候选无法保存') }
 }
 onBeforeUnmount(() => { disposed = true; request++; emit('reading', false) })
 </script>

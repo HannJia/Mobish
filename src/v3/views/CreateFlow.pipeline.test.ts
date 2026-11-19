@@ -13,7 +13,7 @@ import CreateFlowView from './CreateFlowView.vue'
 const { messages } = vi.hoisted(() => ({
   messages: { success: vi.fn(), warning: vi.fn(), info: vi.fn(), error: vi.fn() },
 }))
-vi.mock('naive-ui', async original => ({ ...await original<object>(), useMessage: () => messages,
+vi.mock('@/v3/feedback', async original => ({ ...await original<object>(), useMessage: () => messages,
   useDialog: () => ({ warning: vi.fn() }) }))
 
 let pinia: ReturnType<typeof createPinia>
@@ -59,7 +59,7 @@ it('creates a blank project, confirms contract and manual direction, saves a pla
   await flushPromises()
   await wrapper.get('input[name="creation-setup-method"][value="blank"]').setValue()
   await click('准备空白作品 →')
-  await wrapper.get('[aria-label="新作品名称"] input').setValue('合成创建·旧码头')
+  await wrapper.get('input[aria-label="新作品名称"]').setValue('合成创建·旧码头')
   await click('保存输入并创建，进入作品契约')
   await vi.waitFor(() => expect(wrapper!.find('.story-contract').exists()).toBe(true), { timeout: 10000 })
   const novels = useNovelStore()
@@ -78,7 +78,7 @@ it('creates a blank project, confirms contract and manual direction, saves a pla
   expect(wrapper.get('.confirmation-count').text()).toContain('8 / 8')
   await click('确认契约并继续')
   await vi.waitFor(() => expect(wrapper!.find('.manual-outline').exists()).toBe(true), { timeout: 10000 })
-  await wrapper.get('[aria-label="手写或粘贴大纲"] textarea').setValue([
+  await wrapper.get('textarea[aria-label="手写或粘贴大纲"]').setValue([
     '## 推荐书名', '合成创建·旧码头', '## 小说简介', '黎安在码头清点木箱，发现交接册中的编号被涂改，决定追查原始记录。',
     '## 第一卷：追查', '预估章节数：1章', '预估字数：0.3万字', '黎安沿交接记录寻找原始收据。',
     '## 结局方向', '黎安公开交接记录，找回木箱。',
@@ -119,4 +119,4 @@ it('creates a blank project, confirms contract and manual direction, saves a pla
   expect(novels.getNovel(novelId)?.chapters).toHaveLength(1)
   expect(fetch).not.toHaveBeenCalled()
   expect(messages.error).not.toHaveBeenCalled()
-})
+}, 60_000) // 完整走一遍创建流程（真实存储），单独运行约 5 秒，并行时需要更多时间

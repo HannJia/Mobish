@@ -88,7 +88,7 @@ describe('deriveReviewCenter', () => {
     expect(result.rows[1].status).toBe('needs_review')
     expect(result.totals.needsReview).toBe(2)
     expect(result.totals.stale).toBe(1)
-    expect(result.queue.map(item => item.title)).toEqual(['本章尚未审校', '审核已失效，需要重新审校'])
+    expect(result.queue.map(item => item.title)).toEqual(['本章尚未审校', '审校已失效，需要重新审校'])
   })
 
   it('keeps a finalized chapter stale when its review no longer matches the current context', () => {

@@ -172,28 +172,6 @@ button:focus-visible, a:focus-visible, [tabindex="0"]:focus-visible {
   background: var(--zhu);
 }
 
-/* 空状态里的淡墨远山 */
-.ink-mountains {
-  width: 220px;
-  max-width: 70%;
-  height: auto;
-  color: var(--ink);
-  opacity: 0.12;
-}
-
-/* 各页空状态图标容器内的远山不再沿用 emoji 字号 */
-.empty-icon:has(.ink-mountains) {
-  display: flex;
-  justify-content: center;
-  font-size: 0 !important;
-  line-height: 0;
-  animation: none !important;
-}
-
-.empty-icon .ink-mountains {
-  width: 180px;
-}
-
 /* 印章作为图标时的尺寸 */
 .kb-card-icon.seal,
 .ai-icon.seal,
@@ -203,20 +181,6 @@ button:focus-visible, a:focus-visible, [tabindex="0"]:focus-visible {
   font-size: 22px !important;
   animation: none !important;
 }
-
-/* 违禁词等级点 */
-.banned-level {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  vertical-align: middle;
-}
-
-.banned-level--must { background: var(--zhu); }
-.banned-level--warn { background: var(--jin); }
-
-/* 对话助手未读提示 */
 
 .paper-panel:hover {
   box-shadow: var(--shadow-2);
@@ -236,18 +200,6 @@ button:focus-visible, a:focus-visible, [tabindex="0"]:focus-visible {
 
 .fade-in {
   animation: fadeIn 0.4s ease forwards;
-}
-
-/* 渐变分隔线 */
-.gradient-divider {
-  height: 1px;
-  background: linear-gradient(
-    to right,
-    transparent,
-    var(--line-2),
-    transparent
-  );
-  margin: var(--space-lg) 0;
 }
 
 /* 标签样式 */
@@ -275,15 +227,8 @@ button:focus-visible, a:focus-visible, [tabindex="0"]:focus-visible {
   color: var(--zhu);
 }
 
-.tag-chip.tag-accent {
-  background: var(--dai-soft);
-  color: var(--dai);
-}
-
 .tag-chip.active {
   background: var(--zhu);
   color: var(--on-accent);
   border-color: var(--zhu);
 }
-
-/* 路由过渡 */

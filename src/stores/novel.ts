@@ -56,7 +56,7 @@ export function createNovelDraft(form: CreateWizardForm, now = new Date().toISOS
   const origin = form.storyTimeOrigin
   if (origin !== undefined && (!origin || typeof origin !== 'object' || typeof origin.day !== 'number'
     || !Number.isFinite(origin.day) || origin.day < 0 || (origin.label !== undefined && typeof origin.label !== 'string'))) {
-    throw new Error('创建时的故事起点必须是作者明确确认的有效数字。')
+    throw new Error('创建时的故事起点必须是有效的数字。')
   }
   return {
     id,
@@ -690,7 +690,7 @@ export const useNovelStore = defineStore('novel', () => {
         const live = getNovel(novelId)
         if (!live) throw new Error('作品已不存在。')
         assertChapterDeletionBaseline(live, chapterId, baseline)
-        if (deletionWorkspaceBaseline(novelId) !== baseline.workspace) throw new Error('审核或故事决定已经变化，请重新打开删除确认。')
+        if (deletionWorkspaceBaseline(novelId) !== baseline.workspace) throw new Error('审校或故事决定已经变化，请重新打开删除确认。')
         const changed = deleteChaptersWithImpact(aggregate, chapterId, baseline, new Date().toISOString(), generateId, useKnowledgeStore().knowledgeBases)
         if (changed) {
           deletingChapters.add(novelId); ownsGuard = true
@@ -700,7 +700,7 @@ export const useNovelStore = defineStore('novel', () => {
         const live = getNovel(novelId)
         if (!live) throw new Error('作品已不存在。')
         assertChapterDeletionBaseline(live, chapterId, baseline)
-        if (deletionWorkspaceBaseline(novelId) !== baseline.workspace) throw new Error('审核或故事决定已经变化，删除未保存。')
+        if (deletionWorkspaceBaseline(novelId) !== baseline.workspace) throw new Error('审校或故事决定已经变化，删除未保存。')
       })
     } finally {
       if (ownsGuard) deletingChapters.delete(novelId)

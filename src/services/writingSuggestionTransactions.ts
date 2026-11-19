@@ -34,7 +34,7 @@ export function saveWritingSuggestion(aggregate: StoryAggregate, input: SaveWrit
     const same = input.action === 'note' ? existing.title === note.title && 'content' in existing && existing.content === note.content
       : ['title', 'objective', 'summary', 'beats', 'targetChapterStart', 'targetChapterEnd'].every(key =>
         JSON.stringify((existing as ChapterPlan)[key as keyof ChapterPlan]) === JSON.stringify(plan[key as keyof ChapterPlanInput]))
-    if (!same) throw new Error('这份建议已保存且内容被修改，未覆盖作者修改。')
+    if (!same) throw new Error('这份建议已保存且内容被修改，未覆盖你的修改。')
     return { changed: false, id }
   }
   if (input.sourceVersion !== writingAdviceSourceVersion(novel, chapter, chapter.content, workspace.creationDraft,

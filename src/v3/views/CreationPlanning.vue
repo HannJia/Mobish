@@ -2,8 +2,8 @@
   <section v-if="novel" class="creation-planning">
     <template v-if="!ready || editing">
       <VolumeOutline compact :chapter-plan-confirmed="ready" />
-      <div class="planning-note"><V3Icon name="info" size="s" /><span>卷与章节均为创作计划。先核对当前卷与章纲，场景可在写到该章前设计。</span></div>
-      <div class="chapter-planning-head"><div><h2>当前章节计划</h2><p>{{ plans.length }} 条已保存计划 · 预计章节数不会自动变成正文</p></div><button type="button" class="m-btn" @click="showPlanner = !showPlanner">{{ showPlanner ? '收起编辑' : '编辑章节计划' }}</button></div>
+      <div class="planning-note"><V3Icon name="info" size="s" /><span>先确定当前卷与章纲，场景可以写到该章前再设计。</span></div>
+      <div class="chapter-planning-head"><div><h2>当前章节计划</h2><p>{{ plans.length }} 条已保存计划</p></div><button type="button" class="m-btn" @click="showPlanner = !showPlanner">{{ showPlanner ? '收起编辑' : '编辑章节计划' }}</button></div>
       <ol v-if="plans.length" class="plan-preview"><li v-for="plan in plans" :key="plan.id"><span>第 {{ plan.targetChapterStart + 1 }}{{ plan.targetChapterEnd !== plan.targetChapterStart ? '–' + (plan.targetChapterEnd + 1) : '' }} 章</span><strong>{{ plan.title }}</strong><p>{{ plan.objective }}</p></li></ol>
       <p v-else class="empty">尚未建立章纲，可在下方手动添加；AI 生成由你主动发起。</p>
       <div v-if="showPlanner" class="planning-editor"><StoryPlanner :initial-tab="plannerTab" :initial-selection="plannerSelection" @navigate="target => { plannerTab = target.tab; plannerSelection = target.selection }" /></div>
@@ -23,6 +23,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
@@ -46,7 +47,7 @@ async function confirmPlanning() {
   try {
     await novels.commitChapterPlanEdit(n.id, { action: 'confirm-planning', expectedVolumes: JSON.stringify(n.volumes), expectedPlans: JSON.stringify(n.chapterPlans), confirmCreation: true })
     editing.value = false
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
+  } catch (cause) { error.value = errorText(cause, String(cause)) }
   finally { busy.value = false }
 }
 async function startWriting() {
@@ -66,7 +67,7 @@ async function startWriting() {
     if (!first) throw new Error('章节未能创建，请重试。')
     await novels.saveNovelNow(n.id)
     await router.push('/write/' + n.id + '/' + first.id)
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
+  } catch (cause) { error.value = errorText(cause, String(cause)) }
   finally { busy.value = false }
 }
 </script>

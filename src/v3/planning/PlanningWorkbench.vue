@@ -2,62 +2,58 @@
   <div class="planning-workbench">
     <header class="planner-header planner-header-compact">
       <div v-if="activeTab === 'plans'" class="header-actions">
-        <n-button secondary :loading="generatingPlans" :disabled="!novel?.outline || !workspaceReady || planSaving || showPlanModal" @click="generatePlans">AI 生成计划</n-button>
-        <n-button type="primary" @click="openPlanModal()">
-          <template #icon><n-icon><add-outline /></n-icon></template>
-          新建计划
-        </n-button>
+        <button type="button" class="m-btn" :aria-busy="generatingPlans" :disabled="generatingPlans || !novel?.outline || !workspaceReady || planSaving || showPlanModal" @click="generatePlans">{{ generatingPlans ? '生成中…' : 'AI 生成计划' }}</button>
+        <button type="button" class="m-btn zhu" @click="openPlanModal()"><V3Icon name="plus" size="s" />新建计划</button>
       </div>
       <div v-else-if="activeTab === 'arcs'" class="header-actions">
-        <n-button secondary :loading="extractingArcs" :disabled="!novel?.outline" @click="handleExtractArcs">AI 提取</n-button>
-        <n-button type="primary" @click="openArcModal()">
-          <template #icon><n-icon><add-outline /></n-icon></template>
-          新建弧线
-        </n-button>
+        <button type="button" class="m-btn" :aria-busy="extractingArcs" :disabled="extractingArcs || !novel?.outline" @click="handleExtractArcs">{{ extractingArcs ? '提取中…' : 'AI 提取' }}</button>
+        <button type="button" class="m-btn zhu" @click="openArcModal()"><V3Icon name="plus" size="s" />新建弧线</button>
       </div>
-      <n-button v-else-if="activeTab === 'timeline'" type="primary" @click="openEventModal()">
-        <template #icon><n-icon><add-outline /></n-icon></template>
-        添加事件
-      </n-button>
-      <n-button v-else-if="activeTab === 'proposals'" :loading="scanningState" :disabled="!latestCompletedChapter" type="primary" @click="scanChapterState()">
-        检查最新章节
-      </n-button>
+      <button v-else-if="activeTab === 'timeline'" type="button" class="m-btn zhu" @click="openEventModal()"><V3Icon name="plus" size="s" />添加事件</button>
+      <button v-else-if="activeTab === 'proposals'" type="button" class="m-btn zhu" :aria-busy="scanningState" :disabled="scanningState || !latestCompletedChapter" @click="scanChapterState()">
+        {{ scanningState ? '检查中…' : '检查最新章节' }}
+      </button>
     </header>
 
     <section v-for="pending in pendingStateScans" :key="pending.chapterId" class="paper-panel" aria-label="状态扫描待保存结果">
       <p>《{{ pending.title || '未命名章节' }}》的状态提案尚未保存，重试会使用已返回的结果。</p>
       <p v-if="pending.error" role="alert">{{ pending.error }}</p>
-      <n-button :disabled="scanningState || stateScans.isRunning(novelId, pending.chapterId)" @click="runStateScan(pending.chapterId)">重试保存状态提案</n-button>
-      <n-button :disabled="stateScans.isRunning(novelId, pending.chapterId)" @click="stateScans.discard(novelId, pending.chapterId)">放弃状态扫描结果</n-button>
+      <button type="button" class="m-btn sm" :disabled="scanningState || stateScans.isRunning(novelId, pending.chapterId)" @click="runStateScan(pending.chapterId)">重试保存状态提案</button>
+      <button type="button" class="m-btn sm" :disabled="stateScans.isRunning(novelId, pending.chapterId)" @click="stateScans.discard(novelId, pending.chapterId)">放弃状态扫描结果</button>
     </section>
 
-    <n-tabs v-model:value="activeTab" type="line" class="planner-tabs" @update:value="handleTabChange">
-      <n-tab-pane display-directive="show:lazy" name="event-causality" tab="事件因果">
+    <div class="planner-tabs">
+      <div class="m-tabs" role="tablist" aria-label="规划分区">
+        <button v-for="tab in tabDefs" :id="'planner-tab-' + tab.name" :key="tab.name" type="button" role="tab" :aria-selected="activeTab === tab.name"
+          :aria-controls="'planner-panel-' + tab.name" :tabindex="activeTab === tab.name ? 0 : -1" @click="selectTab(tab.name)" @keydown="onTabKey">{{ tab.label }}</button>
+      </div>
+
+      <section v-if="isTabMounted('event-causality')" v-show="activeTab === 'event-causality'" id="planner-panel-event-causality" class="planner-pane" role="tabpanel" aria-labelledby="planner-tab-event-causality">
         <EventCausalityPanel v-if="novel && workspaceReady" :novel="novel" />
         <p v-else>创作工作区尚未读取完成。</p>
-      </n-tab-pane>
-      <n-tab-pane display-directive="show:lazy" name="impacts" tab="设定影响">
+      </section>
+      <section v-if="isTabMounted('impacts')" v-show="activeTab === 'impacts'" id="planner-panel-impacts" class="planner-pane" role="tabpanel" aria-labelledby="planner-tab-impacts">
         <StoryImpactHistory v-if="novel && workspaceReady" :novel="novel" :reports="reconstructionWorkspaceStore.getImpactReports(novelId)"
           :workspace="{ creationDraft: reconstructionWorkspaceStore.getCreationDraft(novelId), storyMemories: reconstructionWorkspaceStore.getStoryMemories(novelId) }" />
         <p v-else>创作工作区尚未读取完成，暂时无法显示影响记录。</p>
-      </n-tab-pane>
-      <n-tab-pane display-directive="show:lazy" name="volumes" tab="分卷规划">
+      </section>
+      <section v-if="isTabMounted('volumes')" v-show="activeTab === 'volumes'" id="planner-panel-volumes" class="planner-pane" role="tabpanel" aria-labelledby="planner-tab-volumes">
         <VolumeOutline
           :chapter-plan-confirmed="Boolean(novel?.chapterPlanConfirmed)"
           @confirmed="confirmVolumesAndGeneratePlans"
         />
-      </n-tab-pane>
+      </section>
 
-      <n-tab-pane display-directive="show:lazy" name="plans" tab="章节计划">
+      <section v-if="isTabMounted('plans')" v-show="activeTab === 'plans'" id="planner-panel-plans" class="planner-pane" role="tabpanel" aria-labelledby="planner-tab-plans">
         <section v-if="planSuggestions.length" class="arc-draft-panel paper-panel" aria-label="待确认章节计划建议">
           <h3>章节计划建议 · {{ planSuggestions.length }} 条待确认</h3>
           <p>先编辑核对，再确认加入规划。未确认的建议仅保留在当前页面。</p>
           <article v-for="suggestion in planSuggestions" :key="suggestion.id" class="arc-draft-row">
             <div><strong>{{ suggestion.draft.title }}</strong><p>{{ suggestion.draft.objective }}</p><p>{{ suggestion.draft.summary }}</p></div>
-            <n-button :disabled="planSaving" @click="openPlanSuggestion(suggestion.id)">编辑建议</n-button>
-            <n-button :disabled="planSaving" @click="planSuggestions = planSuggestions.filter(item => item.id !== suggestion.id)">忽略</n-button>
+            <button type="button" class="m-btn sm" :disabled="planSaving" @click="openPlanSuggestion(suggestion.id)">编辑建议</button>
+            <button type="button" class="m-btn sm" :disabled="planSaving" @click="planSuggestions = planSuggestions.filter(item => item.id !== suggestion.id)">忽略</button>
           </article>
-          <n-button type="primary" :loading="planSaving" :disabled="showPlanModal || generatingPlans" @click="acceptPlanSuggestions">确认这些章节计划</n-button>
+          <button type="button" class="m-btn zhu" :aria-busy="planSaving" :disabled="planSaving || showPlanModal || generatingPlans" @click="acceptPlanSuggestions">{{ planSaving ? '保存中…' : '确认这些章节计划' }}</button>
         </section>
         <div class="plan-workbench"><div class="plan-board">
           <section v-for="lane in planStatusLanes" :key="lane.status" class="plan-lane">
@@ -66,33 +62,20 @@
                 <strong>{{ lane.label }}</strong>
                 <span>{{ lane.description }}</span>
               </div>
-              <n-tag size="small" round>{{ plansByStatus(lane.status).length }}</n-tag>
+              <span class="m-tag line">{{ plansByStatus(lane.status).length }}</span>
             </div>
             <div class="plan-list">
               <article v-for="plan in plansByStatus(lane.status)" :key="plan.id" class="plan-card" :class="{ selected: selectedPlan?.id === plan.id }">
                 <div class="plan-card-header">
                   <div>
-                    <n-tag size="small" :type="planStatusColor(plan.status)">{{ planStatusLabel(plan.status) }}</n-tag>
+                    <span class="m-tag" :class="tone(planStatusColor(plan.status))">{{ planStatusLabel(plan.status) }}</span>
                     <span class="plan-range">{{ chapterRangeLabel(plan.targetChapterStart, plan.targetChapterEnd) }}</span>
                   </div>
                   <details class="plan-card-menu"><summary aria-label="计划操作">⋯</summary><div class="icon-actions">
-                    <n-button quaternary circle size="small" title="编辑计划" @click="openPlanModal(plan)">
-                      <template #icon><n-icon><create-outline /></n-icon></template>
-                    </n-button>
-                    <n-button v-if="plan.versions?.length" quaternary size="small" title="查看版本对比" @click="openPlanVersionModal(plan)">
-                      版本 {{ plan.versions.length }}
-                    </n-button>
-                    <n-button quaternary size="small" title="局部重新生成" :loading="regeneratingPlanId === plan.id" @click="refreshPlan(plan)">
-                      重生成
-                    </n-button>
-                    <n-popconfirm @positive-click="removePlan(plan.id)">
-                      <template #trigger>
-                        <n-button quaternary circle size="small" title="删除计划">
-                          <template #icon><n-icon><trash-outline /></n-icon></template>
-                        </n-button>
-                      </template>
-                      删除这条章节计划？
-                    </n-popconfirm>
+                    <button type="button" class="m-ibtn" title="编辑计划" aria-label="编辑计划" @click="openPlanModal(plan)"><V3Icon name="edit" size="s" /></button>
+                    <button v-if="plan.versions?.length" type="button" class="m-btn xs ghost" title="查看版本对比" @click="openPlanVersionModal(plan)">版本 {{ plan.versions.length }}</button>
+                    <button type="button" class="m-btn xs ghost" title="局部重新生成" :aria-busy="regeneratingPlanId === plan.id" :disabled="regeneratingPlanId === plan.id" @click="refreshPlan(plan)">{{ regeneratingPlanId === plan.id ? '生成中…' : '重生成' }}</button>
+                    <button type="button" class="m-ibtn" title="删除计划" aria-label="删除计划" @click="confirmThen('删除这条章节计划？', () => removePlan(plan.id))"><V3Icon name="trash" size="s" /></button>
                   </div></details>
                 </div>
                 <button type="button" class="planning-select-title" :aria-pressed="selectedPlan?.id === plan.id" @click="selectedPlanId = plan.id">{{ plan.title }}</button>
@@ -103,33 +86,33 @@
                 </ol>
                 <small>{{ plan.source === 'ai' ? 'AI 生成' : '手动创建' }}</small>
               </article>
-              <button v-if="plansByStatus(lane.status).length === 0" class="empty-plan" @click="openPlanModal()">
-                <n-icon :size="20"><add-outline /></n-icon>
+              <button v-if="plansByStatus(lane.status).length === 0" type="button" class="empty-plan" @click="openPlanModal()">
+                <V3Icon name="plus" />
                 <span>新建计划</span>
               </button>
             </div>
           </section>
         </div><aside v-if="selectedPlan" class="plan-selection-detail paper-panel">
-          <n-tag size="small" :type="planStatusColor(selectedPlan.status)">{{ planStatusLabel(selectedPlan.status) }}</n-tag><h3>{{ selectedPlan.title }}</h3>
+          <span class="m-tag" :class="tone(planStatusColor(selectedPlan.status))">{{ planStatusLabel(selectedPlan.status) }}</span><h3>{{ selectedPlan.title }}</h3>
           <p>{{ chapterRangeLabel(selectedPlan.targetChapterStart, selectedPlan.targetChapterEnd) }}</p>
           <section><h4>阶段目标</h4><p>{{ selectedPlan.objective }}</p></section>
           <section v-if="selectedPlan.summary"><h4>推进说明</h4><p>{{ selectedPlan.summary }}</p></section>
           <section v-if="selectedPlan.beats.length"><h4>写作节拍</h4><ol><li v-for="beat in selectedPlan.beats" :key="beat">{{ beat }}</li></ol></section>
           <section v-if="selectedPlan.relatedArcIds.length"><h4>关联弧线</h4><p>{{ selectedPlan.relatedArcIds.map(id => sortedArcs.find(arc => arc.id === id)?.title).filter(Boolean).join('、') || '暂无对应弧线' }}</p></section>
-          <n-button @click="openPlanModal(selectedPlan)">编辑计划</n-button>
+          <button type="button" class="m-btn sm" @click="openPlanModal(selectedPlan)">编辑计划</button>
         </aside></div>
         <details v-if="closedPlans.length" class="closed-plans"><summary>已完成与已归档（{{ closedPlans.length }}）</summary><button v-for="plan in closedPlans" :key="plan.id" type="button" @click="selectedPlanId = plan.id">{{ plan.title }} · {{ planStatusLabel(plan.status) }}</button></details>
-      </n-tab-pane>
+      </section>
 
-      <n-tab-pane display-directive="show:lazy" name="scenes" tab="场景设计">
+      <section v-if="isTabMounted('scenes')" v-show="activeTab === 'scenes'" id="planner-panel-scenes" class="planner-pane" role="tabpanel" aria-labelledby="planner-tab-scenes">
         <ScenePlanner v-if="novel" :novel="novel" :ready="workspaceReady" :initial-plan-id="props.initialTab === 'scenes' ? props.initialSelection : undefined" />
-      </n-tab-pane>
-      <n-tab-pane display-directive="show:lazy" name="relay" tab="剧情接力">
+      </section>
+      <section v-if="isTabMounted('relay')" v-show="activeTab === 'relay'" id="planner-panel-relay" class="planner-pane" role="tabpanel" aria-labelledby="planner-tab-relay">
         <div class="relay-workbench">
         <section class="relay-section">
           <div class="relay-heading">
             <h3>待核对计划</h3>
-            <n-button v-if="latestCompletedChapter" text type="primary" :loading="scanningState" @click="scanChapterState()">检查最新章节</n-button>
+            <button v-if="latestCompletedChapter" type="button" class="m-link" :disabled="scanningState" @click="scanChapterState()">{{ scanningState ? '检查中…' : '检查最新章节' }}</button>
           </div>
           <div v-if="awaitingPlans.length" class="relay-list">
             <div v-for="plan in awaitingPlans" :key="plan.id" class="relay-row" :class="{ selected: selectedRelayPlan?.id === plan.id }">
@@ -138,27 +121,27 @@
                 <span>{{ chapterRangeLabel(plan.targetChapterStart, plan.targetChapterEnd) }} · {{ plan.objective }}</span>
               </div>
               <div class="relay-actions">
-                <n-button size="small" secondary :loading="scanningState" @click="scanChapterState(plan.targetChapterEnd, plan.targetChapterStart)">AI 核对</n-button>
-                <n-button size="small" quaternary @click="openPlanModal(plan)">手动核对</n-button>
+                <button type="button" class="m-btn sm" :disabled="scanningState" @click="scanChapterState(plan.targetChapterEnd, plan.targetChapterStart)">AI 核对</button>
+                <button type="button" class="m-btn sm ghost" @click="openPlanModal(plan)">手动核对</button>
               </div>
             </div>
           </div>
-          <n-empty v-else description="没有待核对的章节计划" />
+          <div v-else class="m-empty"><p>没有待核对的章节计划</p></div>
         </section>
         <section v-if="selectedRelayPlan" class="relay-selection paper-panel">
           <h3>{{ selectedRelayPlan.title }}</h3><p>{{ chapterRangeLabel(selectedRelayPlan.targetChapterStart, selectedRelayPlan.targetChapterEnd) }}</p>
           <section><h4>阶段目标</h4><p>{{ selectedRelayPlan.objective }}</p></section>
           <section v-if="selectedRelayPlan.beats.length"><h4>计划要点</h4><ul><li v-for="beat in selectedRelayPlan.beats" :key="beat">{{ beat }}</li></ul></section>
           <section v-if="selectedRelayPlan.summary"><h4>推进说明</h4><p>{{ selectedRelayPlan.summary }}</p></section>
-          <section v-if="relayChapter"><h4>关联章节</h4><strong>第 {{ relayChapter.chapterIndex + 1 }} 章 · {{ chapterTitleForDisplay(relayChapter.title, relayChapter.chapterIndex) }}</strong><p>{{ relayChapter.summary || '本章尚未整理摘要，可打开章节查看正文。' }}</p><p v-if="relayChapter.summary && getChapterSummaryStatus(relayChapter) !== 'current'">总结待核对，暂不用于 AI 写作和审核。</p><n-button text type="primary" @click="router.push(`/write/${novelId}/${relayChapter.id}`)">查看章节</n-button></section>
-          <div class="relay-detail-actions"><n-button type="primary" :loading="scanningState" @click="scanChapterState(selectedRelayPlan.targetChapterEnd, selectedRelayPlan.targetChapterStart)">AI 核对计划</n-button><n-button @click="openPlanModal(selectedRelayPlan)">手动核对</n-button></div>
+          <section v-if="relayChapter"><h4>关联章节</h4><strong>第 {{ relayChapter.chapterIndex + 1 }} 章 · {{ chapterTitleForDisplay(relayChapter.title, relayChapter.chapterIndex) }}</strong><p>{{ relayChapter.summary || '本章尚未整理摘要，可打开章节查看正文。' }}</p><p v-if="relayChapter.summary && getChapterSummaryStatus(relayChapter) !== 'current'">总结待核对，暂不用于 AI 写作和审校。</p><button type="button" class="m-link" @click="router.push(`/write/${novelId}/${relayChapter.id}`)">查看章节</button></section>
+          <div class="relay-detail-actions"><button type="button" class="m-btn zhu" :disabled="scanningState" @click="scanChapterState(selectedRelayPlan.targetChapterEnd, selectedRelayPlan.targetChapterStart)">{{ scanningState ? '核对中…' : 'AI 核对计划' }}</button><button type="button" class="m-btn" @click="openPlanModal(selectedRelayPlan)">手动核对</button></div>
         </section>
         <section v-else class="relay-selection paper-panel"><h3>剧情接力</h3><p>计划进入待核对后，可在这里对照正文继续推进故事。</p></section>
         <div class="relay-context">
         <section class="relay-section">
           <div class="relay-heading">
             <h3>未兑现的期待</h3>
-            <n-button text type="primary" @click="openEventModal()">手动记录</n-button>
+            <button type="button" class="m-link" @click="openEventModal()">手动记录</button>
           </div>
           <div v-if="openPromises.length" class="relay-list">
             <div v-for="event in openPromises" :key="event.id" class="relay-row">
@@ -168,12 +151,10 @@
                 <span v-if="event.relatedArcIds?.length">关联：{{ event.relatedArcIds.map(id => novel?.storyArcs?.find(arc => arc.id === id)?.title).filter(Boolean).join('、') }}</span>
                 <span v-if="event.evidence" class="relay-evidence">原文：{{ event.evidence }}</span>
               </div>
-              <n-button size="small" quaternary title="编辑期待" @click="openEventModal(event)">
-                <template #icon><n-icon><create-outline /></n-icon></template>
-              </n-button>
+              <button type="button" class="m-ibtn" title="编辑期待" aria-label="编辑期待" @click="openEventModal(event)"><V3Icon name="edit" size="s" /></button>
             </div>
           </div>
-          <n-empty v-else description="没有未兑现的长线期待" />
+          <div v-else class="m-empty"><p>没有未兑现的长线期待</p></div>
         </section>
         <section class="relay-section">
           <div class="relay-heading"><h3>活跃弧线</h3></div>
@@ -183,60 +164,49 @@
                 <strong>{{ arc.title }}</strong>
                 <span>{{ arc.description || '尚未填写目标' }} · {{ arc.nodes.filter(node => node.status === 'pending').length }} 个待推进节点</span>
               </div>
-              <n-button size="small" quaternary title="编辑弧线" @click="openArcModal(arc)">
-                <template #icon><n-icon><create-outline /></n-icon></template>
-              </n-button>
+              <button type="button" class="m-ibtn" title="编辑弧线" aria-label="编辑弧线" @click="openArcModal(arc)"><V3Icon name="edit" size="s" /></button>
             </div>
           </div>
-          <n-empty v-else description="没有活跃弧线" />
+          <div v-else class="m-empty"><p>没有活跃弧线</p></div>
         </section>
         </div></div>
-      </n-tab-pane>
+      </section>
 
-      <n-tab-pane display-directive="show:lazy" name="arcs" tab="故事弧线">
+      <section v-if="isTabMounted('arcs')" v-show="activeTab === 'arcs'" id="planner-panel-arcs" class="planner-pane" role="tabpanel" aria-labelledby="planner-tab-arcs">
         <section v-if="arcSuggestions.length" class="arc-draft-panel paper-panel" aria-label="待确认弧线建议">
           <h3>AI 弧线建议 · {{ arcSuggestions.length }} 条待确认</h3>
-          <p>建议只有经你编辑确认后才进入剧情规划。未确认的建议仅保留在当前页面。</p>
+          <p>确认后的建议会加入剧情规划，未确认的离开页面后不保留。</p>
           <article v-for="suggestion in arcSuggestions" :key="suggestion.id" class="arc-draft-row">
             <div><strong>{{ suggestion.draft.title }}</strong><p>{{ suggestion.draft.description }}</p></div>
-            <n-button :disabled="arcSaving" @click="openArcSuggestion(suggestion.id)">编辑并确认</n-button>
-            <n-button :disabled="arcSaving" @click="arcSuggestions = arcSuggestions.filter(item => item.id !== suggestion.id)">忽略</n-button>
+            <button type="button" class="m-btn sm" :disabled="arcSaving" @click="openArcSuggestion(suggestion.id)">编辑并确认</button>
+            <button type="button" class="m-btn sm" :disabled="arcSaving" @click="arcSuggestions = arcSuggestions.filter(item => item.id !== suggestion.id)">忽略</button>
           </article>
         </section>
         <details v-if="lastArcImpact" class="arc-impact paper-panel">
           <summary>最近变更：{{ lastArcImpact.arcIds.length }} 条关联弧线，实际需重审 {{ lastArcImpact.reviewChapterIds.length }} 章</summary>
-          <p>图关联范围覆盖 {{ lastArcImpact.chapterIds.length }} 章；实际重审集合按本次审核输入变化确定。</p>
-          <n-button text type="primary" @click="activeTab = 'impacts'">查看已保存的影响记录</n-button>
+          <p>图关联范围覆盖 {{ lastArcImpact.chapterIds.length }} 章；实际重审集合按本次审校输入变化确定。</p>
+          <button type="button" class="m-link" @click="selectTab('impacts')">查看已保存的影响记录</button>
           <p v-for="id in lastArcImpact.chapterIds" :key="id">{{ novel?.chapters.find(chapter => chapter.id === id)?.title }}：{{ lastArcImpact.reasons[id]?.join('；') }}</p>
         </details>
         <div v-if="sortedArcs.length || unavailableSelectedArc" class="arc-workbench" :class="{ 'source-only': !sortedArcs.length }">
-          <div v-if="sortedArcs.length" class="arc-selector"><button v-for="arc in sortedArcs" :key="arc.id" type="button" class="arc-selector-card paper-panel" :class="{ selected: selectedArc?.id === arc.id }" :aria-pressed="selectedArc?.id === arc.id" @click="selectedArcId = arc.id"><div><h3>{{ arc.title }}</h3><n-tag size="small" :type="arcTypeColor(arc.type)">{{ arcTypeLabel(arc.type) }}</n-tag></div><p>{{ arc.description || '暂未填写弧线描述' }}</p><div class="arc-node-track"><span v-for="node in arc.nodes" :key="node.id" :class="{ completed: node.status === 'completed' }"><i>{{ node.status === 'completed' ? '✓' : '·' }}</i><small>{{ node.title }}</small></span></div><span class="arc-selector-meta">{{ completedNodeCount(arc) }}/{{ arc.nodes.length }} 个节点已完成 · {{ arcStatusLabel(arc.status) }}</span></button></div>
+          <div v-if="sortedArcs.length" class="arc-selector"><button v-for="arc in sortedArcs" :key="arc.id" type="button" class="arc-selector-card paper-panel" :class="{ selected: selectedArc?.id === arc.id }" :aria-pressed="selectedArc?.id === arc.id" @click="selectedArcId = arc.id"><div><h3>{{ arc.title }}</h3><span class="m-tag" :class="tone(arcTypeColor(arc.type))">{{ arcTypeLabel(arc.type) }}</span></div><p>{{ arc.description || '暂未填写弧线描述' }}</p><div class="arc-node-track"><span v-for="node in arc.nodes" :key="node.id" :class="{ completed: node.status === 'completed' }"><i>{{ node.status === 'completed' ? '✓' : '·' }}</i><small>{{ node.title }}</small></span></div><span class="arc-selector-meta">{{ completedNodeCount(arc) }}/{{ arc.nodes.length }} 个节点已完成 · {{ arcStatusLabel(arc.status) }}</span></button></div>
           <article v-if="unavailableSelectedArc" class="arc-card arc-source-recovery">
             <p class="entity-source-alert" role="alert">来源待核对。原记录仍保留，核对前不会用于 AI 写作和审校。</p>
             <h3>{{ unavailableSelectedArc.title }}</h3>
             <p>这条弧线的来源已失效，旧结论暂不显示。请打开原记录核对，再明确保存。</p>
-            <n-button @click="openArcModal(unavailableSelectedArc)">核对原弧线</n-button>
+            <button type="button" class="m-btn" @click="openArcModal(unavailableSelectedArc)">核对原弧线</button>
             <details class="arc-history"><summary>查看原记录来源与历史</summary><EntitySourceHistory v-if="novel" :novel="novel" kind="arc" :entity="unavailableSelectedArc" @open-chapter="openSourceChapter" /></details>
           </article>
           <article v-for="arc in selectedArc ? [selectedArc] : []" :key="arc.id" class="arc-card">
             <div class="arc-card-header">
               <div class="arc-title-row">
-                <n-tag size="small" :type="arcTypeColor(arc.type)">{{ arcTypeLabel(arc.type) }}</n-tag>
+                <span class="m-tag" :class="tone(arcTypeColor(arc.type))">{{ arcTypeLabel(arc.type) }}</span>
                 <h3>{{ arc.title }}</h3>
-                <n-tag size="small" :type="arcStatusColor(arc.status)">{{ arcStatusLabel(arc.status) }}</n-tag>
+                <span class="m-tag" :class="tone(arcStatusColor(arc.status))">{{ arcStatusLabel(arc.status) }}</span>
               </div>
               <div class="icon-actions">
-                <n-button quaternary circle size="small" title="编辑弧线" @click="openArcModal(arc)">
-                  <template #icon><n-icon><create-outline /></n-icon></template>
-                </n-button>
-                <n-popconfirm @positive-click="removeArc(arc.id)">
-                  <template #trigger>
-                    <n-button quaternary circle size="small" title="删除弧线">
-                      <template #icon><n-icon><trash-outline /></n-icon></template>
-                    </n-button>
-                  </template>
-                  删除弧线及其全部节点？
-                </n-popconfirm>
+                <button type="button" class="m-ibtn" title="编辑弧线" aria-label="编辑弧线" @click="openArcModal(arc)"><V3Icon name="edit" size="s" /></button>
+                <button type="button" class="m-ibtn" title="删除弧线" aria-label="删除弧线" @click="confirmThen('删除弧线及其全部节点？', () => removeArc(arc.id))"><V3Icon name="trash" size="s" /></button>
               </div>
             </div>
 
@@ -260,8 +230,8 @@
             <div class="node-list">
               <div v-if="arc.nodes.length === 0" class="node-empty">还没有里程碑节点</div>
               <div v-for="node in arc.nodes" :key="node.id" class="node-row" :class="`node-${node.status}`">
-                <button class="node-toggle" :title="node.status === 'completed' ? '标记为待完成' : '标记为已完成'" @click="toggleNode(arc, node)">
-                  <n-icon :size="16"><checkmark-circle-outline v-if="node.status === 'completed'" /><ellipse-outline v-else /></n-icon>
+                <button type="button" class="node-toggle" :title="node.status === 'completed' ? '标记为待完成' : '标记为已完成'" :aria-label="node.status === 'completed' ? '标记为待完成' : '标记为已完成'" @click="toggleNode(arc, node)">
+                  <V3Icon v-if="node.status === 'completed'" name="check" size="s" /><span v-else class="node-open" aria-hidden="true" />
                 </button>
                 <div class="node-chapter">第 {{ node.actualChapter !== undefined ? node.actualChapter + 1 : node.targetChapter + 1 }} 章</div>
                 <div class="node-content">
@@ -270,34 +240,25 @@
                   <span>{{ node.status === 'completed' ? '已确认发生' : node.status === 'unverified' ? '正文来源或前置条件待核对' : node.status === 'abandoned' ? '已放弃' : '计划节点' }}</span>
                   <details v-if="novel && node.provenance?.revisions.length"><summary>来源与变更记录</summary><entity-source-history :novel="novel" kind="arc_node" :entity="node" @open-chapter="id => router.push(`/write/${novelId}/${id}`)" /></details>
                 </div>
-                <n-button text size="small" :disabled="arcSaving" @click="openNodeModal(arc.id, node)">编辑节点</n-button>
-                <n-popconfirm @positive-click="removeNode(arc.id, node.id)">
-                  <template #trigger>
-                    <n-button quaternary circle size="tiny" title="删除节点">
-                      <template #icon><n-icon><trash-outline /></n-icon></template>
-                    </n-button>
-                  </template>
-                  删除这个里程碑？
-                </n-popconfirm>
+                <button type="button" class="m-link" :disabled="arcSaving" @click="openNodeModal(arc.id, node)">编辑节点</button>
+                <button type="button" class="m-ibtn" title="删除节点" aria-label="删除节点" @click="confirmThen('删除这个里程碑？', () => removeNode(arc.id, node.id))"><V3Icon name="trash" size="s" /></button>
               </div>
             </div>
 
-            <n-button text type="primary" class="add-node-button" @click="openNodeModal(arc.id)">
-              <template #icon><n-icon><add-outline /></n-icon></template>
-              添加里程碑
-            </n-button>
+            <button type="button" class="m-link add-node-button" @click="openNodeModal(arc.id)"><V3Icon name="plus" size="s" />添加里程碑</button>
           </article>
         </div>
-        <n-empty v-else description="还没有故事弧线" class="empty-block">
-          <template #extra><n-button type="primary" @click="openArcModal()">创建第一条弧线</n-button></template>
-        </n-empty>
-      </n-tab-pane>
+        <div v-else class="m-empty empty-block">
+          <p>还没有故事弧线</p>
+          <button type="button" class="m-btn zhu" @click="openArcModal()">创建第一条弧线</button>
+        </div>
+      </section>
 
-      <n-tab-pane display-directive="show:lazy" name="timeline" tab="故事时间线">
+      <section v-if="isTabMounted('timeline')" v-show="activeTab === 'timeline'" id="planner-panel-timeline" class="planner-pane" role="tabpanel" aria-labelledby="planner-tab-timeline">
         <div class="filter-bar">
-          <n-input v-model:value="timelineQuery" clearable placeholder="搜索事件、地点或角色" />
-          <n-select v-model:value="timelineType" :options="timelineTypeOptions" />
-          <n-select v-model:value="timelineStatus" :options="timelineStatusOptions" />
+          <V3Input v-model:value="timelineQuery" clearable placeholder="搜索事件、地点或角色" aria-label="搜索事件" />
+          <V3Select v-model:value="timelineType" :options="timelineTypeOptions" aria-label="事件类型" />
+          <V3Select v-model:value="timelineStatus" :options="timelineStatusOptions" aria-label="事件状态" />
         </div>
 
         <div v-if="filteredEvents.length" class="timeline-workbench"><div class="timeline-list">
@@ -309,21 +270,12 @@
             <div class="timeline-content">
               <div class="timeline-heading">
                 <div>
-                  <n-tag size="small" :type="eventTypeColor(event.type)">{{ event.type }}</n-tag>
+                  <span class="m-tag" :class="tone(eventTypeColor(event.type))">{{ event.type }}</span>
                   <button type="button" class="planning-select-title" :aria-pressed="selectedEvent?.id === event.id" @click="selectedEventId = event.id">{{ event.title }}</button>
                 </div>
                 <div class="icon-actions">
-                  <n-button quaternary circle size="small" title="编辑事件" @click="openEventModal(event)">
-                    <template #icon><n-icon><create-outline /></n-icon></template>
-                  </n-button>
-                  <n-popconfirm @positive-click="removeEvent(event.id)">
-                    <template #trigger>
-                      <n-button quaternary circle size="small" title="删除事件" :loading="deletingEvent" :disabled="deletingEvent">
-                        <template #icon><n-icon><trash-outline /></n-icon></template>
-                      </n-button>
-                    </template>
-                    删除这个事件？剧情线、里程碑和章节计划需先解除关联；已写章节需重新审核。
-                  </n-popconfirm>
+                  <button type="button" class="m-ibtn" title="编辑事件" aria-label="编辑事件" @click="openEventModal(event)"><V3Icon name="edit" size="s" /></button>
+                  <button type="button" class="m-ibtn" title="删除事件" aria-label="删除事件" :disabled="deletingEvent" @click="confirmThen('删除这个事件？剧情线、里程碑和章节计划需先解除关联；已写章节需重新审核。', () => removeEvent(event.id))"><V3Icon name="trash" size="s" /></button>
                 </div>
               </div>
               <p>{{ event.description }}</p>
@@ -339,23 +291,23 @@
               </div>
               <blockquote v-if="event.evidence" class="timeline-evidence">原文：{{ event.evidence }}</blockquote>
               <div v-if="event.characters?.length" class="character-tags">
-                <n-tag v-for="name in event.characters" :key="name" size="small" round>{{ name }}</n-tag>
+                <span v-for="name in event.characters" :key="name" class="m-tag line">{{ name }}</span>
               </div>
             </div>
           </article>
-        </div><aside v-if="selectedEvent" class="timeline-selection paper-panel"><h3>事件记录</h3><p v-if="entityIssueIds.has(selectedEvent.id)" class="entity-source-alert" role="alert">资料含待核对字段；原值保留供核对，AI 仅使用有效字段。</p><h4>{{ selectedEvent.title }}</h4><n-tag :type="eventStatusColor(selectedEvent.status)">{{ eventStatusLabel(selectedEvent.status) }}</n-tag><section><h4>提出章节</h4><p>{{ eventChapterLabel(selectedEvent.chapterIndex) }}</p><n-button v-if="selectedEventChapter" text @click="router.push(`/write/${novelId}/${selectedEventChapter.id}`)">查看章节 →</n-button></section><section><h4>事件说明</h4><p>{{ selectedEvent.description || '暂无说明' }}</p></section><section v-if="selectedEvent.relatedArcIds?.length"><h4>关联弧线</h4><p>{{ selectedEvent.relatedArcIds.map(id => sortedArcs.find(arc => arc.id === id)?.title).filter(Boolean).join('、') || '暂无对应弧线' }}</p></section><section v-if="selectedEvent.evidence"><h4>原文依据</h4><blockquote>{{ selectedEvent.evidence }}</blockquote></section><section v-if="selectedEvent.storyTime || selectedEvent.location"><h4>时间与地点</h4><p>{{ [selectedEvent.storyTime, selectedEvent.location].filter(Boolean).join(' · ') }}</p></section><EntitySourceHistory v-if="novel" :novel="novel" kind="event" :entity="selectedEvent" @open-chapter="openSourceChapter" /><n-button @click="openEventModal(selectedEvent)">编辑事件</n-button></aside></div>
-        <n-empty v-else description="没有符合条件的事件" class="empty-block" />
-      </n-tab-pane>
+        </div><aside v-if="selectedEvent" class="timeline-selection paper-panel"><h3>事件记录</h3><p v-if="entityIssueIds.has(selectedEvent.id)" class="entity-source-alert" role="alert">部分字段的来源已变化，核对前 AI 不使用这些字段。</p><h4>{{ selectedEvent.title }}</h4><span class="m-tag" :class="tone(eventStatusColor(selectedEvent.status))">{{ eventStatusLabel(selectedEvent.status) }}</span><section><h4>提出章节</h4><p>{{ eventChapterLabel(selectedEvent.chapterIndex) }}</p><button v-if="selectedEventChapter" type="button" class="m-link" @click="router.push(`/write/${novelId}/${selectedEventChapter.id}`)">查看章节 →</button></section><section><h4>事件说明</h4><p>{{ selectedEvent.description || '暂无说明' }}</p></section><section v-if="selectedEvent.relatedArcIds?.length"><h4>关联弧线</h4><p>{{ selectedEvent.relatedArcIds.map(id => sortedArcs.find(arc => arc.id === id)?.title).filter(Boolean).join('、') || '暂无对应弧线' }}</p></section><section v-if="selectedEvent.evidence"><h4>原文依据</h4><blockquote>{{ selectedEvent.evidence }}</blockquote></section><section v-if="selectedEvent.storyTime || selectedEvent.location"><h4>时间与地点</h4><p>{{ [selectedEvent.storyTime, selectedEvent.location].filter(Boolean).join(' · ') }}</p></section><EntitySourceHistory v-if="novel" :novel="novel" kind="event" :entity="selectedEvent" @open-chapter="openSourceChapter" /><button type="button" class="m-btn sm" @click="openEventModal(selectedEvent)">编辑事件</button></aside></div>
+        <div v-else class="m-empty empty-block"><p>没有符合条件的事件</p></div>
+      </section>
 
-      <n-tab-pane display-directive="show:lazy" name="memory" tab="项目记忆">
+      <section v-if="isTabMounted('memory')" v-show="activeTab === 'memory'" id="planner-panel-memory" class="planner-pane" role="tabpanel" aria-labelledby="planner-tab-memory">
         <StoryMemoryPanel v-if="novel" :novel="novel" :ready="workspaceReady" />
         <div class="index-status">
           <span v-if="memoryIndexInfo.recordCount">
             {{ memoryIndexInfo.provider === 'remote' ? '真实向量' : '本地索引' }} ·
             {{ memoryIndexInfo.model }} · {{ memoryIndexInfo.recordCount }} 条 · {{ memoryIndexInfo.dimensions }} 维
           </span>
-          <span v-else>尚未建立持久化记忆索引</span>
-          <n-button text type="primary" :loading="memoryIndexing" :disabled="memorySearching" @click="rebuildMemoryIndex">同步索引</n-button>
+          <span v-else>还没有建立记忆索引</span>
+          <button type="button" class="m-link" :disabled="memoryIndexing || memorySearching" @click="rebuildMemoryIndex">{{ memoryIndexing ? '同步中…' : '同步索引' }}</button>
         </div>
         <p class="memory-freshness-note">新增或修改的内容可以直接检索；同步索引会更新向量。</p>
         <div class="memory-categories" role="group" aria-label="记忆分类">
@@ -364,17 +316,17 @@
           </button>
         </div>
         <div class="memory-search">
-          <n-input v-model:value="memoryQuery" clearable placeholder="输入人物、事件、设定或剧情问题" @keydown.enter="runMemorySearch">
-            <template #prefix><n-icon><search-outline /></n-icon></template>
-          </n-input>
-          <n-button type="primary" :loading="memorySearching" :disabled="!memoryQuery.trim()" @click="runMemorySearch">检索</n-button>
+          <V3Input v-model:value="memoryQuery" clearable placeholder="输入人物、事件、设定或剧情问题" aria-label="检索项目记忆" @keydown.enter="runMemorySearch">
+            <template #prefix><V3Icon name="search" size="s" /></template>
+          </V3Input>
+          <button type="button" class="m-btn zhu" :aria-busy="memorySearching" :disabled="memorySearching || !memoryQuery.trim()" @click="runMemorySearch">检索</button>
         </div>
 
         <div v-if="displayedMemory.length" class="memory-workbench">
         <div class="memory-results">
           <button v-for="item in displayedMemory" :key="item.id" type="button" class="memory-result" :aria-pressed="selectedMemory?.id === item.id" @click="selectedMemoryId = item.id">
             <div class="memory-result-header">
-              <n-tag size="small">{{ sourceLabel(item.sourceType) }}</n-tag>
+              <span class="m-tag">{{ sourceLabel(item.sourceType) }}</span>
               <strong>{{ item.title }}</strong>
               <span v-if="searched && 'score' in item">{{ Math.round(Number(item.score) * 100) }}% 相关</span>
             </div>
@@ -383,45 +335,45 @@
             <small>{{ item.citation }}</small>
             <small v-if="item.path?.length" class="memory-path">路径：{{ item.path.map(hop => formatSemanticGraphHop(hop)).join('；') }}</small>
           </button>
-          <n-button v-if="!searched && browsableMemory.length > memoryBrowseLimit" @click="memoryBrowseLimit += 100">加载更多记忆</n-button>
+          <button v-if="!searched && browsableMemory.length > memoryBrowseLimit" type="button" class="m-btn sm" @click="memoryBrowseLimit += 100">加载更多记忆</button>
         </div>
         <article v-if="selectedMemory" class="memory-detail paper-panel">
-          <n-tag size="small">{{ sourceLabel(selectedMemory.sourceType) }}</n-tag>
+          <span class="m-tag">{{ sourceLabel(selectedMemory.sourceType) }}</span>
           <h3>{{ selectedMemory.title }}</h3>
           <p>{{ selectedMemory.content }}</p>
           <small>{{ selectedMemory.citation }}</small>
           <p v-if="cognitionLabel(selectedMemory)" class="memory-state">{{ cognitionLabel(selectedMemory) }}</p>
           <p v-else-if="selectedMemory.metadata?.stateKind === 'relationship'" class="memory-state">方向关系｜{{ selectedMemory.metadata.dimensionLabel || '待分类' }}：{{ selectedMemory.metadata.relation }}</p>
-          <p v-if="selectedMemory.metadata?.stateKind === 'proposition'" class="memory-state">原命题身份：{{ selectedMemory.metadata.factId }}；当前等价身份：{{ selectedMemory.metadata.projectedFactId }}。身份相同不代表人物认知一致。</p>
-          <p v-if="selectedMemory.metadata?.stateKind === 'proposition_decision'" class="memory-state">决定状态：{{ selectedMemory.metadata.decisionActive ? '当前章节边界有效' : '已停用，恢复原身份投影' }}；依据见来源记录。</p>
+          <p v-if="selectedMemory.metadata?.stateKind === 'proposition'" class="memory-state">这是一条人物认知记录。</p>
+          <p v-if="selectedMemory.metadata?.stateKind === 'proposition_decision'" class="memory-state">决定状态：{{ selectedMemory.metadata.decisionActive ? '在当前章节有效' : '已停用' }}；依据见来源记录。</p>
           <div v-if="selectedMemory.path?.length" class="memory-path-detail">
-            <strong>多跳路径 · 相关度与距离不代表因果置信度</strong>
+            <strong>间接关联</strong>
             <section v-for="(hop, index) in selectedMemory.path" :key="`${hop.from}-${hop.to}-${index}`">
               <p>{{ formatSemanticGraphHop(hop) }}</p>
-              <n-button v-if="hop.fromLocation" text @click="openGraphLocation(hop.fromLocation)">查看起点</n-button>
-              <n-button v-if="hop.toLocation" text @click="openGraphLocation(hop.toLocation)">查看终点</n-button>
-              <n-button v-if="hop.sourceLocation" text @click="openGraphLocation(hop.sourceLocation)">查看依据记录</n-button>
+              <button v-if="hop.fromLocation" type="button" class="m-link" @click="openGraphLocation(hop.fromLocation)">查看起点</button>
+              <button v-if="hop.toLocation" type="button" class="m-link" @click="openGraphLocation(hop.toLocation)">查看终点</button>
+              <button v-if="hop.sourceLocation" type="button" class="m-link" @click="openGraphLocation(hop.sourceLocation)">查看依据记录</button>
               <blockquote v-if="hop.quote">{{ hop.quote }}</blockquote>
             </section>
           </div>
-          <n-button v-if="memorySourceChapter(selectedMemory)" text type="primary" @click="openMemorySource(selectedMemory)">查看来源章节 →</n-button>
-          <n-button v-if="memoryEntityTarget(selectedMemory)" text type="primary" @click="openMemoryEntity(selectedMemory)">打开来源实体 →</n-button>
+          <button v-if="memorySourceChapter(selectedMemory)" type="button" class="m-link" @click="openMemorySource(selectedMemory)">查看来源章节 →</button>
+          <button v-if="memoryEntityTarget(selectedMemory)" type="button" class="m-link" @click="openMemoryEntity(selectedMemory)">打开来源实体 →</button>
         </article>
         </div>
-        <n-empty v-else-if="searched" description="没有找到足够相关的项目记忆" class="empty-block" />
+        <div v-else-if="searched" class="m-empty empty-block"><p>没有找到足够相关的项目记忆</p></div>
         <div v-else class="memory-placeholder">
-          <n-icon :size="36"><search-outline /></n-icon>
-          <strong>搜索整本小说的结构化记忆</strong>
+          <V3Icon name="search" size="l" />
+          <strong>搜索整本小说的故事记忆</strong>
           <span>范围包括章节摘要、角色、事件、故事弧线、数据面板和已绑定知识库。</span>
         </div>
-      </n-tab-pane>
+      </section>
 
-      <n-tab-pane display-directive="show:lazy" name="proposals" :tab="pendingProposalCount ? `状态提案 (${pendingProposalCount})` : '状态提案'">
+      <section v-if="isTabMounted('proposals')" v-show="activeTab === 'proposals'" id="planner-panel-proposals" class="planner-pane" role="tabpanel" aria-labelledby="planner-tab-proposals">
         <div v-if="pendingStateProposals.length" class="proposal-list">
           <article v-for="proposal in pendingStateProposals" :key="proposal.id" class="proposal-card">
             <div class="proposal-header">
               <div>
-                <n-tag size="small">{{ proposalTargetLabel(proposal.targetType) }}</n-tag>
+                <span class="m-tag">{{ proposalTargetLabel(proposal.targetType) }}</span>
                 <strong>{{ proposal.targetTitle }}</strong>
               </div>
               <span>来自第 {{ proposal.chapterIndex + 1 }} 章</span>
@@ -429,41 +381,41 @@
             <p>{{ proposal.reason }}</p>
             <div class="proposal-comparison" :aria-label="proposalValueLabel(proposal)"><section class="proposal-evidence"><h4>证据片段</h4><blockquote>{{ proposal.evidence || '本次提案未附正文片段，请先查看来源章节核对。' }}</blockquote></section><section><h4>当前值 · {{ proposalFieldLabel(proposal.field) }}</h4><code>{{ proposalDisplayValue(proposal, false) }}</code></section><span class="proposal-arrow" aria-hidden="true">→</span><section><h4>建议更新为</h4><code>{{ proposalDisplayValue(proposal, true) }}</code></section></div>
             <div class="proposal-actions">
-              <n-button size="small" type="primary" :loading="applyingProposalId === proposal.id" :disabled="Boolean(applyingProposalId)" @click="acceptProposal(proposal.id)">应用</n-button>
-              <n-button size="small" :disabled="Boolean(applyingProposalId)" @click="rejectProposal(proposal.id)">忽略</n-button>
+              <button type="button" class="m-btn sm zhu" :aria-busy="applyingProposalId === proposal.id" :disabled="Boolean(applyingProposalId)" @click="acceptProposal(proposal.id)">{{ applyingProposalId === proposal.id ? '应用中…' : '应用' }}</button>
+              <button type="button" class="m-btn sm" :disabled="Boolean(applyingProposalId)" @click="rejectProposal(proposal.id)">忽略</button>
             </div>
           </article>
         </div>
         <div v-else class="memory-placeholder">
-          <n-icon :size="36"><checkmark-circle-outline /></n-icon>
+          <V3Icon name="check" size="l" />
           <strong>没有待审批的状态变更</strong>
           <span>完成章节后，AI 会在后台检查弧线、事件与章节计划，只生成提案，不直接改数据。</span>
         </div>
-      </n-tab-pane>
-    </n-tabs>
+      </section>
+    </div>
 
-    <n-modal v-model:show="showPlanModal" preset="card" :title="editingPlanSuggestion ? '编辑计划建议' : editingPlanId ? '编辑章节计划' : '新建章节计划'" :closable="!planSaving" :mask-closable="!planSaving" :close-on-esc="!planSaving" class="form-modal v3" style="width: min(680px, calc(100vw - 32px))">
+    <V3Modal v-model:show="showPlanModal" :title="editingPlanSuggestion ? '编辑计划建议' : editingPlanId ? '编辑章节计划' : '新建章节计划'" :closable="!planSaving">
       <EditorRecoveryPicker :drafts="plannerDrafts('chapter-plan')" :busy="planSaving" :conflict="plannerDraftConflict" @restore="restorePlannerDraft" @discard="discardPlannerDraft" />
       <p v-if="planSaveError" role="alert" class="save-error">{{ planSaveError }}</p>
-      <n-form label-placement="top" :disabled="planSaving">
-        <div class="form-grid">
-          <n-form-item label="计划层级"><n-select v-model:value="planForm.horizon" :options="planHorizonOptions" /></n-form-item>
-          <n-form-item label="状态"><n-select v-model:value="planForm.status" :options="planStatusOptions" /></n-form-item>
-          <n-form-item label="计划名称" class="span-2"><n-input v-model:value="planForm.title" placeholder="例如：抵达锚点七号" /></n-form-item>
-          <n-form-item label="开始章节"><n-input-number v-model:value="planForm.startChapter" :min="1" /></n-form-item>
-          <n-form-item label="结束章节"><n-input-number v-model:value="planForm.endChapter" :min="planForm.startChapter" /></n-form-item>
-          <n-form-item label="阶段目标" class="span-2"><n-input v-model:value="planForm.objective" placeholder="完成后必须发生什么变化" /></n-form-item>
-          <n-form-item label="推进说明" class="span-2"><n-input v-model:value="planForm.summary" type="textarea" :rows="4" placeholder="冲突、信息释放和收束条件" /></n-form-item>
-          <n-form-item label="写作节拍" class="span-2"><n-input v-model:value="planForm.beatsText" type="textarea" :rows="5" placeholder="每行一个节拍" /></n-form-item>
+      <fieldset class="m-fieldset" :disabled="planSaving">
+        <div class="m-form-grid">
+          <V3Field label="计划层级"><V3Select v-model:value="planForm.horizon" :options="planHorizonOptions" /></V3Field>
+          <V3Field label="状态"><V3Select v-model:value="planForm.status" :options="planStatusOptions" /></V3Field>
+          <V3Field label="计划名称" span><V3Input v-model:value="planForm.title" placeholder="例如：抵达锚点七号" /></V3Field>
+          <V3Field label="开始章节"><V3Number v-model:value="planForm.startChapter" :min="1" /></V3Field>
+          <V3Field label="结束章节"><V3Number v-model:value="planForm.endChapter" :min="planForm.startChapter" /></V3Field>
+          <V3Field label="阶段目标" span><V3Input v-model:value="planForm.objective" placeholder="完成后必须发生什么变化" /></V3Field>
+          <V3Field label="推进说明" span><V3Input v-model:value="planForm.summary" type="textarea" :rows="4" placeholder="冲突、信息释放和收束条件" /></V3Field>
+          <V3Field label="写作节拍" span><V3Input v-model:value="planForm.beatsText" type="textarea" :rows="5" placeholder="每行一个节拍" /></V3Field>
         </div>
-      </n-form>
-      <template #footer><div class="modal-actions"><n-button :disabled="planSaving" @click="showPlanModal = false; closePlannerDraft('chapter-plan')">取消</n-button><n-button type="primary" :loading="planSaving" :disabled="planSaving || !planForm.title.trim() || !planForm.objective.trim()" @click="submitPlan">{{ editingPlanSuggestion ? '保存建议' : '确认并保存' }}</n-button></div></template>
-    </n-modal>
+      </fieldset>
+      <template #footer><button type="button" class="m-btn" :disabled="planSaving" @click="showPlanModal = false; closePlannerDraft('chapter-plan')">取消</button><button type="button" class="m-btn zhu" :aria-busy="planSaving" :disabled="planSaving || !planForm.title.trim() || !planForm.objective.trim()" @click="submitPlan">{{ planSaving ? '保存中…' : editingPlanSuggestion ? '保存建议' : '确认并保存' }}</button></template>
+    </V3Modal>
 
-    <n-modal v-model:show="showPlanVersionModal" preset="card" title="章节计划版本对比" class="form-modal v3" style="width: min(680px, calc(100vw - 32px))">
+    <V3Modal v-model:show="showPlanVersionModal" title="章节计划版本对比">
       <div v-if="versionPlan" class="version-dialog">
         <p class="version-current"><strong>{{ versionPlan.title }}</strong> · 当前版本</p>
-        <n-select v-model:value="selectedPlanVersionId" :options="planVersionOptions" placeholder="选择历史版本" />
+        <V3Select v-model:value="selectedPlanVersionId" :options="planVersionOptions" placeholder="选择历史版本" aria-label="历史版本" />
         <div v-if="planVersionDiff.length" class="version-diff-list">
           <div v-for="diff in planVersionDiff" :key="diff.field" class="version-diff-row">
             <strong>{{ diff.field }}</strong>
@@ -472,119 +424,119 @@
             <span>{{ diff.after }}</span>
           </div>
         </div>
-        <n-empty v-else description="当前版本与历史版本没有可见差异" />
+        <div v-else class="m-empty"><p>当前版本与历史版本没有可见差异</p></div>
         <div v-if="selectedPlanVersionId" class="version-actions">
-          <n-button type="warning" size="small" @click="restoreSelectedPlanVersion">恢复此版本</n-button>
+          <button type="button" class="m-btn sm" @click="restoreSelectedPlanVersion">恢复此版本</button>
         </div>
       </div>
-      <template #footer><div class="modal-actions"><n-button @click="showPlanVersionModal = false">关闭</n-button></div></template>
-    </n-modal>
+      <template #footer><button type="button" class="m-btn" @click="showPlanVersionModal = false">关闭</button></template>
+    </V3Modal>
 
-    <n-modal v-model:show="showArcModal" preset="card" :title="editingArcId ? '编辑故事弧线' : editingSuggestion ? '确认 AI 弧线建议' : '新建故事弧线'" :closable="!arcSaving" :mask-closable="!arcSaving" :close-on-esc="!arcSaving" class="form-modal v3" style="width: min(680px, calc(100vw - 32px))">
+    <V3Modal v-model:show="showArcModal" :title="editingArcId ? '编辑故事弧线' : editingSuggestion ? '确认 AI 弧线建议' : '新建故事弧线'" :closable="!arcSaving"
+      description="剧情设计是你确认的预期走向。">
       <EditorRecoveryPicker :drafts="plannerDrafts('story-arc')" :busy="arcSaving" :conflict="plannerDraftConflict" @restore="restorePlannerDraft" @discard="discardPlannerDraft" />
-      <p>剧情设计是作者确认的预期走向；里程碑完成需要另行核对正文。</p>
       <p v-if="arcSaveError" role="alert" class="save-error">{{ arcSaveError }}</p>
-      <p v-if="editingArcImpact">此变更关联 {{ editingArcImpact.arcIds.length }} 条剧情线，图关联范围覆盖 {{ editingArcImpact.chapterIds.length }} 章；保存后按审核输入变化确定实际重审章节。</p>
-      <n-form label-placement="top" :disabled="arcSaving">
-        <div class="form-grid">
-          <n-form-item label="弧线名称" class="span-2"><n-input v-model:value="arcForm.title" placeholder="例如：复仇之路" /></n-form-item>
-          <n-form-item label="类型"><n-select v-model:value="arcForm.type" :options="arcTypeOptions" /></n-form-item>
-          <n-form-item label="状态"><n-select v-model:value="arcForm.status" :options="arcStatusOptions" /></n-form-item>
-          <n-form-item label="重要度"><n-input-number v-model:value="arcForm.importance" :min="1" :max="5" /></n-form-item>
-          <n-form-item label="相关角色"><n-select v-model:value="arcForm.characterIds" multiple clearable :options="characterOptions" /></n-form-item>
-          <n-form-item v-if="arcForm.status === 'paused'" label="恢复条件" class="span-2"><n-input v-model:value="arcForm.reactivateAt" placeholder="例如：主角进入第二卷后恢复推进" /></n-form-item>
-          <n-form-item label="整体描述" class="span-2"><n-input v-model:value="arcForm.description" type="textarea" :rows="4" placeholder="弧线目标、核心冲突和预期变化" /></n-form-item>
-          <n-form-item v-for="field in arcDesignFields.filter(field => !field.characterOnly || arcForm.type === 'character')" :key="field.key" :label="field.label"><n-input v-model:value="arcForm[field.key]" type="textarea" :rows="2" /></n-form-item>
-          <n-form-item label="前置剧情线" class="span-2"><n-select v-model:value="arcForm.dependencyArcIds" multiple clearable :options="dependencyArcOptions" /></n-form-item>
-          <n-form-item v-if="arcForm.type === 'character'" label="成长转折事件" class="span-2"><n-select v-model:value="arcForm.turningPointEventIds" multiple clearable :options="arcEventOptions" /></n-form-item>
+      <p v-if="editingArcImpact">此变更关联 {{ editingArcImpact.arcIds.length }} 条剧情线，图关联范围覆盖 {{ editingArcImpact.chapterIds.length }} 章；保存后按审校输入变化确定实际重审章节。</p>
+      <fieldset class="m-fieldset" :disabled="arcSaving">
+        <div class="m-form-grid">
+          <V3Field label="弧线名称" span><V3Input v-model:value="arcForm.title" placeholder="例如：复仇之路" /></V3Field>
+          <V3Field label="类型"><V3Select v-model:value="arcForm.type" :options="arcTypeOptions" /></V3Field>
+          <V3Field label="状态"><V3Select v-model:value="arcForm.status" :options="arcStatusOptions" /></V3Field>
+          <V3Field label="重要度"><V3Number v-model:value="arcForm.importance" :min="1" :max="5" /></V3Field>
+          <V3Field label="相关角色" span><V3Select v-model:value="arcForm.characterIds" multiple clearable :options="characterOptions" placeholder="暂无角色" /></V3Field>
+          <V3Field v-if="arcForm.status === 'paused'" label="恢复条件" span><V3Input v-model:value="arcForm.reactivateAt" placeholder="例如：主角进入第二卷后恢复推进" /></V3Field>
+          <V3Field label="整体描述" span><V3Input v-model:value="arcForm.description" type="textarea" :rows="4" placeholder="弧线目标、核心冲突和预期变化" /></V3Field>
+          <V3Field v-for="field in arcDesignFields.filter(field => !field.characterOnly || arcForm.type === 'character')" :key="field.key" :label="field.label"><V3Input v-model:value="arcForm[field.key]" type="textarea" :rows="2" /></V3Field>
+          <V3Field label="前置剧情线" span><V3Select v-model:value="arcForm.dependencyArcIds" multiple clearable :options="dependencyArcOptions" placeholder="暂无其他剧情线" /></V3Field>
+          <V3Field v-if="arcForm.type === 'character'" label="成长转折事件" span><V3Select v-model:value="arcForm.turningPointEventIds" multiple clearable :options="arcEventOptions" placeholder="暂无可关联事件" /></V3Field>
           <section v-if="editingSuggestion" class="span-2" aria-label="建议里程碑"><h4>计划里程碑</h4>
             <div v-for="(node, index) in arcSuggestedNodes" :key="index" class="suggested-node">
-              <n-form-item label="节点名称"><n-input v-model:value="node.title" /></n-form-item>
-              <n-form-item label="预计章节"><n-input-number v-model:value="node.targetChapter" :min="1" /></n-form-item>
-              <n-form-item label="节点说明"><n-input v-model:value="node.description" type="textarea" /></n-form-item>
-              <n-button @click="arcSuggestedNodes.splice(index, 1)">移除此建议节点</n-button>
+              <V3Field label="节点名称"><V3Input v-model:value="node.title" /></V3Field>
+              <V3Field label="预计章节"><V3Number v-model:value="node.targetChapter" :min="1" /></V3Field>
+              <V3Field label="节点说明"><V3Input v-model:value="node.description" type="textarea" /></V3Field>
+              <button type="button" class="m-btn sm" @click="arcSuggestedNodes.splice(index, 1)">移除此建议节点</button>
             </div>
           </section>
         </div>
-      </n-form>
-      <template #footer><div class="modal-actions"><n-button :disabled="arcSaving" @click="showArcModal = false; closePlannerDraft('story-arc')">取消</n-button><n-button type="primary" :loading="arcSaving" :disabled="arcSaving || !arcForm.title.trim()" @click="submitArc">确认并保存</n-button></div></template>
-    </n-modal>
+      </fieldset>
+      <template #footer><button type="button" class="m-btn" :disabled="arcSaving" @click="showArcModal = false; closePlannerDraft('story-arc')">取消</button><button type="button" class="m-btn zhu" :aria-busy="arcSaving" :disabled="arcSaving || !arcForm.title.trim()" @click="submitArc">{{ arcSaving ? '保存中…' : '确认并保存' }}</button></template>
+    </V3Modal>
 
-    <n-modal v-model:show="showNodeModal" preset="card" :title="editingNodeId ? '编辑里程碑' : '添加里程碑'" :closable="!arcSaving" :mask-closable="!arcSaving" :close-on-esc="!arcSaving" class="form-modal small-modal v3" style="width: min(480px, calc(100vw - 32px))">
+    <V3Modal v-model:show="showNodeModal" :title="editingNodeId ? '编辑里程碑' : '添加里程碑'" :closable="!arcSaving" size="small">
       <p v-if="arcSaveError" role="alert" class="save-error">{{ arcSaveError }}</p>
-      <n-form label-placement="top" :disabled="arcSaving">
-        <n-form-item label="节点名称"><n-input v-model:value="nodeForm.title" placeholder="例如：首次发现仇人线索" /></n-form-item>
-        <n-form-item label="预计章节"><n-input-number v-model:value="nodeForm.targetChapter" :min="1" /></n-form-item>
-        <n-form-item label="节点说明"><n-input v-model:value="nodeForm.description" type="textarea" :rows="3" /></n-form-item>
-        <n-form-item label="前置里程碑"><n-select v-model:value="nodeForm.prerequisiteNodeIds" multiple clearable :options="prerequisiteNodeOptions" /></n-form-item>
-        <n-form-item label="后续事件"><n-select v-model:value="nodeForm.consequenceEventIds" multiple clearable :options="arcEventOptions" /></n-form-item>
-      </n-form>
-      <template #footer><div class="modal-actions"><n-button :disabled="arcSaving" @click="showNodeModal = false">取消</n-button><n-button type="primary" :loading="arcSaving" :disabled="arcSaving || !nodeForm.title.trim()" @click="submitNode">确认并保存</n-button></div></template>
-    </n-modal>
+      <fieldset class="m-fieldset" :disabled="arcSaving">
+        <V3Field label="节点名称"><V3Input v-model:value="nodeForm.title" placeholder="例如：首次发现仇人线索" /></V3Field>
+        <V3Field label="预计章节"><V3Number v-model:value="nodeForm.targetChapter" :min="1" /></V3Field>
+        <V3Field label="节点说明"><V3Input v-model:value="nodeForm.description" type="textarea" :rows="3" /></V3Field>
+        <V3Field label="前置里程碑"><V3Select v-model:value="nodeForm.prerequisiteNodeIds" multiple clearable :options="prerequisiteNodeOptions" placeholder="暂无其他里程碑" /></V3Field>
+        <V3Field label="后续事件"><V3Select v-model:value="nodeForm.consequenceEventIds" multiple clearable :options="arcEventOptions" placeholder="暂无可关联事件" /></V3Field>
+      </fieldset>
+      <template #footer><button type="button" class="m-btn" :disabled="arcSaving" @click="showNodeModal = false">取消</button><button type="button" class="m-btn zhu" :aria-busy="arcSaving" :disabled="arcSaving || !nodeForm.title.trim()" @click="submitNode">{{ arcSaving ? '保存中…' : '确认并保存' }}</button></template>
+    </V3Modal>
 
-    <n-modal v-model:show="showNodeStatusModal" preset="card" title="核对里程碑进展" :closable="!arcSaving" :mask-closable="!arcSaving" :close-on-esc="!arcSaving" class="form-modal v3" style="width: min(680px, calc(100vw - 32px))">
+    <V3Modal v-model:show="showNodeStatusModal" title="核对里程碑进展" :closable="!arcSaving">
       <p v-if="arcSaveError" role="alert" class="save-error">{{ arcSaveError }}</p>
-      <n-form label-placement="top" :disabled="arcSaving">
-        <n-form-item label="进展状态"><n-select v-model:value="nodeStatus" :options="[{ label: '已完成（需正文证据）', value: 'completed' }, { label: '恢复待完成', value: 'pending' }, { label: '已放弃', value: 'abandoned' }]" /></n-form-item>
+      <fieldset class="m-fieldset" :disabled="arcSaving">
+        <V3Field label="进展状态"><V3Select v-model:value="nodeStatus" :options="nodeStatusOptions" /></V3Field>
         <template v-if="nodeStatus === 'completed'">
-          <n-form-item label="实际发生章节"><n-select :value="sourceChapterId" :options="sourceChapterOptions" placeholder="选择已写正文的章节" @update:value="selectSourceChapter" /></n-form-item>
+          <V3Field label="实际发生章节"><V3Select :value="sourceChapterId" :options="sourceChapterOptions" placeholder="选择已写正文的章节" @update:value="selectSourceChapter" /></V3Field>
           <details v-if="sourceChapterSnapshot"><summary>查看所选章节原文</summary><pre class="arc-source-text">{{ sourceChapterSnapshot.content }}</pre></details>
-          <n-form-item label="原文证据"><n-input v-model:value="nodeEvidence" type="textarea" :rows="4" placeholder="粘贴能够证明节点完成的连续原句；重复句请补足上下文" /></n-form-item>
+          <V3Field label="原文证据"><V3Input v-model:value="nodeEvidence" type="textarea" :rows="4" placeholder="粘贴能够证明节点完成的连续原句；重复句请补足上下文" /></V3Field>
         </template>
-      </n-form>
-      <template #footer><div class="modal-actions"><n-button :disabled="arcSaving" @click="showNodeStatusModal = false">取消</n-button><n-button type="primary" :loading="arcSaving" :disabled="arcSaving || (nodeStatus === 'completed' && (!sourceChapterId || !nodeEvidence.trim()))" @click="submitNodeStatus">确认进展</n-button></div></template>
-    </n-modal>
+      </fieldset>
+      <template #footer><button type="button" class="m-btn" :disabled="arcSaving" @click="showNodeStatusModal = false">取消</button><button type="button" class="m-btn zhu" :aria-busy="arcSaving" :disabled="arcSaving || (nodeStatus === 'completed' && (!sourceChapterId || !nodeEvidence.trim()))" @click="submitNodeStatus">{{ arcSaving ? '保存中…' : '确认进展' }}</button></template>
+    </V3Modal>
 
-    <n-modal v-model:show="showEventModal" preset="card" :title="editingEventId ? '编辑时间线事件' : '添加时间线事件'" :closable="!eventSaving" :mask-closable="!eventSaving" :close-on-esc="!eventSaving" class="form-modal v3" style="width: min(680px, calc(100vw - 32px))">
+    <V3Modal v-model:show="showEventModal" :title="editingEventId ? '编辑时间线事件' : '添加时间线事件'" :closable="!eventSaving">
       <EditorRecoveryPicker :drafts="plannerDrafts('event')" :busy="eventSaving" :conflict="plannerDraftConflict" @restore="restorePlannerDraft" @discard="discardPlannerDraft" />
       <div v-if="eventFormChanged" class="recovery-pending" role="status">未提交事件已保存为恢复草稿</div>
-      <p class="entity-source-note">保存后，表单中的字段会作为作者全局设定。已写章节需重新审核；章节原文仍可在历史记录中核对。</p>
+      <p class="entity-source-note">保存后，表单中的字段会作为作者全局设定。已写章节需重新审校；章节原文仍可在历史记录中核对。</p>
       <p v-if="eventSaveError" class="save-error" role="alert">{{ eventSaveError }}</p>
-      <n-form label-placement="top" :disabled="eventSaving">
-        <div class="form-grid">
-          <n-form-item label="事件标题" class="span-2"><n-input v-model:value="eventForm.title" /></n-form-item>
-          <n-form-item label="事件类型"><n-select v-model:value="eventForm.type" :options="eventTypeOptions" /></n-form-item>
-          <n-form-item label="状态"><n-select v-model:value="eventForm.status" :options="eventStatusOptions" /></n-form-item>
-          <n-form-item label="追踪范围"><n-select v-model:value="eventForm.scope" :options="[{ label: '全书', value: 'global' }, { label: '分卷', value: 'volume' }, { label: '章节', value: 'chapter' }]" /></n-form-item>
-          <n-form-item label="发生章节（0 表示尚未发生）"><n-input-number v-model:value="eventForm.chapter" :min="0" /></n-form-item>
-          <n-form-item label="预计推进章节"><n-input-number v-model:value="eventForm.targetChapter" clearable :min="1" /></n-form-item>
-          <n-form-item label="已铺垫次数"><n-input-number v-model:value="eventForm.hintCount" :min="0" /></n-form-item>
-          <n-form-item label="最近推进章节"><n-input-number v-model:value="eventForm.lastProgressChapter" clearable :min="1" /></n-form-item>
-          <n-form-item label="实际回收章节"><n-input-number v-model:value="eventForm.resolvedChapter" clearable :min="1" :disabled="eventForm.status !== 'resolved'" /></n-form-item>
-          <n-form-item label="故事内时间"><n-input v-model:value="eventForm.storyTime" placeholder="例如：玄历三年春" /></n-form-item>
-          <n-form-item label="地点"><n-input v-model:value="eventForm.location" /></n-form-item>
-          <n-form-item label="重要度"><n-input-number v-model:value="eventForm.importance" :min="1" :max="5" /></n-form-item>
-          <n-form-item label="相关角色"><n-input v-model:value="eventForm.characters" placeholder="多个角色用逗号分隔" /></n-form-item>
-          <n-form-item label="关联弧线"><n-select v-model:value="eventForm.relatedArcIds" multiple clearable :options="arcLinkOptions" placeholder="可选" /></n-form-item>
-          <n-form-item label="正文证据" class="span-2"><n-input v-model:value="eventForm.evidence" type="textarea" :rows="2" placeholder="可记录原文，便于后续核对" /></n-form-item>
-          <n-form-item label="事件描述" class="span-2"><n-input v-model:value="eventForm.description" type="textarea" :rows="4" /></n-form-item>
+      <fieldset class="m-fieldset" :disabled="eventSaving">
+        <div class="m-form-grid">
+          <V3Field label="事件标题" span><V3Input v-model:value="eventForm.title" /></V3Field>
+          <V3Field label="事件类型"><V3Select v-model:value="eventForm.type" :options="eventTypeOptions" /></V3Field>
+          <V3Field label="状态"><V3Select v-model:value="eventForm.status" :options="eventStatusOptions" /></V3Field>
+          <V3Field label="追踪范围"><V3Select v-model:value="eventForm.scope" :options="eventScopeOptions" /></V3Field>
+          <V3Field label="发生章节（0 表示尚未发生）"><V3Number v-model:value="eventForm.chapter" :min="0" /></V3Field>
+          <V3Field label="预计推进章节"><V3Number v-model:value="eventForm.targetChapter" clearable :min="1" /></V3Field>
+          <V3Field label="已铺垫次数"><V3Number v-model:value="eventForm.hintCount" :min="0" /></V3Field>
+          <V3Field label="最近推进章节"><V3Number v-model:value="eventForm.lastProgressChapter" clearable :min="1" /></V3Field>
+          <V3Field label="实际回收章节"><V3Number v-model:value="eventForm.resolvedChapter" clearable :min="1" :disabled="eventForm.status !== 'resolved'" /></V3Field>
+          <V3Field label="故事内时间"><V3Input v-model:value="eventForm.storyTime" placeholder="例如：玄历三年春" /></V3Field>
+          <V3Field label="地点"><V3Input v-model:value="eventForm.location" /></V3Field>
+          <V3Field label="重要度"><V3Number v-model:value="eventForm.importance" :min="1" :max="5" /></V3Field>
+          <V3Field label="相关角色"><V3Input v-model:value="eventForm.characters" placeholder="多个角色用逗号分隔" /></V3Field>
+          <V3Field label="关联弧线" span><V3Select v-model:value="eventForm.relatedArcIds" multiple clearable :options="arcLinkOptions" placeholder="暂无弧线" /></V3Field>
+          <V3Field label="正文证据" span><V3Input v-model:value="eventForm.evidence" type="textarea" :rows="2" placeholder="可摘录相关原文" /></V3Field>
+          <V3Field label="事件描述" span><V3Input v-model:value="eventForm.description" type="textarea" :rows="4" /></V3Field>
         </div>
-      </n-form>
-      <template #footer><div class="modal-actions"><n-button :disabled="eventSaving" @click="showEventModal = false; closePlannerDraft('event')">取消</n-button><n-button type="primary" :loading="eventSaving" :disabled="eventSaving || !eventForm.title.trim() || !eventForm.description.trim()" @click="submitEvent">保存</n-button></div></template>
-    </n-modal>
+      </fieldset>
+      <template #footer><button type="button" class="m-btn" :disabled="eventSaving" @click="showEventModal = false; closePlannerDraft('event')">取消</button><button type="button" class="m-btn zhu" :aria-busy="eventSaving" :disabled="eventSaving || !eventForm.title.trim() || !eventForm.description.trim()" @click="submitEvent">{{ eventSaving ? '保存中…' : '保存' }}</button></template>
+    </V3Modal>
   </div>
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { ARC_CANON_FIELDS } from '@/types/entityProvenance'
 import { buildAnalysisSourceVersionId } from '@/services/reconstructionCandidates'
 import { analyzeStoryArcImpact, arcPlanningSourceVersion, type ArcDefinition, type ArcEditImpact, type StoryArcEdit } from '@/services/storyArcEditing'
 import type { StoryArcDraft, ChapterPlanDraft } from '@/services/storyPlanning'
 import { applyChapterPlanEdit, chapterPlanningSourceVersion, type ChapterPlanEdit } from '@/services/storyPlanTransactions'
 import { getChapterSummaryStatus } from '@/services/derivedSources'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import EditorRecoveryPicker from '@/components/EditorRecoveryPicker.vue'
 import { useEditorRecovery, type EditorDraftSession } from '@/composables/useEditorRecovery'
 import type { EditorDraft } from '@/types/editorRecovery'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  NButton, NEmpty, NForm, NFormItem, NIcon, NInput, NInputNumber, NModal,
-  NPopconfirm, NSelect, NTabPane, NTabs, NTag, useDialog, useMessage,
-} from 'naive-ui'
-import {
-  AddOutline, CheckmarkCircleOutline, CreateOutline, EllipseOutline,
-  SearchOutline, TrashOutline,
-} from '@vicons/ionicons5'
+import { useDialog, useMessage } from '@/v3/feedback'
+import V3Icon from '@/v3/components/V3Icon.vue'
+import V3Modal from '@/v3/components/V3Modal.vue'
+import V3Field from '@/v3/components/form/V3Field.vue'
+import V3Input from '@/v3/components/form/V3Input.vue'
+import V3Number from '@/v3/components/form/V3Number.vue'
+import V3Select from '@/v3/components/form/V3Select.vue'
 import { useNovelStore } from '@/stores/novel'
 import { chapterTitleForDisplay } from '@/v3/write/chapterNumber'
 import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspace'
@@ -827,7 +779,7 @@ async function rebuildMemoryIndex() {
       ? `已同步 ${result.recordCount} 条记忆：更新 ${result.updatedCount} 条、移除 ${result.removedCount} 条，新增向量 ${result.embeddedCount} 条，使用 ${provider}`
       : `记忆索引已是最新，共 ${result.recordCount} 条，未重复生成向量`)
   } catch (error) {
-    message.error(error instanceof Error ? error.message : '记忆索引构建失败')
+    message.error(errorText(error, '记忆索引构建失败'))
   } finally {
     memoryIndexing.value = false
   }
@@ -854,7 +806,7 @@ async function runMemorySearch() {
     if (requestId !== memoryRequestId) return
     memoryResults.value = []
     searched.value = false
-    message.error(error instanceof Error ? error.message : '项目记忆检索失败')
+    message.error(errorText(error, '项目记忆检索失败'))
   } finally {
     memorySearching.value = false
   }
@@ -871,6 +823,39 @@ watch([memoryQuery, memorySource, novelId, memoryRecords], () => {
 
 
 function handleTabChange(tab: string) { emit('tabChange', tab) }
+// 分区标签：首次打开时才渲染，之后切走只隐藏，保留各分区内部状态。
+const tabDefs = computed(() => [
+  { name: 'event-causality', label: '事件因果' }, { name: 'impacts', label: '设定影响' }, { name: 'volumes', label: '分卷规划' },
+  { name: 'plans', label: '章节计划' }, { name: 'scenes', label: '场景设计' }, { name: 'relay', label: '剧情接力' },
+  { name: 'arcs', label: '故事弧线' }, { name: 'timeline', label: '故事时间线' }, { name: 'memory', label: '项目记忆' },
+  { name: 'proposals', label: pendingProposalCount.value ? `状态提案 (${pendingProposalCount.value})` : '状态提案' },
+])
+const visitedTabs = ref(new Set<string>([activeTab.value]))
+function isTabMounted(tab: string) { return activeTab.value === tab || visitedTabs.value.has(tab) }
+watch(activeTab, tab => { if (!visitedTabs.value.has(tab)) visitedTabs.value = new Set([...visitedTabs.value, tab]) })
+function selectTab(tab: string) {
+  if (activeTab.value === tab) return
+  activeTab.value = tab
+  handleTabChange(tab)
+}
+function onTabKey(event: KeyboardEvent) {
+  const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
+  if (!step) return
+  event.preventDefault()
+  const names = tabDefs.value.map(tab => tab.name)
+  const next = names[(names.indexOf(activeTab.value) + step + names.length) % names.length]
+  selectTab(next)
+  void nextTick(() => document.getElementById('planner-tab-' + next)?.focus())
+}
+type TagType = 'error' | 'warning' | 'info' | 'success' | 'default'
+/** 状态色：沿用原有的语义分级，映射到 V3 的朱/金/黛/青。 */
+function tone(type: TagType) { return type === 'error' ? 'zhu' : type === 'warning' ? 'jin' : type === 'info' ? 'dai' : type === 'success' ? 'qing' : '' }
+/** 删除类操作先确认。 */
+function confirmThen(content: string, action: () => unknown) {
+  dialog.warning({ title: '确认删除', content, positiveText: '删除', negativeText: '取消', onPositiveClick: () => { void action() } })
+}
+const nodeStatusOptions = [{ label: '已完成（需正文证据）', value: 'completed' }, { label: '恢复待完成', value: 'pending' }, { label: '已放弃', value: 'abandoned' }]
+const eventScopeOptions = [{ label: '全书', value: 'global' }, { label: '分卷', value: 'volume' }, { label: '章节', value: 'chapter' }]
 watch([() => props.initialTab, () => props.initialSelection], ([tab, selection]) => {
   if (!planningTabs.has(tab)) return
   activeTab.value = tab
@@ -955,7 +940,7 @@ async function generatePlans() {
     planSuggestionSource.value = sourceVersion
     message.info(planSuggestions.value.length ? '章节计划建议已生成，请编辑核对后确认。' : '没有新增计划建议，重复内容已跳过。')
   } catch (error) {
-    message.error(error instanceof Error ? error.message : '章节计划生成失败')
+    message.error(errorText(error, '章节计划生成失败'))
   } finally {
     generatingPlans.value = false
   }
@@ -970,7 +955,7 @@ async function confirmVolumesAndGeneratePlans() {
       await commitPlannerEdit({ action: 'confirm-planning', expectedVolumes: JSON.stringify(novel.value.volumes), expectedPlans: JSON.stringify(novel.value.chapterPlans) })
       message.success('分卷规划已确认，已有章节计划可继续编辑')
       offerChapterCreation()
-    } catch (error) { message.error(error instanceof Error ? error.message : '规划确认保存失败') }
+    } catch (error) { message.error(errorText(error, '规划确认保存失败')) }
     finally { planSaving.value = false }
     return
   }
@@ -1045,7 +1030,7 @@ function queuePlannerDraft(surface: 'chapter-plan' | 'story-arc' | 'event', meta
     recoveryTimers.delete(key)
     if (plannerDisposed || novelId.value !== owner || recoverySessions.get(key) !== session) return
     try { recovery.queue(session!, captured) }
-    catch (error) { if (surface === 'chapter-plan') planSaveError.value = error instanceof Error ? error.message : String(error); else if (surface === 'story-arc') arcSaveError.value = error instanceof Error ? error.message : String(error); else eventSaveError.value = error instanceof Error ? error.message : String(error) }
+    catch (error) { if (surface === 'chapter-plan') planSaveError.value = errorText(error, String(error)); else if (surface === 'story-arc') arcSaveError.value = errorText(error, String(error)); else eventSaveError.value = errorText(error, String(error)) }
   }, 100))
 }
 function queueCurrentPlannerDraft(surface: 'chapter-plan' | 'story-arc' | 'event') {
@@ -1089,7 +1074,7 @@ function currentPlannerSource(surface: string, payload: EditorDraft['payload']) 
 }
 function plannerDraftConflict(item: Pick<EditorDraft, 'openedBaseline' | 'payload'>) {
   const surface = String(item.payload?.surface), source = currentPlannerSource(surface, item.payload)
-  return item.openedBaseline === plannerDraftBaseline(surface, source) ? '' : '打开后来源已变化；恢复仍保留原基线，正式保存会由事务再次核对。'
+  return item.openedBaseline === plannerDraftBaseline(surface, source) ? '' : '打开后资料已被修改。你的输入已保留，保存前请对照最新内容。'
 }
 async function restorePlannerDraft(item: EditorDraft) {
   if (item.novelId !== novelId.value || item.kind !== 'story-planner') return
@@ -1121,7 +1106,7 @@ async function restorePlannerDraft(item: EditorDraft) {
       plannerDraftCapture.event = true
     } else return
     recoverySessions.set(novelId.value + ':' + String(payload.surface), restored)
-  } catch (error) { message.error(error instanceof Error ? error.message : '恢复草稿失败') }
+  } catch (error) { message.error(errorText(error, '恢复草稿失败')) }
 }
 async function discardPlannerDraft(item: EditorDraft) {
   try {
@@ -1129,7 +1114,7 @@ async function discardPlannerDraft(item: EditorDraft) {
     if (session && session.identity.id === item.id && (session.running || session.pending || session.sequence > session.savedSequence)) await recovery.flushSession(session)
     await recovery.discard(item)
     if (session?.identity.id === item.id) recoverySessions.delete(item.novelId + ':' + String(item.payload?.surface))
-  } catch (error) { message.error(error instanceof Error ? error.message : '丢弃草稿失败') }
+  } catch (error) { message.error(errorText(error, '丢弃草稿失败')) }
 }
 function closePlannerDraft(surface: 'chapter-plan' | 'story-arc' | 'event') {
   plannerDraftCapture[surface] = false
@@ -1158,7 +1143,7 @@ async function consumePlannerDraft(surface: string) {
     const checkpoint = await recovery.flushSession(session)
     if (checkpoint && await recovery.consume(session, checkpoint)) recoverySessions.delete(key)
   } catch (error) {
-    message.warning('正式资料已保存，但恢复草稿未能清理：' + (error instanceof Error ? error.message : String(error)))
+    message.warning('正式资料已保存，但恢复草稿未能清理：' + (errorText(error, String(error))))
   }
 }
 watch(novelId, async (_owner, previousOwner) => {
@@ -1184,7 +1169,7 @@ async function acceptPlanSuggestions() {
     await commitPlannerEdit({ action: 'create-batch', plans: planSuggestions.value.map(item => item.draft), planningSourceVersion: planSuggestionSource.value })
     planSuggestions.value = []
     message.success('已确认并保存章节计划'); offerChapterCreation()
-  } catch (error) { message.error(error instanceof Error ? error.message : '计划建议保存失败') }
+  } catch (error) { message.error(errorText(error, '计划建议保存失败')) }
   finally { planSaving.value = false }
 }
 const planForm = ref(emptyPlanForm())
@@ -1264,14 +1249,14 @@ async function submitPlan() {
     message.success('章节计划已保存')
     offerChapterCreation()
   } catch (error) {
-    planSaveError.value = error instanceof Error ? error.message : '章节计划保存失败'
+    planSaveError.value = errorText(error, '章节计划保存失败')
     message.error(planSaveError.value)
   } finally { planSaving.value = false }
 }
 async function removePlan(planId: string) {
   try {
     if (await novelStore.deleteChapterPlanWithImpact(novelId.value, planId)) message.success('章节计划已删除')
-  } catch (error) { message.error(error instanceof Error ? error.message : '章节计划删除失败') }
+  } catch (error) { message.error(errorText(error, '章节计划删除失败')) }
 }
 
 function openPlanVersionModal(plan: ChapterPlan) {
@@ -1299,7 +1284,7 @@ async function restoreSelectedPlanVersion() {
     showPlanVersionModal.value = false
     versionPlan.value = null
     message.success('章节计划已恢复')
-  } catch (error) { message.error(error instanceof Error ? error.message : '章节计划恢复失败')
+  } catch (error) { message.error(errorText(error, '章节计划恢复失败'))
   }
 }
 
@@ -1311,7 +1296,7 @@ async function refreshPlan(plan: ChapterPlan) {
   try {
     await novelStore.updateChapterPlanWithImpact(novelId.value, plan.id, updates)
     message.success('已根据当前滚动位置局部刷新下一章计划，可继续编辑细节')
-  } catch (error) { message.error(error instanceof Error ? error.message : '章节计划刷新失败') }
+  } catch (error) { message.error(errorText(error, '章节计划刷新失败')) }
   finally { regeneratingPlanId.value = '' }
 }
 
@@ -1337,7 +1322,7 @@ async function runStateScan(targetChapterId: string) {
     const added = await stateScans.scan(targetNovelId, targetChapterId, model, { signal: controller.signal })
     if (!plannerDisposed && targetNovelId === novelId.value) message.success(added ? '已保存 ' + added + ' 条状态提案' : '没有新增状态提案')
   } catch (error) {
-    if (!plannerDisposed && targetNovelId === novelId.value) message.error(error instanceof Error ? error.message : '故事状态检查失败')
+    if (!plannerDisposed && targetNovelId === novelId.value) message.error(errorText(error, '故事状态检查失败'))
   } finally {
     scanningState.value = false
     if (stateScanController === controller) stateScanController = undefined
@@ -1370,7 +1355,7 @@ async function acceptProposal(proposalId: string) {
     if (await novelStore.applyStoryStateProposal(novelId.value, proposalId)) message.success('状态提案已应用')
     else message.warning('目标或来源章节已变化，请重新核对章节后再应用这条提案')
   } catch (error) {
-    message.error(error instanceof Error ? error.message : '状态提案保存失败，请重试')
+    message.error(errorText(error, '状态提案保存失败，请重试'))
   } finally {
     if (applyingProposalId.value === proposalId) applyingProposalId.value = ''
   }
@@ -1380,7 +1365,7 @@ async function rejectProposal(proposalId: string) {
   applyingProposalId.value = proposalId
   try {
     if (await novelStore.rejectStoryStateProposal(novelId.value, proposalId)) message.success('状态提案已忽略')
-  } catch (error) { message.error(error instanceof Error ? error.message : '忽略决定未保存，请重试') }
+  } catch (error) { message.error(errorText(error, '忽略决定未保存，请重试')) }
   finally { if (applyingProposalId.value === proposalId) applyingProposalId.value = '' }
 }
 
@@ -1411,7 +1396,7 @@ async function extractArcsFromOutline(options: { onlyWhenEmpty?: boolean; silent
       .map((draft, index) => ({ id: sourceVersion + ':' + index, draft, sourceVersion }))
     activeTab.value = 'arcs'
     message.info(arcSuggestions.value.length ? '弧线建议已生成，请逐条编辑并确认。' : '没有新的弧线建议。')
-  } catch (error) { message.error(error instanceof Error ? error.message : '故事弧线提取失败') }
+  } catch (error) { message.error(errorText(error, '故事弧线提取失败')) }
   finally { extractingArcs.value = false }
 }
 const showArcModal = ref(false)
@@ -1461,7 +1446,7 @@ async function saveArcEdit(edit: StoryArcEdit): Promise<boolean> {
     lastArcImpact.value = await novelStore.commitStoryArcEdit(novelId.value, edit)
     message.success(`剧情变更已保存，实际需重审 ${lastArcImpact.value.reviewChapterIds.length} 章。`)
     return true
-  } catch (error) { arcSaveError.value = error instanceof Error ? error.message : '保存失败，请重试'; message.error(arcSaveError.value); return false }
+  } catch (error) { arcSaveError.value = errorText(error, '保存失败，请重试'); message.error(arcSaveError.value); return false }
   finally { arcSaving.value = false }
 }
 async function submitArc() {
@@ -1610,7 +1595,7 @@ async function submitEvent() {
     eventFormChanged.value = false
     offerChapterCreation()
   } catch (error) {
-    eventSaveError.value = error instanceof Error ? error.message : '事件保存失败，请重试'
+    eventSaveError.value = errorText(error, '事件保存失败，请重试')
     message.error(eventSaveError.value)
   } finally {
     eventSaving.value = false
@@ -1622,10 +1607,10 @@ async function removeEvent(eventId: string) {
   deletingEvent.value = true
   try {
     await novelStore.deleteEvent(novelId.value, eventId)
-    message.success('事件已删除，已写章节需重新审核')
+    message.success('事件已删除，已写章节需重新审校')
     return true
   } catch (error) {
-    message.error(error instanceof Error ? error.message : '删除失败，请重试')
+    message.error(errorText(error, '删除失败，请重试'))
     return false
   } finally {
     deletingEvent.value = false
@@ -1804,34 +1789,17 @@ async function removeEvent(eventId: string) {
 .memory-placeholder { display: flex; min-height: 280px; align-items: center; justify-content: center; flex-direction: column; gap: 8px; color: var(--ink-3); text-align: center; }
 .memory-placeholder strong { color: var(--ink-2); }
 .empty-block { padding: 70px 0; }
-.form-modal { width: min(680px, calc(100vw - 32px)); }
-:global(.form-modal.v3) {
-  max-height: calc(100dvh - 48px); display: flex; flex-direction: column;
-  background: var(--paper); color: var(--ink); border: 1px solid var(--line); box-shadow: var(--shadow-3);
-}
-:global(.form-modal.v3 .n-card-header), :global(.form-modal.v3 .n-card__footer) { flex-shrink: 0; }
-:global(.form-modal.v3 .n-card-content) { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-:global(.form-modal.v3 .n-card-header__main), :global(.form-modal.v3 .n-form-item-label) { color: var(--ink); }
-:global(.form-modal.v3 .n-card__footer) { border-top: 1px solid var(--line); }
-:global(.form-modal.v3 .n-input), :global(.form-modal.v3 .n-base-selection-label), :global(.form-modal.v3 .n-base-selection-tags) { background: var(--panel); color: var(--ink); }
-:global(.form-modal.v3 .n-input input), :global(.form-modal.v3 .n-input textarea), :global(.form-modal.v3 .n-base-selection-input) { color: var(--ink); }
-:global(.form-modal.v3 .n-input-number) { width: 100%; }
-:global(.form-modal.v3 .n-button--primary-type) { background: var(--zhu); color: #fff8ef; }
-.small-modal { width: min(480px, calc(100vw - 32px)); }
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
-.span-2 { grid-column: span 2; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.planner-tabs :deep(.n-tabs-nav) { overflow-x: auto; overflow-y: hidden; }
-.planner-tabs :deep(.n-tabs-tab) { white-space: nowrap; }
+.planner-pane { padding-top: 12px; }
+.node-open { width: 14px; height: 14px; border: 1.5px solid currentColor; border-radius: 50%; opacity: .6; }
+.save-error { margin: 0 0 12px; padding: 8px 10px; border-radius: 6px; background: var(--zhu-soft); color: var(--zhu); font-size: 12px; }
 @media (max-width: 720px) {
   .memory-workbench { grid-template-columns: 1fr; }
   .memory-results { max-height: 340px; overflow: auto; }
   .memory-detail { position: static; }
   .planner-header { align-items: stretch; flex-direction: column; }
   .header-actions { align-self: stretch; }
-  .header-actions :deep(.n-button) { flex: 1; }
-  .filter-bar, .memory-search, .form-grid { grid-template-columns: 1fr; }
-  .span-2 { grid-column: auto; }
+  .header-actions .m-btn { flex: 1; }
+  .filter-bar, .memory-search { grid-template-columns: 1fr; }
   .timeline-row { grid-template-columns: 68px minmax(0, 1fr); gap: 12px; }
   .node-row { grid-template-columns: 24px 54px minmax(0, 1fr) 28px; }
   .plan-board { grid-template-columns: 1fr; }

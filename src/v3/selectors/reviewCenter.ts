@@ -81,17 +81,17 @@ function invalidationReason(row: { chapter: Chapter; workflow: ChapterWorkflow; 
   if (!chapter.content.trim()) return '暂无正文'
   const coverage = normalizeStoredReviewCoverage(chapter.contentReviewCoverage)
   if (coverage?.status === 'failed') return '上次分段审校未完成'
-  if (latest && latest.sourceVersionId !== expectedVersion) return '正文或审核上下文已变化'
+  if (latest && latest.sourceVersionId !== expectedVersion) return '正文或审校上下文已变化'
   // An impact report invalidates the review until the chapter has been
   // reviewed against the current context again. Keep historical reports for
   // traceability, but do not keep surfacing their old reason after a current
   // review has been durably accepted. A chapter that was never reviewed has no
   // review to invalidate, so it is simply not reviewed yet.
   if (reviewedBefore && impacts.some(report => report.reviewChapterIds.includes(chapter.id)) && !workflow.reviewCurrent) {
-    return '剧情设定变更使本章审核失效'
+    return '剧情设定变更使本章审校失效'
   }
-  if (chapter.contentReviewSignature && !workflow.reviewCurrent) return '审核签名与当前正文不一致'
-  return workflow.reviewCurrent ? '' : latest ? '审核结果需要重新确认' : '尚未完成本章审校'
+  if (chapter.contentReviewSignature && !workflow.reviewCurrent) return '正文在审校后被修改过'
+  return workflow.reviewCurrent ? '' : latest ? '审校结果需要重新确认' : '尚未完成本章审校'
 }
 
 export function deriveReviewCenter(input: ReviewCenterInput): ReviewCenterSnapshot {
@@ -159,7 +159,7 @@ export function deriveReviewCenter(input: ReviewCenterInput): ReviewCenterSnapsh
     }
     if (row.status === 'needs_review') {
       queue.push({ id: 'review:' + row.chapter.id, chapterId: row.chapter.id, chapterIndex, kind: 'review', level: 'review', category: '重审',
-        title: row.reviewStale ? '审核已失效，需要重新审校' : '本章尚未审校', detail: row.invalidationReason })
+        title: row.reviewStale ? '审校已失效，需要重新审校' : '本章尚未审校', detail: row.invalidationReason })
     }
   }
   // 阻塞优先，其次警告、建议、候选、重审；同级按章序，保持原有先后。

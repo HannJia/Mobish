@@ -11,10 +11,11 @@
         :class="{ on: area === it.area }" :aria-disabled="!book" :title="book ? `${it.label} ·《${book.title}》` : '先在书架打开一部作品'">
         <V3Icon :name="it.icon" size="l" /><span>{{ it.label }}</span>
         <span v-if="it.area === 'auto' && autoRunning" class="rail-dot live" aria-label="自动写作运行中" />
+        <span v-else-if="railBadges[it.area]" class="rail-dot":aria-label="railBadgeLabel(it.area)" :title="railBadgeLabel(it.area)">{{ railBadges[it.area]! > 99 ? '99+' : railBadges[it.area] }}</span>
       </router-link>
       <div class="rail-sp" />
       <button type="button" class="rail-btn" @click="guideOpen = true"><V3Icon name="info" size="l" /><span>说明</span></button>
-      <button type="button" class="rail-btn" :title="`切换主题（当前：${THEME_LABEL[theme.currentTheme]}）`" @click="cycleTheme">
+      <button type="button" class="rail-btn" :title="`切换主题（当前：${THEME_LABEL[theme.currentTheme]}）· Alt+T`" @click="cycleTheme">
         <V3Icon :name="themeIcon" size="l" /><span>{{ THEME_LABEL[theme.currentTheme] }}</span>
       </button>
       <button type="button" class="rail-btn" @click="openSettings"><V3Icon name="sliders" size="l" /><span>设置</span></button>
@@ -61,8 +62,12 @@
     </footer>
 
     <div class="m-toasts" aria-live="polite">
-      <div v-for="t in toasts" :key="t.id" class="m-toast" :class="{ err: t.error }"><V3Icon :name="t.error ? 'alert' : 'check'" size="s" />{{ t.text }}</div>
+      <div v-for="t in toasts" :key="t.id" class="m-toast" :class="[t.kind, { err: t.error }]" :role="t.kind === 'error' ? 'alert' : undefined">
+        <V3Icon :name="t.kind === 'success' ? 'check' : t.kind === 'info' ? 'info' : 'alert'" size="s" /><span>{{ t.text }}</span>
+        <button v-if="t.detail" type="button" class="m-toast-copy" @click="copyDiagnostics(t.detail)">复制诊断信息</button>
+      </div>
     </div>
+    <V3DialogHost />
     <V3Palette v-if="paletteOpen" :book="book" @close="paletteOpen = false" @guide="guideOpen = true" />
     <V3Guide v-if="guideOpen" @close="closeGuide" />
   </div>
@@ -74,6 +79,7 @@ import { useRoute, useRouter } from 'vue-router'
 import V3Icon from './components/V3Icon.vue'
 import V3Palette from './components/V3Palette.vue'
 import V3Guide from './components/V3Guide.vue'
+import V3DialogHost from './components/V3DialogHost.vue'
 import AppUpdateNotice from '@/components/AppUpdateNotice.vue'
 import type { IconName } from './icons'
 import type { Novel } from '@/types/novel'
@@ -87,7 +93,16 @@ import { useCloudSyncStore } from '@/stores/cloudSync'
 import { useAppUpdateStore } from '@/stores/appUpdate'
 import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspace'
 import { openAiActivity, useAiActivities } from '@/services/aiActivity'
+import { buildAnalysisSourceVersionId } from '@/services/reconstructionCandidates'
+import { openBlockers } from './selectors/shelf'
 import mojianIcon from '@/assets/v3/mojian-icon.svg'
+import { diagnosticReport } from '@/services/userFacingError'
+import { version as appVersion } from '../../package.json'
+
+async function copyDiagnostics(detail: string) {
+  try { await navigator.clipboard.writeText(diagnosticReport(detail, appVersion)); toast('诊断信息已复制，可以粘贴到反馈里') }
+  catch { toast('无法访问剪贴板，请截图反馈', { kind: 'warning' }) }
+}
 
 const BOOK_AREAS: Array<{ area: BookArea; icon: IconName; label: string }> = [
   { area: 'write', icon: 'pen', label: '写作' }, { area: 'plan', icon: 'layers', label: '结构' }, { area: 'codex', icon: 'book', label: '典籍' },
@@ -109,6 +124,21 @@ const book = computed(() => {
   return open(pick(id)) || open(pick(recalledBook())) || [...novels.activeNovels].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
 })
 const autoRunning = computed(() => !!book.value && workspace.getAiRuns(book.value.id).some(run => run.status === 'running'))
+// 左栏数字提醒：写作 = 阻塞定稿的问题数；审校 = 当前正文版本下待处理的批注与故事变化候选数。
+const railBadges = computed<Partial<Record<BookArea, number>>>(() => {
+  const b = book.value
+  if (!b) return {}
+  const versions = new Map(b.chapters.map(chapter => [chapter.id, buildAnalysisSourceVersionId(chapter.content)]))
+  const isCurrent = (row: { chapterId?: string; sourceVersionId?: string }) => !!row.chapterId && versions.has(row.chapterId)
+    && (!row.sourceVersionId || row.sourceVersionId === versions.get(row.chapterId))
+  const findings = workspace.getReviewFindings(b.id).filter(row => ['open', 'deferred'].includes(row.status) && isCurrent(row))
+  const candidates = workspace.getCandidates(b.id).filter(row => ['proposed', 'deferred'].includes(row.status) && isCurrent(row))
+  return { write: openBlockers(b, workspace.getReviewFindings(b.id)).length, review: findings.length + candidates.length }
+})
+function railBadgeLabel(target: BookArea) {
+  const count = railBadges.value[target] || 0
+  return target === 'write' ? `${count} 处问题阻塞定稿` : `${count} 项待处理`
+}
 const themeIcon = computed<IconName>(() => ({ fanqie: 'sun', eyecare: 'leaf', dark: 'moon' } as const)[theme.currentTheme])
 const updateTitle = computed(() => appUpdate.state.supported && appUpdate.state.release && !['unsupported', 'current'].includes(appUpdate.state.phase)
   ? `${appUpdate.state.phase === 'downloaded' ? '更新已准备好' : '发现新版本'} ${appUpdate.state.release!.version}` : '软件更新')
@@ -139,6 +169,9 @@ function onKey(event: KeyboardEvent) {
   if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'k') {
     event.preventDefault()
     paletteOpen.value = !paletteOpen.value
+  } else if (event.altKey && !event.ctrlKey && !event.metaKey && event.code === 'KeyT') {
+    event.preventDefault()
+    cycleTheme()
   }
 }
 onMounted(() => {

@@ -54,7 +54,7 @@
         <dt>停止条件</dt>
         <dd><ul class="stops"><li v-for="item in stops" :key="item">{{ item }}</li></ul></dd>
         <dt>写入方式</dt>
-        <dd><span class="m-tag line"><V3Icon name="lock" size="s" />只生成候选稿，不写入正式正文</span></dd>
+        <dd><span class="m-tag line"><V3Icon name="lock" size="s" />只生成候选稿</span></dd>
       </dl>
     </aside>
 
@@ -84,7 +84,8 @@
         </div>
         <div class="pipe"><span v-for="(state, index) in row.steps" :key="index" :class="state">{{ steps[index].label }}</span></div>
         <p v-if="row.note" class="rch-note">{{ row.note }}</p>
-        <div v-if="showCheckpoint(row)" class="ckpt">检查点 · 每 {{ latestRun!.checkpointEvery }} 章暂停，等待作者确认后继续</div>
+        <div v-if="row.draftWords !== null" class="rch-acts"><button class="m-btn sm" type="button" @click="openDraftReview(row.chapter.id)">对比审阅</button></div>
+        <div v-if="showCheckpoint(row)" class="ckpt">检查点 · 每 {{ latestRun!.checkpointEvery }} 章暂停，等待你确认后继续</div>
       </article>
       <p v-if="!pipeline.length" class="empty-pipeline">当前作品还没有章节。请先创建章节，再启动自动写作任务。</p>
     </main>
@@ -92,12 +93,12 @@
     <aside class="auto-ledger" aria-label="预算与运行日志">
       <section class="budget">
         <h2 class="h-sec">预算</h2>
-        <div class="bmeter" role="img" :aria-label="`已结算 ${budget.settledPercent}%，预留 ${budget.reservedPercent}%`"><i class="used" :style="{ width: budget.settledPercent + '%' }" /><i class="held" :style="{ width: budget.reservedPercent + '%' }" /></div>
-        <div class="bm-l"><span>已结算 <b>{{ fmt(budget.settled) }}</b></span><span>预留 <b>{{ fmt(budget.reserved) }}</b></span></div>
+        <div class="bmeter" role="img" :aria-label="`已结算 ${budget.settledPercent}%，预估 ${budget.reservedPercent}%`"><i class="used" :style="{ width: budget.settledPercent + '%' }" /><i class="held" :style="{ width: budget.reservedPercent + '%' }" /></div>
+        <div class="bm-l"><span>已结算 <b>{{ fmt(budget.settled) }}</b></span><span>预估 <b>{{ fmt(budget.reserved) }}</b></span></div>
         <div class="bm-l second"><span>剩余</span><b>{{ fmt(budget.remaining) }}</b></div>
         <div class="bm-l second"><span>请求</span><b>{{ budget.requests }}{{ budget.requestLimit ? ' / ' + budget.requestLimit : '' }}</b></div>
-        <table v-if="ledger.length" class="ledger"><tbody><tr v-for="row in ledger" :key="row.key"><td>{{ row.label }}<small v-if="row.reserved">（进行中）</small></td><td>{{ row.reserved ? '预留 ' : '' }}{{ fmt(row.tokens) }}</td></tr></tbody></table>
-        <p v-else class="ledger-empty">任务开始后会在这里显示请求账本。</p>
+        <table v-if="ledger.length" class="ledger"><tbody><tr v-for="row in ledger" :key="row.key"><td>{{ row.label }}<small v-if="row.reserved">（进行中）</small></td><td>{{ row.reserved ? '预估 ' : '' }}{{ fmt(row.tokens) }}</td></tr></tbody></table>
+        <p v-else class="ledger-empty">任务开始后会在这里显示 AI 用量记录。</p>
       </section>
       <h2 class="h-sec">运行日志</h2>
       <ol v-if="logRows.length" class="log"><li v-for="row in logRows" :key="row.id"><b>{{ row.time }}</b>第 {{ row.chapter }} 章 {{ row.phase }} · {{ row.status }}</li></ol>
@@ -109,13 +110,14 @@
 
     <button v-if="controlOpen" class="control-backdrop" type="button" aria-label="关闭任务控制" @click="controlOpen = false" />
     <section v-show="controlOpen" class="control-drawer" :class="{ open: controlOpen }" role="dialog" aria-label="自动任务控制" :aria-hidden="!controlOpen" @keydown.esc="controlOpen = false">
-      <header><div><h2>章节任务与作者控制</h2><p>设置范围、预算和检查点，暂停、继续、取消任务，并处理候选稿。</p></div><button class="m-ibtn" type="button" aria-label="关闭任务控制" @click="controlOpen = false"><V3Icon name="x" size="s" /></button></header>
+      <header><div><h2>章节任务</h2><p>设置范围、预算和检查点，暂停、继续、取消任务，并处理候选稿。</p></div><button class="m-ibtn" type="button" aria-label="关闭任务控制" @click="controlOpen = false"><V3Icon name="x" size="s" /></button></header>
       <div class="drawer-body"><ChapterList v-if="controlMounted" ref="chapterListRef" :focus-last-chapter="false" /></div>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
@@ -124,6 +126,7 @@ import { useConfigStore } from '@/stores/config'
 import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspace'
 import ChapterList from '@/v3/chapters/ChapterTasks.vue'
 import V3Icon from '../components/V3Icon.vue'
+import { toast, toastError } from '../shell'
 import { PIPELINE_STEPS, checkpointOf, deriveBudget, deriveLedger, derivePipeline, lengthRange, phaseLabel, stopConditions, type PipelineRow } from '../selectors/autoRun'
 import { isAutonomousRunActive } from '@/services/reconstructionAutonomous'
 import { resolveChapterLengthPolicy, type ChapterLengthPolicy } from '@/services/chapterLength'
@@ -165,6 +168,14 @@ async function invokeRunControl(name: RunControlName) {
   await chapterListRef.value?.ensureWorkspace()
   const control = chapterListRef.value?.[name]
   if (control) await control()
+}
+/** 章节卡片上的“对比审阅”：直接打开该章候选稿，不必先进任务控制抽屉找。 */
+async function openDraftReview(chapterId: string) {
+  controlMounted.value = true
+  await nextTick()
+  try {
+    if (!await chapterListRef.value?.openChapterDraft(chapterId)) toast('没有找到这一章可审阅的候选稿。', { error: true })
+  } catch (cause) { toastError(cause, '候选稿打开失败。') }
 }
 const pipeline = computed<PipelineRow[]>(() => novel.value ? derivePipeline(novel.value, latestRun.value) : [])
 const budget = computed(() => deriveBudget(latestRun.value))
@@ -243,7 +254,7 @@ const rangeText = computed(() => {
 })
 const planSource = computed(() => {
   const chapters = novel.value?.chapters || [], plans = novel.value?.chapterPlans || []
-  if (!plans.length) return '等待作者确认章纲'
+  if (!plans.length) return '等待你确认章纲'
   const run = latestRun.value, start = run?.chapterStart ?? 0, end = run?.chapterEnd ?? chapters.length - 1
   const covered = chapters.filter(chapter => chapter.chapterIndex >= start && chapter.chapterIndex <= end
     && plans.some(plan => plan.targetChapterStart <= chapter.chapterIndex && plan.targetChapterEnd >= chapter.chapterIndex)).length
@@ -264,7 +275,7 @@ const checkpointText = computed(() => {
   const run = latestRun.value, point = checkpointOf(run)
   if (!run) return ''
   if (!point) return run.status === 'completed' ? '范围内章节已处理完' : '尚未产生检查点'
-  return ({ started: '处理尚未完成', completed: '处理完成', reviewed: '审核完成', checkpoint: '达到作者检查点，等待你确认', 'review-needs-author': '审核等待作者处理', 'needs-author': '等待作者核对' } as Record<string, string>)[point.phase]
+  return ({ started: '处理尚未完成', completed: '处理完成', reviewed: '审校完成', checkpoint: '到达检查点，等待你确认', 'review-needs-author': '审校等待你处理', 'needs-author': '等待你核对' } as Record<string, string>)[point.phase]
 })
 // 检查点横幅只出现在真正到达检查点的那一章下面。
 function showCheckpoint(row: PipelineRow) {
@@ -278,7 +289,7 @@ const logRows = computed(() => (latestRun.value?.requests || []).slice(-8).rever
 })))
 
 function fmt(value: number | undefined) { return value === undefined ? '—' : value.toLocaleString() }
-function statusLabel(status: AiRun['status']) { return ({ queued: '排队中', running: '运行中', paused: '已暂停', completed: '已完成', failed: '失败', cancelled: '已取消', needs_author: '等待作者确认' } as Record<AiRun['status'], string>)[status] }
+function statusLabel(status: AiRun['status']) { return ({ queued: '排队中', running: '运行中', paused: '已暂停', completed: '已完成', failed: '失败', cancelled: '已取消', needs_author: '等待你确认' } as Record<AiRun['status'], string>)[status] }
 function requestStatus(status: AiRunRequest['status']) { return ({ pending: '请求中', completed: '已完成', failed: '失败', interrupted: '已中断', unknown: '结果未知', not_sent: '未发送' } as Record<AiRunRequest['status'], string>)[status] }
 
 onMounted(async () => {
@@ -286,7 +297,7 @@ onMounted(async () => {
     if (!novelId.value) throw new Error('自动写作页缺少作品编号。')
     await workspace.hydrateFromPersistence(novelId.value)
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : String(cause)
+    error.value = errorText(cause, String(cause))
   } finally {
     loading.value = false
   }
@@ -300,7 +311,6 @@ onMounted(async () => {
 .muted { color: var(--ink-3); }
 .tiny { color: var(--ink-3); font-size: 12px; }
 .grow { flex: 1; }
-.h-sec { margin: 0 0 10px; color: var(--ink-3); font: 600 12px/1 var(--f-ui); letter-spacing: .12em; }
 .eyebrow { color: var(--zhu); font-size: 11px; letter-spacing: .12em; }
 
 .auto-config { min-height: 0; overflow: auto; padding: 20px; border-right: 1px solid var(--line); background: var(--panel); }
@@ -349,6 +359,7 @@ onMounted(async () => {
 .pipe span.current::after { content: ''; position: absolute; left: 0; bottom: 0; width: 100%; height: 2px; background: var(--dai); }
 .pipe span.waiting { background: var(--jin-soft); color: var(--jin); font-weight: 600; }
 .rch-note { margin: 8px 0 0; color: var(--ink-3); font-size: 12px; }
+.rch-acts { display: flex; justify-content: flex-end; margin-top: 8px; }
 .ckpt { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; color: var(--jin); font-size: 12px; }
 .ckpt::before { content: ''; flex: none; width: 18px; height: 1px; background: var(--jin); }
 .empty-pipeline { padding: 40px; color: var(--ink-3); }
@@ -389,9 +400,6 @@ onMounted(async () => {
 .run-top-status.running { color: var(--qing); }
 .run-top-status.needs_author, .run-top-status.paused { color: var(--jin); }
 .run-top-status.failed { color: var(--zhu); }
-.crumb-link { color: var(--ink-3); text-decoration: none; }
-.crumb-link:hover { color: var(--zhu); }
-.crumb-sep { margin: 0 7px; color: var(--ink-4); }
 
 @media (max-width: 1180px) {
   /* 参照原型保留配置栏与流水线双列，账本在窄屏收起，避免把运行中心压成纵向长页。 */

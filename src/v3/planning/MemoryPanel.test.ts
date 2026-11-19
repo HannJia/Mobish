@@ -65,7 +65,7 @@ function savedFrom(input: any) {
 }
 function mountPanel(novel = book) { return shallowMount(StoryMemoryPanel, { props: { novel, ready: true } }) }
 function generateButton(wrapper: ReturnType<typeof mountPanel>) { return wrapper.findAll('button').find(button => button.text().includes('生成 AI 候选'))! }
-function confirmButton(wrapper: ReturnType<typeof mountPanel>) { return wrapper.findAll('button').find(button => button.text().includes('作者确认并保存'))! }
+function confirmButton(wrapper: ReturnType<typeof mountPanel>) { return wrapper.findAll('button').find(button => button.text().includes('确认并保存'))! }
 function completedMemoryRun(original: any, draft: any, sourceVersionId: string) {
   const coverage = { version: 1, strategy: 'full-source-hierarchical', sources: [], leafCount: 1, requestCount: 1, inputTokens: 12, outputTokens: 8, usageEstimated: true }
   return { ...original, status: 'needs_author', updatedAt: '2026-11-07T00:01:00.000Z', memoryTask: {
@@ -172,7 +172,7 @@ describe('StoryMemoryPanel acceptance flow', () => {
     expect(wrapper.text()).toContain('AI 候选尚未保存')
     expect(state.getModel).toHaveBeenCalledWith('review')
     expect(state.getSkillPrompt).toHaveBeenCalledWith('analysis')
-    expect(wrapper.text()).toContain('保守估算')
+    expect(wrapper.text()).toContain('预计')
     await confirmButton(wrapper).trigger('click')
     await flushPromises()
     expect(state.save).toHaveBeenCalledWith('novel-1', expect.objectContaining({ origin: 'ai', coverage: expect.objectContaining({ leafCount: 1 }) }))

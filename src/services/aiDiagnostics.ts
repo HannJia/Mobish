@@ -32,8 +32,8 @@ export function structuredOutputDiagnostic(result: ChatCompletionResult): string
   const tokens = result.usage?.completion_tokens
   const reasoningTokens = result.usage?.completion_tokens_details?.reasoning_tokens
   return `结束原因：${finish}；正文长度：${result.content.length} 字符`
-    + (isTokenCount(tokens) ? `；输出用量：${tokens} token` : '')
-    + (isTokenCount(reasoningTokens) ? `；推理用量：${reasoningTokens} token` : '')
+    + (isTokenCount(tokens) ? `；输出用量：${tokens} Token` : '')
+    + (isTokenCount(reasoningTokens) ? `；推理用量：${reasoningTokens} Token` : '')
 }
 
 export function assertStructuredOutputComplete(result: ChatCompletionResult, task: string): void {

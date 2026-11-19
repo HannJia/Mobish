@@ -1,8 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { GlobalThemeOverrides } from 'naive-ui'
 
-// V3 主题与原生控件使用统一色板。
+// V3 主题：实际配色在 src/v3/styles 中按 data-theme 定义。
 export type ThemeName = 'fanqie' | 'eyecare' | 'dark'
 
 export interface ThemeOption {
@@ -19,41 +18,6 @@ export const themeOptions: ThemeOption[] = [
   { name: 'eyecare', label: '青瓷', description: '柔和豆青，长时写作', swatch: ['#E3E9E4', '#2C5470'] },
   { name: 'dark', label: '夜墨', description: '深色护眼，专注沉浸', swatch: ['#141311', '#E0634B'] },
 ]
-
-interface Palette {
-  primary: string
-  primaryHover: string
-  primaryPressed: string
-  info: string
-  success: string
-  warning: string
-  error: string
-  body: string
-  card: string
-  border: string
-  text: string
-}
-
-// 与 V3 设计系统的原生色板保持一致。
-const palettes: Record<ThemeName, Palette> = {
-  fanqie: {
-    primary: '#B8321F', primaryHover: '#C44632', primaryPressed: '#9E281A',
-    info: '#2F4F6A', success: '#3F7A64', warning: '#A87A1E', error: '#B8321F',
-    body: '#ECE7DC', card: '#FCFAF5', border: '#DDD5C6', text: '#1E1C19',
-  },
-  eyecare: {
-    primary: '#B23A2A', primaryHover: '#C54A39', primaryPressed: '#963022',
-    info: '#2C5470', success: '#2F7A5E', warning: '#A87A1E', error: '#B23A2A',
-    body: '#E3E9E4', card: '#F8FAF7', border: '#CCD7CF', text: '#18221D',
-  },
-  dark: {
-    primary: '#E0634B', primaryHover: '#EA7B65', primaryPressed: '#C54D38',
-    info: '#7EA6C4', success: '#6FB596', warning: '#D6A84A', error: '#E0634B',
-    body: '#141311', card: '#1F1D1A', border: '#2E2B26', text: '#E9E3D6',
-  },
-}
-
-const UI_FONT = "'Noto Sans SC Variable', 'Microsoft YaHei UI', system-ui, sans-serif"
 
 export const useThemeStore = defineStore('theme', () => {
   // 当前主题名
@@ -81,71 +45,10 @@ export const useThemeStore = defineStore('theme', () => {
     }
   }
 
-  // Naive UI 主题覆盖，随当前主题变化
-  const themeOverrides = computed<GlobalThemeOverrides>(() => {
-    const p = palettes[currentTheme.value]
-    const common: GlobalThemeOverrides['common'] = {
-      primaryColor: p.primary,
-      primaryColorHover: p.primaryHover,
-      primaryColorPressed: p.primaryPressed,
-      primaryColorSuppl: p.primaryHover,
-      infoColor: p.info,
-      infoColorHover: p.info,
-      infoColorPressed: p.info,
-      infoColorSuppl: p.info,
-      successColor: p.success,
-      successColorHover: p.success,
-      successColorPressed: p.success,
-      successColorSuppl: p.success,
-      warningColor: p.warning,
-      warningColorHover: p.warning,
-      warningColorPressed: p.warning,
-      warningColorSuppl: p.warning,
-      errorColor: p.error,
-      errorColorHover: p.primaryHover,
-      errorColorPressed: p.primaryPressed,
-      errorColorSuppl: p.error,
-      borderRadius: '6px',
-      borderRadiusSmall: '4px',
-      fontFamily: UI_FONT,
-    }
-    if (!isDark.value) {
-      Object.assign(common, {
-        bodyColor: p.body,
-        cardColor: p.card,
-        modalColor: p.card,
-        popoverColor: p.card,
-        tableColor: p.card,
-        inputColor: '#FFFDF8',
-        borderColor: p.border,
-        dividerColor: p.border,
-        textColorBase: p.text,
-        textColor1: p.text,
-        textColor2: p.text,
-      })
-    }
-    return {
-      common,
-      Button: {
-        borderRadiusTiny: '4px',
-        borderRadiusSmall: '4px',
-        borderRadiusMedium: '6px',
-        borderRadiusLarge: '6px',
-        fontWeight: '500',
-      },
-      Card: { borderRadius: '8px' },
-      Input: { borderRadius: '6px' },
-      Select: { peers: { InternalSelection: { borderRadius: '6px' } } },
-      Tabs: { tabTextColorActiveLine: p.primary, barColor: p.primary },
-      Tag: { borderRadius: '4px' },
-    }
-  })
-
   return {
     currentTheme,
     isDark,
     switchTheme,
     initTheme,
-    themeOverrides,
   }
 })

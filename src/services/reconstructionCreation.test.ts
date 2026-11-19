@@ -32,7 +32,7 @@ describe('reconstruction creation protocol', () => {
     draft.skeletons = [skeleton, { ...skeleton, id: 'alternative', ending: '放弃复仇',
       beats: skeleton.beats.map(beat => ({ ...beat, description: '放弃复仇' })) }]
     expect(() => confirmCreationSkeleton(draft, now)).toThrow('选择')
-    expect(() => buildConfirmedSkeletonConstraint(draft)).toThrow('尚未由作者确认')
+    expect(() => buildConfirmedSkeletonConstraint(draft)).toThrow('还没有确认')
     expect(() => confirmCreationSkeleton({ ...draft, selectedSkeletonId: 'missing' }, now)).toThrow('选择')
     const confirmed = confirmCreationSkeleton({ ...draft, selectedSkeletonId: 'alternative' }, now)
     expect(buildConfirmedSkeletonConstraint(confirmed)).toContain('放弃复仇')

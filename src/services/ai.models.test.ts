@@ -32,7 +32,7 @@ describe('OpenAI 兼容模型发现', () => {
 
   it('未填写地址或密钥时不发起请求', async () => {
     await expect(listAvailableModels({ baseUrl: '', apiKey: 'sk-test' })).rejects.toThrow('API Base URL')
-    await expect(listAvailableModels({ baseUrl: 'https://api.example.test', apiKey: '' })).rejects.toThrow('API Key')
+    await expect(listAvailableModels({ baseUrl: 'https://api.example.test', apiKey: '' })).rejects.toThrow('API 密钥')
   })
 
   it('服务返回错误时保留状态码和简短原因', async () => {

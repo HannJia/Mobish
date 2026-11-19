@@ -87,7 +87,7 @@ export async function recognizePdfPage(imageDataUrl: string, page: number, model
     throw new Error(`第 ${page} 页视觉识别请求失败，请检查模型的图片接口、额度和连接后继续。已完成页面不会重复识别。`)
   }
   signal.throwIfAborted()
-  if (result.finishReason === 'length') throw new Error(`第 ${page} 页识别结果被输出上限截断，请在模型设置中提高最大输出词元数后继续。`)
+  if (result.finishReason === 'length') throw new Error(`第 ${page} 页识别结果被输出上限截断，请在模型设置中提高最大输出 Token 数后继续。`)
   const parsed = parseAiJsonObject<{ text?: unknown; blank?: unknown }>(result.content)
   if (!parsed || typeof parsed.text !== 'string' || typeof parsed.blank !== 'boolean'
     || (!parsed.text.trim() && !parsed.blank) || (parsed.blank && parsed.text.trim())) {

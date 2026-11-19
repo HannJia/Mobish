@@ -41,7 +41,7 @@ describe('GitHub release validation', () => {
     expect(() => parseRelease({ ...release(), draft: true }, '1.0.2')).toThrow()
     expect(() => parseRelease({ ...release(), prerelease: true }, '1.0.2')).toThrow()
     expect(parseRelease({ ...release(), html_url: 'https://example.test' }, '1.0.2').url)
-      .toBe('https://github.com/HannJia/novel-ai-studio/releases/tag/v1.0.3')
+      .toBe('https://github.com/HannJia/mobish/releases/tag/v1.0.3')
   })
   it('does not offer automatic downloads without both metadata and a matching installer', () => {
     expect(parseRelease({ ...release(), assets: release().assets.slice(0, 1) }, '1.0.2').canDownload).toBe(false)
@@ -147,7 +147,7 @@ describe('desktop update lifecycle', () => {
     expect(updater.autoInstallOnAppQuit).toBe(false)
     expect(updater.allowDowngrade).toBe(false)
     expect(updater.allowPrerelease).toBe(false)
-    expect(updater.setFeedURL.mock.calls[0][0].url).toBe('https://github.com/HannJia/novel-ai-studio/releases/download/v1.0.3/')
+    expect(updater.setFeedURL.mock.calls[0][0].url).toBe('https://github.com/HannJia/mobish/releases/download/v1.0.3/')
     expect(controller.snapshot().phase).toBe('available')
   })
   it('can show old releases without updater metadata as already current', async () => {
@@ -163,7 +163,7 @@ describe('desktop update lifecycle', () => {
     expect(controller.snapshot().release.canDownload).toBe(false)
     await controller.download()
     controller.openRelease()
-    expect(options.openExternal).toHaveBeenCalledWith('https://github.com/HannJia/novel-ai-studio/releases/tag/v1.0.3')
+    expect(options.openExternal).toHaveBeenCalledWith('https://github.com/HannJia/mobish/releases/tag/v1.0.3')
     expect(updater.downloadUpdate).not.toHaveBeenCalled()
   })
   it('requires confirmation, successful download and save before installation', async () => {

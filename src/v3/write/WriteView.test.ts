@@ -10,6 +10,7 @@ import type { useChapterSession } from './useChapterSession'
 import type { useChapterAi } from './useChapterAi'
 import type { ChapterWorkflow } from '../selectors/chapterWorkflow'
 import type { CandidateChange, ReviewFinding } from '@/types/reconstruction'
+import type { ChapterRevision } from '@/types/novel'
 import WriteView from './WriteView.vue'
 
 const state = vi.hoisted(() => ({ session: {} as ReturnType<typeof useChapterSession>, ai: {} as ReturnType<typeof useChapterAi> }))
@@ -96,15 +97,16 @@ describe('V3 写作台原型交互', () => {
     expect(wrapper.get('.desk-side').text()).not.toContain('review-v')
   })
 
-  it('默认打开最前面的顾问，正文写作不预留空批注栏', async () => {
+  it('默认打开最前面的顾问，没有批注时不预留空批注栏', async () => {
     await mountDesk()
-    expect(wrapper.findAll('.desk-tabs button').map(tab => tab.text())).toEqual(['顾问', '记忆', '候选', '对话', '审校'])
+    expect(wrapper.findAll('.desk-tabs button').map(tab => tab.text())).toEqual(['顾问', '对话', '记忆', '候选', '审校'])
     expect(wrapper.get('.desk-tabs button.on').text()).toBe('顾问')
+    expect(wrapper.get('.desk-tabs button.on').attributes('aria-selected')).toBe('true')
     expect(wrapper.get('.paper').classes()).not.toContain('with-margins')
     expect(wrapper.find('.paper-margins').exists()).toBe(false)
     expect(wrapper.find('.paper-mnote').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('正文以纯文本保存，页边批注与浮签不属于正式稿。')
-    await button('审校').trigger('click')
+    await button('顾问').trigger('click')
     expect(wrapper.find('.paper-margins').exists()).toBe(false)
     expect(state.ai.reviewChapter).not.toHaveBeenCalled()
     expect(state.ai.generateSelection).not.toHaveBeenCalled()
@@ -239,30 +241,48 @@ describe('V3 写作台原型交互', () => {
     expect(state.session.saveNow).toHaveBeenCalledTimes(1)
     expect(router.currentRoute.value.params.chapterId).toBe(second.id)
   })
-  it('只将有当前审校依据的批注放到页边，旧批注不再错位定位', async () => {
+  it('页边批注不随案头标签消失；正文改动后旧批注按引文淡色保留、只能重审后标记', async () => {
     const finding: ReviewFinding = { id: 'f1', chapterId: currentChapter.id, type: 'knowledge', severity: 'blocker', title: '核对知情', explanation: '尚未拆信。',
       quotedText: '灯还亮着。', startOffset: 1, endOffset: 7, evidence: [], status: 'open', blocksFinalization: true, sourceVersionId: state.session.contentVersion.value }
     ;(state.session.findings as Ref<ReviewFinding[]>).value = [finding]
     await mountDesk()
-    expect(wrapper.find('.paper-margins').exists()).toBe(false)
-    await button('审校1').trigger('click')
     expect(wrapper.get('.paper').classes()).toContain('with-margins')
     expect(wrapper.findAll('.margin-note')).toHaveLength(1)
     await wrapper.get('.margin-note').trigger('click')
     expect(revealRange).toHaveBeenCalledWith(7, 12, { focus: false })
     await button('顾问').trigger('click')
-    expect(wrapper.find('.paper-margins').exists()).toBe(false)
-    expect(wrapper.get('.paper').classes()).not.toContain('with-margins')
-    await button('审校1').trigger('click')
     expect(wrapper.findAll('.margin-note')).toHaveLength(1)
     state.session.workflow.value!.reviewCurrent = false
     await flushPromises()
     revealRange.mockClear()
-    expect(wrapper.findAll('.margin-note')).toHaveLength(0)
-    expect(wrapper.get('.paper').classes()).not.toContain('with-margins')
+    expect(wrapper.findAll('.margin-note')).toHaveLength(1)
+    expect(wrapper.get('.margin-note').classes()).toContain('stale')
+    await button('审校').trigger('click')
     await wrapper.get('.finding').trigger('click')
-    expect(revealRange).not.toHaveBeenCalled()
-    expect(wrapper.get('.finding').text()).toContain('此前正文参考')
+    expect(revealRange).toHaveBeenCalledWith(7, 12, { focus: false })
+    expect(wrapper.get('.finding').text()).toContain('待重审')
+    expect(wrapper.findAll('button').some(item => item.text() === '已处理')).toBe(false)
+    expect(wrapper.get('.finding .m-btn.pri').text()).toContain('修改候选')
+  })
+  it('引文所在段落已改的旧批注不进页边，只在案头列为待重审', async () => {
+    ;(state.session.findings as Ref<ReviewFinding[]>).value = [{ id: 'f-gone', chapterId: currentChapter.id, type: 'plot', severity: 'warning', title: '情节跳跃',
+      explanation: '', quotedText: '已经被作者删掉的一句话', startOffset: 1, endOffset: 7, evidence: [], status: 'open', blocksFinalization: false, sourceVersionId: 'old-version' } as ReviewFinding]
+    await mountDesk({ tab: 'review' })
+    expect(wrapper.find('.paper-margins').exists()).toBe(false)
+    expect(wrapper.get('.finding').text()).toContain('所在段落已改')
+    expect(wrapper.find('.finding .m-btn.pri').exists()).toBe(false)
+  })
+  it('从审校中心跳入时打开审校并定位到指定批注', async () => {
+    ;(state.session.findings as Ref<ReviewFinding[]>).value = [
+      { id: 'f0', chapterId: currentChapter.id, type: 'style', severity: 'suggestion', title: '另一条', explanation: '', quotedText: '他没有拆信。',
+        evidence: [], status: 'open', blocksFinalization: false, sourceVersionId: state.session.contentVersion.value } as ReviewFinding,
+      { id: 'f1', chapterId: currentChapter.id, type: 'knowledge', severity: 'blocker', title: '核对知情', explanation: '尚未拆信。', quotedText: '灯还亮着。',
+        startOffset: 7, endOffset: 12, evidence: [], status: 'open', blocksFinalization: false, sourceVersionId: state.session.contentVersion.value } as ReviewFinding,
+    ]
+    await mountDesk({ tab: 'review', finding: 'f1' })
+    expect(wrapper.get('.desk-tabs button.on').text()).toBe('审校2')
+    expect(revealRange).toHaveBeenCalledWith(7, 12, { focus: false })
+    expect(wrapper.get('[data-finding="f1"]').classes()).toContain('on')
   })
   it('外部证据定位等待正文和编辑器就绪，失败的早期尝试不消费定位请求', async () => {
     state.session.loading.value = true
@@ -302,25 +322,56 @@ describe('V3 写作台原型交互', () => {
     expect(wrapper.find('.selection-tools').exists()).toBe(false)
     expect(state.ai.generateSelection).not.toHaveBeenCalled()
   })
-  it('正文浮签先展示差异，拒绝只调用拒绝事务；上下文过期后禁止采纳', async () => {
+  it('正文浮签直接显示在页边，可暂存；拒绝只调用拒绝事务；上下文过期后禁止采纳', async () => {
     const original = state.session.content.value
-    state.session.pendingRevision.value = { id: 'r1', novelId: state.session.novel.value!.id, chapterId: currentChapter.id, baseContent: original,
+    ;(state.session.pendingRevision as unknown as Ref<ChapterRevision | undefined>).value = { id: 'r1', novelId: state.session.novel.value!.id, chapterId: currentChapter.id, baseContent: original,
       proposedContent: '新' + original.slice(1), source: 'ai', status: 'pending', diff: '', reason: '选区候选', createdAt: '', updatedAt: '',
       selection: { mode: 'rewrite', startOffset: 0, endOffset: 1, contextVersion: 'ctx' } }
     await mountDesk()
-    expect(wrapper.find('.margin-slip').exists()).toBe(false)
-    await button('候选1').trigger('click')
     expect(wrapper.get('.margin-slip').text()).toContain('未入正文')
     expect(state.session.content.value).toBe(original)
+    await button('暂存').trigger('click')
+    expect(wrapper.find('.margin-slip').exists()).toBe(false)
+    await button('候选1').trigger('click')
+    expect(wrapper.get('.revision-card').text()).toContain('已暂存')
     expect(wrapper.get('.revision-diff').text()).toContain('新')
+    await button('放回页边').trigger('click')
+    expect(wrapper.find('.margin-slip').exists()).toBe(true)
     ;(state.session.contextVersion as Ref<string>).value = 'changed'
     await flushPromises()
     expect(button('采纳入正文').attributes('disabled')).toBeDefined()
     expect(wrapper.find('.margin-slip').exists()).toBe(false)
-    await button('拒绝候选').trigger('click'); await flushPromises()
-    expect(state.session.rejectRevision).toHaveBeenCalledOnce()
+    await button('不用').trigger('click'); await flushPromises()
+    expect(state.session.rejectRevision).toHaveBeenCalledWith('r1')
     expect(state.session.acceptRevision).not.toHaveBeenCalled()
     expect(state.session.content.value).toBe(original)
+  })
+  it('换一版先按原位置生成新候选，成功后才放弃旧版', async () => {
+    const original = state.session.content.value
+    const base = { novelId: state.session.novel.value!.id, chapterId: currentChapter.id, baseContent: original, source: 'ai' as const, status: 'pending' as const,
+      diff: '', reason: '选区候选', createdAt: '', updatedAt: '', selection: { mode: 'polish' as const, startOffset: 0, endOffset: 2, contextVersion: 'ctx' } }
+    ;(state.session.pendingRevision as unknown as Ref<ChapterRevision | undefined>).value = { ...base, id: 'r1', proposedContent: '新' + original.slice(1) }
+    vi.mocked(state.ai.generateSelection).mockImplementationOnce(async () => {
+      ;(state.session.pendingRevision as unknown as Ref<ChapterRevision | undefined>).value = { ...base, id: 'r2', proposedContent: '另' + original.slice(1) }
+    })
+    await mountDesk()
+    await button('换一版').trigger('click'); await flushPromises()
+    expect(state.ai.generateSelection).toHaveBeenCalledWith('polish', expect.stringContaining('不同'), { start: 0, end: 2 })
+    expect(state.session.rejectRevision).toHaveBeenCalledWith('r1')
+    expect(state.session.content.value).toBe(original)
+  })
+  it('已有修订候选时仍可对新选区生成候选，不切换案头标签', async () => {
+    const original = state.session.content.value
+    ;(state.session.pendingRevision as unknown as Ref<ChapterRevision | undefined>).value = { id: 'r1', novelId: state.session.novel.value!.id, chapterId: currentChapter.id, baseContent: original,
+      proposedContent: '新' + original.slice(1), source: 'ai', status: 'pending', diff: '', reason: '选区候选', createdAt: '', updatedAt: '' }
+    await mountDesk()
+    wrapper.getComponent(EditorDouble).vm.$emit('selection', { start: 0, end: 3, text: original.slice(0, 3), rect: { left: 100, right: 200, top: 220, bottom: 250 } })
+    await flushPromises()
+    const polish = wrapper.get('[aria-label="选区 AI 操作"]').findAll('button').find(item => item.text() === '润色')!
+    expect(polish.attributes('disabled')).toBeUndefined()
+    await polish.trigger('click'); await flushPromises()
+    expect(state.ai.generateSelection).toHaveBeenCalledWith('polish', '', { start: 0, end: 3 })
+    expect(wrapper.get('.desk-tabs button.on').text()).toBe('顾问')
   })
   it('定稿核对不接受或驳回任何候选，待处理项阻止直接定稿', async () => {
     ;(state.session.candidates as Ref<CandidateChange[]>).value = [{ id: 'c1', novelId: state.session.novel.value!.id, chapterId: currentChapter.id, type: 'fact', status: 'proposed',

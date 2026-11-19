@@ -88,7 +88,7 @@ export function createCreationDraftFromNovel(novel: Novel, now: string): Creatio
 
 export function buildPlotSkeletonFromOutline(novel: Novel, outline: string, now: string): PlotSkeleton {
   const synopsis = sectionText(outline, ['小说简介', '一句话概括', '主线剧情走向']) || novel.synopsis || novel.settings.coreConflict.mainConflict || outline.trim().slice(0, 1500)
-  const ending = sectionText(outline, ['结局方向', '最终结局', '结局']) || '待作者确认'
+  const ending = sectionText(outline, ['结局方向', '最终结局', '结局']) || '待你确认'
   const title = sectionText(outline, ['推荐书名']).split('\n').map(item => item.replace(/[\-*《》]/g, '').trim()).find(Boolean) || novel.title
   return {
     id: 'skeleton:' + novel.id,
@@ -237,7 +237,7 @@ export function buildConfirmedSkeletonConstraint(draft: CreationDraft): string {
   if (draft.contract.approval !== 'approved' || draft.approval.contract !== 'approved') throw new Error('请先确认作品契约')
   const skeleton = draft.skeletons.find(item => item.id === draft.selectedSkeletonId)
   if (draft.approval.skeleton !== 'approved' || skeleton?.approval !== 'approved') {
-    throw new Error('故事骨架尚未由作者确认')
+    throw new Error('故事骨架还没有确认')
   }
   return [
     '【作者已确认的作品契约和故事骨架】',

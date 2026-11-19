@@ -32,13 +32,13 @@ function assertDecision<T extends CandidateChange | ReviewFinding>(aggregate: St
   knowledge: ReviewKnowledgeRevisions, options?: StoryDecisionOptions<T>): string {
   const chapter = aggregate.novel.chapters.find(chapter => chapter.id === record.chapterId)
   if (!chapter) throw new Error('来源章节已不存在。')
-  if (chapter.status === 'locked') throw new Error('章节已锁定，请先解锁再处理审核。')
+  if (chapter.status === 'locked') throw new Error('章节已锁定，请先解锁再处理审校。')
   if ('novelId' in record && record.novelId && record.novelId !== aggregate.novel.id) throw new Error('该记录不属于当前作品。')
   const version = storyDecisionSourceVersion(aggregate, chapter.id, knowledge)
-  if (options && JSON.stringify(record) !== JSON.stringify(options.expectedRecord)) throw new Error('候选或审核问题已经变化，本次决定未保存，请重新核对。')
-  if (options && version !== options.expectedSourceVersionId) throw new Error('正文或审核依据已经变化，本次决定未保存，请重新审核。')
+  if (options && JSON.stringify(record) !== JSON.stringify(options.expectedRecord)) throw new Error('候选或审校问题已经变化，本次决定未保存，请重新核对。')
+  if (options && version !== options.expectedSourceVersionId) throw new Error('正文或审校依据已经变化，本次决定未保存，请重新审校。')
   if (!record.sourceVersionId || record.sourceVersionId !== buildAnalysisSourceVersionId(chapter.content)) {
-    throw new Error('来源正文版本缺失或已经变化，请重新审核或分析。')
+    throw new Error('来源正文版本缺失或已经变化，请重新审校或分析。')
   }
   return version
 }
@@ -157,8 +157,8 @@ function decidePendingStoryChange(aggregate: StoryAggregate, candidateId: string
 export function resolveStoryFinding(aggregate: StoryAggregate, findingId: string, status: FindingDecisionStatus,
   now: string, knowledge: ReviewKnowledgeRevisions = [], options?: StoryDecisionOptions<ReviewFinding>): void {
   const finding = aggregate.workspace.reviewFindings.find(finding => finding.id === findingId)
-  if (!finding) throw new Error('审核问题已不存在。')
-  if (finding.status !== 'open' && finding.status !== 'deferred') throw new Error('该审核问题已处理或已失效，请重新审核。')
+  if (!finding) throw new Error('审校问题已不存在。')
+  if (finding.status !== 'open' && finding.status !== 'deferred') throw new Error('该审校问题已处理或已失效，请重新审校。')
   const version = assertDecision(aggregate, finding, knowledge, options)
   const note = options?.authorNote?.trim() || finding.authorNote || (status === 'intentional' ? '作者确认这是有意设计。'
     : status === 'deferred' ? '作者延后处理；阻塞问题仍需在定稿前解决。' : '作者已处理该问题。')
@@ -174,12 +174,12 @@ export function finalizeStoryChapter(aggregate: StoryAggregate, chapterId: strin
   const chapter = novel.chapters.find(chapter => chapter.id === chapterId)
   if (!chapter || chapter.status === 'locked') throw new Error('章节不存在或已锁定。')
   const currentVersion = storyDecisionSourceVersion(aggregate, chapterId, knowledge)
-  if (currentVersion !== expectedVersion) throw new Error('正文或审核依据已经变化，请重新审核后定稿。')
+  if (currentVersion !== expectedVersion) throw new Error('正文或审校依据已经变化，请重新审校后定稿。')
   const review = (workspace.chapterReviews || []).find(review => review.chapterId === chapterId && review.sourceVersionId === currentVersion)
-  if (!review) throw new Error('当前正文缺少有效的结构化审核记录。')
+  if (!review) throw new Error('当前正文缺少有效的结构化审校记录。')
   const findings = new Map<string, ReviewFinding>(review.findings.map(finding => [finding.id, finding]))
   for (const finding of workspace.reviewFindings.filter(finding => finding.chapterId === chapterId)) findings.set(finding.id, finding)
-  if (!canFinalizeChapter({ ...review, findings: [...findings.values()] }, currentVersion)) throw new Error('章节审核尚未通过，或仍有阻塞问题未处理。')
+  if (!canFinalizeChapter({ ...review, findings: [...findings.values()] }, currentVersion)) throw new Error('章节审校尚未通过，或仍有阻塞问题未处理。')
   if (inspectChapterLength(chapter.content, resolveChapterLengthPolicy(novel.chapterLengthPolicy)).status !== 'within') throw new Error('章节篇幅尚未达标，不能定稿。')
   const contentVersion = buildAnalysisSourceVersionId(chapter.content)
   const candidates = workspace.candidates.filter(candidate => candidate.chapterId === chapterId

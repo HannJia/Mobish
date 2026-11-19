@@ -36,7 +36,6 @@ const tools = [
 .book-nav a { padding: 6px 10px; border: 1px solid transparent; border-radius: var(--r-s); color: var(--ink-3); text-decoration: none; font-size: 12px; }
 .book-nav a:hover, .book-nav a[aria-current="page"] { background: var(--paper); border-color: var(--line-2); color: var(--zhu); }
 .tool-empty { padding: 48px 20px; text-align: center; color: var(--ink-3); }
-.crumb-link { color: var(--ink-3); text-decoration: none; }.crumb-link:hover { color: var(--zhu); }.crumb-sep { margin: 0 7px; color: var(--ink-4); }
 .book-crumb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.crumb-b, .crumb-sep { flex-shrink: 0; white-space: nowrap; }
 @media (max-width: 680px) { .book-page { padding: 16px 12px 32px; }.book-nav { gap: 3px; }.book-nav a { padding: 6px 8px; } }
 

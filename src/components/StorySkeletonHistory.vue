@@ -6,7 +6,7 @@
       <p v-if="attempt.parentAttemptId">来源请求：{{ attempt.parentAttemptId }}</p><p v-if="attempt.error" role="status">{{ attempt.error }}</p>
       <pre>{{ attempt.output || '尚未收到输出' }}</pre>
       <details><summary>查看请求输入</summary><pre v-for="(item, index) in attempt.messages" :key="index">{{ item.role }}：{{ item.content }}</pre></details>
-      <div class="actions"><button :disabled="busy" @click="emit('retry', attempt.id)">按当前设定重试为新请求</button><button :disabled="busy || !attempt.output" @click="emit('continue', attempt.id)">依据部分输出续作完整候选</button><button :disabled="busy || !attempt.output" @click="emit('recover', attempt.id)">恢复输出为待补齐草稿</button></div>
+      <div class="actions"><button :disabled="busy" @click="emit('retry', attempt.id)">按当前设定重试为新请求</button><button :disabled="busy || !attempt.output" @click="emit('continue', attempt.id)">依据部分输出续作完整候选</button><button :disabled="busy || !attempt.output" @click="emit('recover', attempt.id)">恢复为待补齐的候选</button></div>
     </details>
     <details v-for="version in [...history].reverse()" :key="version.id">
       <summary>{{ version.createdAt }} · {{ kindLabel(version.kind) }} · {{ version.snapshot.title || '未命名方案' }}</summary>
@@ -25,7 +25,7 @@ import type { SkeletonGenerationAttempt, SkeletonRevision } from '@/types/recons
 defineProps<{ history: SkeletonRevision[]; attempts: SkeletonGenerationAttempt[]; busy?: boolean }>()
 const emit = defineEmits<{ restore: [id: string]; retry: [id: string]; continue: [id: string]; recover: [id: string] }>()
 const fields = [{ key: 'premise', label: '故事前提' }, { key: 'logline', label: '一句话主线' }, { key: 'promise', label: '读者承诺' }, { key: 'ending', label: '结局方向' }] as const
-const statusLabel = (status: SkeletonGenerationAttempt['status']) => ({ queued: '待发出', running: '未结束（离页或重开后可恢复）', completed: '已完整返回', partial: '未完整返回', failed: '失败', cancelled: '已取消', interrupted: '已中断', conflict: '基线冲突，输出已保留' }[status])
+const statusLabel = (status: SkeletonGenerationAttempt['status']) => ({ queued: '待发出', running: '未结束（离页或重开后可恢复）', completed: '已完整返回', partial: '未完整返回', failed: '失败', cancelled: '已取消', interrupted: '已中断', conflict: '资料已被修改，生成结果已保留' }[status])
 const kindLabel = (kind: SkeletonRevision['kind']) => ({ initial: '初始候选', model: '模型候选', author: '作者保存', mixed: '手工混合', restored: '历史恢复', confirmed: '作者确认', import: '大纲提取' }[kind])
 </script>
 <style scoped>

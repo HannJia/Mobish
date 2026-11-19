@@ -23,7 +23,7 @@ vi.mock('vue-router', () => ({
   useRoute: () => route,
   useRouter: () => ({ push }),
 }))
-vi.mock('naive-ui', async original => ({
+vi.mock('@/v3/feedback', async original => ({
   ...await original<object>(),
   useMessage: () => ({ success: vi.fn(), warning: vi.fn(), info: vi.fn(), error: vi.fn() }),
   useDialog: () => ({ info: dialogInfo }),
@@ -244,7 +244,7 @@ describe('planning completion prompt', () => {
     const book = readyBook(true), store = useNovelStore()
     const save = vi.spyOn(store, 'commitStoryArcEdit').mockRejectedValue(new Error('模拟剧情写入失败'))
     const wrapper = shallowMount(StoryPlanner, { global: { renderStubDefaultSlot: true, stubs: {
-      Modal: { props: ['show'], template: '<section v-if="show" role="dialog"><slot/><slot name="footer"/></section>' },
+      V3Modal: { props: ['show'], template: '<section v-if="show" role="dialog"><slot/><slot name="footer"/></section>' },
     } } })
     const vm = wrapper.vm as any, baseline = JSON.stringify(book.storyArcs![0])
     vm.openArcModal(book.storyArcs![0]); vm.arcForm.goal = '作者修改的目标'
@@ -304,7 +304,7 @@ describe('planning completion prompt', () => {
     const book = readyBook(true), store = useNovelStore()
     const save = vi.spyOn(store, 'saveEntityDefinition').mockRejectedValue(new Error('模拟写入失败'))
     const wrapper = shallowMount(StoryPlanner, { global: { renderStubDefaultSlot: true, stubs: {
-      Modal: { props: ['show'], template: '<section v-if="show" role="dialog"><slot/><slot name="footer"/></section>' },
+      V3Modal: { props: ['show'], template: '<section v-if="show" role="dialog"><slot/><slot name="footer"/></section>' },
     } } })
     const vm = wrapper.vm as any
     vm.openEventModal(book.eventLog[0]); vm.eventForm.description = '保留这份修改'
@@ -333,9 +333,7 @@ describe('planning completion prompt', () => {
   it('groups initial memory by source and discards a search arriving after a category change', async () => {
     const book = readyBook(true)
     await useNovelStore().addCharacter(book.id, { name: '测试角色', identity: '调查员' })
-    const wrapper = shallowMount(StoryPlanner, { global: { renderStubDefaultSlot: true, stubs: {
-      Button: { template: '<button><slot /></button>' },
-    } } })
+    const wrapper = shallowMount(StoryPlanner, { props: { initialTab: 'memory' }, global: { renderStubDefaultSlot: true } })
     await flushPromises()
     expect(wrapper.find('details.planner-summary-details').exists()).toBe(false)
     expect(wrapper.find('.memory-results p').exists()).toBe(false)
@@ -346,7 +344,7 @@ describe('planning completion prompt', () => {
     expect(wrapper.get('.memory-result').text()).toContain('测试角色')
     let resolveSearch!: (value: Awaited<ReturnType<typeof queryPersistedSemanticEvidence>>) => void
     vi.mocked(queryPersistedSemanticEvidence).mockImplementationOnce(() => new Promise(resolve => { resolveSearch = resolve }))
-    wrapper.get('.memory-search').findComponent({ name: 'Input' }).vm.$emit('update:value', '测试')
+    wrapper.get('.memory-search').findComponent({ name: 'V3Input' }).vm.$emit('update:value', '测试')
     await flushPromises()
     await wrapper.get('.memory-search button').trigger('click')
     await flushPromises()
@@ -363,11 +361,9 @@ describe('planning completion prompt', () => {
     const book = readyBook(true)
     vi.mocked(syncSemanticIndexForNovel).mockClear()
     vi.mocked(getSemanticIndexInfo).mockResolvedValue({ recordCount: 8, provider: 'local', model: 'local-hash-v1', dimensions: 192, updatedAt: book.createdAt })
-    const wrapper = shallowMount(StoryPlanner, { global: { renderStubDefaultSlot: true, stubs: {
-      Button: { template: '<button><slot /></button>' },
-    } } })
+    const wrapper = shallowMount(StoryPlanner, { props: { initialTab: 'memory' }, global: { renderStubDefaultSlot: true } })
     await flushPromises()
-    wrapper.find('.memory-search').findComponent({ name: 'Input' }).vm.$emit('update:value', '新线索')
+    wrapper.find('.memory-search').findComponent({ name: 'V3Input' }).vm.$emit('update:value', '新线索')
     await flushPromises()
     const search = wrapper.find('.memory-search').findAll('button').find(button => button.text() === '检索')!
     await search.trigger('click')
@@ -383,13 +379,11 @@ describe('planning completion prompt', () => {
 
   it('discards visible and pending search results when the manuscript changes', async () => {
     const book = readyBook(true)
-    const wrapper = shallowMount(StoryPlanner, { global: { renderStubDefaultSlot: true, stubs: {
-      Button: { template: '<button><slot /></button>' },
-    } } })
+    const wrapper = shallowMount(StoryPlanner, { props: { initialTab: 'memory' }, global: { renderStubDefaultSlot: true } })
     await flushPromises()
     let resolveSearch!: (value: Awaited<ReturnType<typeof queryPersistedSemanticEvidence>>) => void
     vi.mocked(queryPersistedSemanticEvidence).mockImplementationOnce(() => new Promise(resolve => { resolveSearch = resolve }))
-    wrapper.get('.memory-search').findComponent({ name: 'Input' }).vm.$emit('update:value', '铜盒')
+    wrapper.get('.memory-search').findComponent({ name: 'V3Input' }).vm.$emit('update:value', '铜盒')
     await flushPromises()
     await wrapper.get('.memory-search button').trigger('click')
     await flushPromises()
@@ -424,7 +418,7 @@ describe('planning completion prompt', () => {
 
   it('offers chapter creation once after explicit confirmation and destroys it on leave', async () => {
     readyBook(false)
-    const wrapper = shallowMount(StoryPlanner, { global: { renderStubDefaultSlot: true } })
+    const wrapper = shallowMount(StoryPlanner, { props: { initialTab: 'volumes' }, global: { renderStubDefaultSlot: true } })
     await flushPromises()
     expect(dialogInfo).not.toHaveBeenCalled()
 
@@ -449,7 +443,6 @@ describe('planning completion prompt', () => {
     const wrapper = shallowMount(StoryPlanner, {
       props: { embedded: true, initialTab: 'plans' },
       global: { renderStubDefaultSlot: true, stubs: {
-        Button: { props: ['disabled'], template: '<button :disabled="disabled"><slot /></button>' },
       } },
     })
     const header = wrapper.get('.planner-header-compact'), planner = wrapper.vm as any
@@ -484,7 +477,6 @@ describe('planning completion prompt', () => {
     const wrapper = shallowMount(StoryPlanner, {
       props: { embedded: true, initialTab: 'relay' },
       global: { renderStubDefaultSlot: true, stubs: {
-        Button: { props: ['disabled'], template: '<button :disabled="disabled"><slot /></button>' },
       } },
     })
     try {
@@ -513,7 +505,6 @@ describe('planning completion prompt', () => {
     const wrapper = shallowMount(StoryPlanner, {
       props: { embedded: true, initialTab: tab },
       global: { renderStubDefaultSlot: true, stubs: {
-        Button: { props: ['disabled'], template: '<button :disabled="disabled"><slot /></button>' },
       } },
     })
     await flushPromises()
@@ -540,7 +531,6 @@ describe('planning completion prompt', () => {
     const wrapper = shallowMount(StoryPlanner, {
       props: { embedded: true, initialTab: 'proposals' },
       global: { renderStubDefaultSlot: true, stubs: {
-        Button: { props: ['disabled'], template: '<button :disabled="disabled"><slot /></button>' },
       } },
     })
     await flushPromises()
@@ -597,7 +587,7 @@ describe('planning completion prompt', () => {
     chapter.content = chapter.content.replace('雨夜', '晴夜')
     const before = JSON.stringify(book)
     const wrapper = shallowMount(StoryPlanner, { props: { embedded: true, initialTab: 'arcs', initialSelection: excluded.id },
-      global: { renderStubDefaultSlot: true, stubs: { Button: { template: '<button><slot /></button>' } } } })
+      global: { renderStubDefaultSlot: true } })
     try {
       await flushPromises()
       const recovery = wrapper.get('.arc-source-recovery')

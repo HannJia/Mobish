@@ -19,7 +19,7 @@ function parseValue<T>(value: string): T {
     const parsed: unknown = JSON.parse(value)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid record')
     return parsed as T
-  } catch { throw new Error('创作工作区记录损坏，已停止读取以避免丢失规划或审核历史。') }
+  } catch { throw new Error('创作工作区记录损坏，已停止读取以避免丢失规划或审校历史。') }
 }
 
 export async function loadReconstructionWorkspace(novelId: string): Promise<ReconstructionWorkspaceSnapshot> {

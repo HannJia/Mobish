@@ -1,4 +1,4 @@
-import { useDialog } from 'naive-ui'
+import { useDialog } from '@/v3/feedback'
 import { useAppUpdateStore } from '@/stores/appUpdate'
 
 export function useUpdateInstall() {

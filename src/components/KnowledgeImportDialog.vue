@@ -1,76 +1,77 @@
 <template>
-  <n-modal :show="show" preset="card" title="导入知识库内容" class="knowledge-import-dialog"
-    style="width: min(760px, calc(100vw - 32px));" :closable="!importing && !reviewBusy" :mask-closable="!reading && !importing && !reviewBusy"
-    @update:show="close">
+  <V3Modal :show="show" title="导入知识库内容" size="wide" class="knowledge-import-dialog" :closable="!importing && !reviewBusy"
+    description="上传文件或直接粘贴文字，核对预览后导入；导入前不会写入知识库。" @update:show="close">
     <div class="import-fields">
-      <label>分类</label>
-      <n-select v-model:value="category" :options="kbCategories" :disabled="importing || reviewBusy || Boolean(pendingIds)" />
-      <label>上传文件（最多 100 MB；支持 .txt / .md / .docx / .epub / .pdf）</label>
-      <div class="file-row">
-        <input ref="fileInput" type="file" accept=".txt,.md,.markdown,.docx,.epub,.pdf" hidden @change="chooseFile" />
-        <n-button :disabled="reading || importing || reviewBusy || Boolean(pendingIds)" @click="fileInput?.click()">
-          <template #icon><n-icon><document-attach-outline /></n-icon></template>选择文件
-        </n-button>
-        <span class="file-name">{{ file?.name || '未选择文件' }}</span>
+      <V3Field label="分类"><V3Select v-model:value="category" :options="kbCategories" :disabled="importing || reviewBusy || Boolean(pendingIds)" /></V3Field>
+      <div class="m-field" role="group" aria-label="上传文件">
+        <span class="m-field-l">上传文件（最多 100 MB；支持 .txt / .md / .docx / .epub / .pdf）</span>
+        <div class="file-row">
+          <input ref="fileInput" type="file" accept=".txt,.md,.markdown,.docx,.epub,.pdf" hidden @change="chooseFile" />
+          <button type="button" class="m-btn" :disabled="reading || importing || reviewBusy || Boolean(pendingIds)" @click="fileInput?.click()">
+            <V3Icon name="file" size="s" />选择文件
+          </button>
+          <span class="file-name">{{ file?.name || '未选择文件' }}</span>
+        </div>
       </div>
       <template v-if="isPdf">
-        <label>PDF 读取方式</label>
-        <n-select v-model:value="mode" :options="modeOptions" :disabled="reading || importing || reviewBusy || Boolean(pendingIds)" @update:value="resetPreview" />
-        <div v-if="mode === 'local-ocr'" class="file-row">
-          <label>起始页<n-input-number v-model:value="pageStart" :min="1" :max="1000" :disabled="reading || reviewBusy || importing || Boolean(pendingIds)" aria-label="本地识别起始页" @update:value="resetPreview" /></label>
-          <label>结束页<n-input-number v-model:value="pageEnd" :min="pageStart || 1" :max="1000" :disabled="reading || reviewBusy || importing || Boolean(pendingIds)" aria-label="本地识别结束页" @update:value="resetPreview" /></label>
+        <V3Field label="PDF 读取方式"><V3Select v-model:value="mode" :options="modeOptions" :disabled="reading || importing || reviewBusy || Boolean(pendingIds)" @update:value="resetPreview" /></V3Field>
+        <div v-if="mode === 'local-ocr'" class="page-range">
+          <V3Field label="起始页"><V3Number v-model:value="pageStart" :min="1" :max="1000" :precision="0" :disabled="reading || reviewBusy || importing || Boolean(pendingIds)" aria-label="本地识别起始页" @update:value="resetPreview" /></V3Field>
+          <V3Field label="结束页"><V3Number v-model:value="pageEnd" :min="pageStart || 1" :max="1000" :precision="0" :disabled="reading || reviewBusy || importing || Boolean(pendingIds)" aria-label="本地识别结束页" @update:value="resetPreview" /></V3Field>
         </div>
-        <label>视觉识别模型</label>
-        <n-select v-model:value="modelId" :options="modelOptions" :disabled="reading || importing || reviewBusy" placeholder="选择已配置的模型" />
-        <n-checkbox v-if="mode !== 'local-ocr'" v-model:checked="allowVision" :disabled="reading || importing || reviewBusy"
-          @update:checked="value => config.setPdfVisionEnabled(value)">允许调用视觉识别（可能消耗额度）</n-checkbox>
+        <V3Field label="视觉识别模型"><V3Select v-model:value="modelId" :options="modelOptions" :disabled="reading || importing || reviewBusy" placeholder="选择已配置的模型" /></V3Field>
+        <label v-if="mode !== 'local-ocr'" class="m-check"><input v-model="allowVision" type="checkbox" :disabled="reading || importing || reviewBusy"
+          @change="config.setPdfVisionEnabled(($event.target as HTMLInputElement).checked)">允许调用视觉识别（可能消耗额度）</label>
         <p v-if="mode === 'local-ocr'" class="import-notice">本地 OCR 不上传页面。仅在另行确认“视觉复核”后，才发送可疑区域图片给所选模型，可能产生费用。</p>
         <p v-else class="import-notice">需要识别的页面图片将发送给所选模型服务商，可能产生费用。文字识别结果可能有误，请核对数字、日期和专有名词。</p>
         <div class="file-row">
-          <n-button v-if="reading" @click="pause"><template #icon><n-icon><pause-outline /></n-icon></template>暂停识别</n-button>
-          <n-button v-else :disabled="importing || reviewBusy || Boolean(pendingIds) || complete" @click="readFile(false)">
-            <template #icon><n-icon><play-outline /></n-icon></template>{{ attempted ? '继续识别' : '开始读取' }}
-          </n-button>
-          <n-button :disabled="reading || importing || reviewBusy || Boolean(pendingIds)" @click="readFile(true)">读取已识别缓存</n-button>
+          <button v-if="reading" type="button" class="m-btn" @click="pause"><V3Icon name="pause" size="s" />暂停识别</button>
+          <button v-else type="button" class="m-btn pri" :disabled="importing || reviewBusy || Boolean(pendingIds) || complete" @click="readFile(false)">
+            <V3Icon name="play" size="s" />{{ attempted ? '继续识别' : '开始读取' }}
+          </button>
+          <button type="button" class="m-btn ghost" :disabled="reading || importing || reviewBusy || Boolean(pendingIds)" @click="readFile(true)">读取已识别缓存</button>
           <span v-if="progress" class="import-progress" role="status">
             {{ progressText }}{{ progress.cached ? `，复用 ${progress.cached} 页` : '' }}
           </span>
         </div>
-        <n-progress v-if="progress?.total" type="line" :percentage="Math.floor(progress.completed / progress.total * 100)" :show-indicator="false" />
+        <div v-if="progress?.total" class="import-progress-track" role="progressbar" aria-label="识别进度" aria-valuemin="0" aria-valuemax="100"
+          :aria-valuenow="Math.floor(progress.completed / progress.total * 100)"><span :style="{ width: Math.floor(progress.completed / progress.total * 100) + '%' }" /></div>
         <p v-if="paused" class="import-notice">已暂停，已完成页保留在本机。重新打开软件后，选择同一文件和读取方式即可继续。</p>
       </template>
       <p v-else-if="reading" role="status">正在读取文件...</p>
       <p v-if="error" class="import-error" role="alert">{{ error }}</p>
-      <label>文本预览</label>
-      <n-input :value="reading ? text.slice(-12000) : text" @update:value="value => text = value" type="textarea" :rows="8" :readonly="mode === 'local-ocr'" :disabled="reading || importing || reviewBusy || Boolean(pendingIds)"
-        placeholder="粘贴内容或上传文件..." />
+      <V3Field label="文本预览"><V3Input :value="reading ? text.slice(-12000) : text" type="textarea" :rows="8" :readonly="mode === 'local-ocr'" :disabled="reading || importing || reviewBusy || Boolean(pendingIds)"
+        placeholder="粘贴内容或上传文件..." @update:value="value => text = value" /></V3Field>
       <p v-if="progress" class="import-notice" role="status">有文字 {{ progress.textPages }} 页 · 空白结果 {{ progress.blankPages }} 页 · 无缓存 {{ progress.missingPages }} 页 · {{ progress.characters.toLocaleString('zh-CN') }} 字符</p>
-      <p v-if="progress?.staleBlankPages" class="import-error" role="alert">发现 {{ progress.staleBlankPages }} 页旧版空白缓存，不能视为有效识别结果。普通读取会重新检查这些页；已有非空文字缓存保留。</p>
+      <p v-if="progress?.staleBlankPages" class="import-error" role="alert">有 {{ progress.staleBlankPages }} 页之前识别为空白，重新读取时会再识别一次。</p>
       <p v-if="text" class="import-notice" role="status">预计导入 {{ entryCount }} 条 · {{ text.length.toLocaleString('zh-CN') }} 字符</p>
       <p v-if="suspiciousPdf" class="import-error" role="alert">PDF 未读完、缓存缺页或文字页异常偏少，请先核对预览，当前结果可能不完整。</p>
-      <n-checkbox v-if="suspiciousPdf" v-model:checked="acceptIncomplete" :disabled="importing">确认仅导入当前文字结果</n-checkbox>
-      <n-button v-if="text" size="small" :disabled="reading" @click="exportText">导出已读取文本</n-button>
+      <label v-if="suspiciousPdf" class="m-check"><input v-model="acceptIncomplete" type="checkbox" :disabled="importing">确认仅导入当前文字结果</label>
+      <button v-if="text" type="button" class="m-btn sm ghost export-text" :disabled="reading" @click="exportText"><V3Icon name="export" size="s" />导出已读取文本</button>
       <OcrReviewPanel v-if="mode === 'local-ocr' && file && ocrPages.length" ref="ocrPanel" :file="file" :pages="ocrPages"
         :model="config.models.find(model => model.id === modelId)" :disabled="reading || importing || Boolean(pendingIds)"
         @busy="value => reviewBusy = value" @changed="updateOcrPage" />
-      <n-checkbox v-if="ocrUnresolved" v-model:checked="acceptUnresolved" :disabled="reading || importing || reviewBusy">保留 {{ ocrUnresolved }} 项待核实标记并导入</n-checkbox>
-      <n-checkbox v-model:checked="summarize" :disabled="importing">导入后自动整理条目摘要</n-checkbox>
+      <label v-if="ocrUnresolved" class="m-check"><input v-model="acceptUnresolved" type="checkbox" :disabled="reading || importing || reviewBusy">保留 {{ ocrUnresolved }} 项待核实标记并导入</label>
+      <label class="m-check"><input v-model="summarize" type="checkbox" :disabled="importing">导入后自动整理条目摘要</label>
     </div>
-    <template #action>
-      <div class="import-actions">
-        <n-button :disabled="importing || reviewBusy" @click="close(false)">{{ reading ? '暂停并关闭' : '取消' }}</n-button>
-        <n-button type="primary" :loading="importing" :disabled="reading || reviewBusy || (!pendingIds && !text.trim()) || (suspiciousPdf && !acceptIncomplete) || (ocrUnresolved > 0 && !acceptUnresolved)" @click="importText">
-          <template #icon><n-icon><save-outline /></n-icon></template>{{ pendingIds ? '重试保存' : '确认导入' }}
-        </n-button>
-      </div>
+    <template #footer>
+      <button type="button" class="m-btn" :disabled="importing || reviewBusy" @click="close(false)">{{ reading ? '暂停并关闭' : '取消' }}</button>
+      <button type="button" class="m-btn pri" :aria-busy="importing" :disabled="importing || reading || reviewBusy || (!pendingIds && !text.trim()) || (suspiciousPdf && !acceptIncomplete) || (ocrUnresolved > 0 && !acceptUnresolved)" @click="importText">
+        {{ importing ? '正在导入…' : pendingIds ? '重试保存' : '确认导入' }}
+      </button>
     </template>
-  </n-modal>
+  </V3Modal>
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
-import { NButton, NCheckbox, NIcon, NInput, NInputNumber, NModal, NProgress, NSelect } from 'naive-ui'
-import { DocumentAttachOutline, PauseOutline, PlayOutline, SaveOutline } from '@vicons/ionicons5'
+import V3Icon from '@/v3/components/V3Icon.vue'
+import V3Modal from '@/v3/components/V3Modal.vue'
+import V3Field from '@/v3/components/form/V3Field.vue'
+import V3Input from '@/v3/components/form/V3Input.vue'
+import V3Number from '@/v3/components/form/V3Number.vue'
+import V3Select from '@/v3/components/form/V3Select.vue'
 import { kbCategories, useKnowledgeStore } from '@/stores/knowledge'
 import { useConfigStore } from '@/stores/config'
 import { KNOWLEDGE_IMPORT_LIMITS, readKnowledgeFile } from '@/services/knowledgeImport'
@@ -201,7 +202,7 @@ async function readFile(cacheOnly = false) {
     if (!result.trim()) error.value = '文件读取完成，但没有可导入的文字。'
   } catch (cause) {
     if (activity) finishAiActivity(activity, request.signal.aborted ? new Error('已暂停，保留已完成页') : cause)
-    if (!request.signal.aborted && active) error.value = cause instanceof Error ? cause.message : '文件读取失败，请重试。'
+    if (!request.signal.aborted && active) error.value = errorText(cause, '文件读取失败，请重试。')
   } finally {
     if (activity?.status === 'running') finishAiActivity(activity)
     if (controller === request) { controller = undefined; reading.value = false }
@@ -249,7 +250,7 @@ async function importText() {
     emit('update:show', false)
   } catch (cause) {
     error.value = pendingIds.value ? '写入本机失败，请重试保存，不会重复创建条目。'
-      : cause instanceof Error ? cause.message : '导入失败，请重试。'
+      : errorText(cause, '导入失败，请重试。')
   } finally { importing.value = false }
 }
 </script>
@@ -257,13 +258,14 @@ async function importText() {
 <style scoped>
 .import-fields { display: grid; grid-template-columns:minmax(0,1fr); gap: 8px; min-width: 0; }
 .import-fields > * { min-width:0; max-width:100%; }
-.import-fields :deep(.n-select),.import-fields :deep(.n-base-selection) { min-width:0; max-width:100%; }
-.import-fields label { font-size: 13px; color: var(--ink-2); }
-.file-row, .import-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.import-actions { justify-content: flex-end; }
+.import-fields .m-field { margin-bottom: 0; }
+.page-range { display: grid; grid-template-columns: repeat(2, minmax(0, 160px)); gap: 12px; }
+.import-progress-track { height: 6px; border-radius: 6px; background: var(--panel-2); overflow: hidden; }
+.import-progress-track > span { display: block; height: 100%; background: var(--zhu); transition: width var(--motion-fast); }
+.export-text { justify-self: start; }
+.file-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .file-name, .import-progress, .import-notice, .import-error { font-size: 12px; overflow-wrap: anywhere; }
 .file-name { min-width: 0; flex: 1; }
-.file-row :deep(.n-input-number) { width:130px; }
 .import-notice { color: var(--ink-2); margin: 4px 0; line-height: 1.6; }
 .import-error { color: var(--zhu); margin: 4px 0; }
 </style>

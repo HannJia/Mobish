@@ -6,55 +6,60 @@
       <span>待请求 {{ pendingCalls }} 组</span>
     </div>
     <div class="ocr-controls">
-      <label>本轮请求上限<n-input-number v-model:value="maxCalls" :min="1" :max="100" :disabled="busy || disabled" aria-label="视觉复核调用上限" /></label>
-      <n-button v-if="busy" @click="stop"><template #icon><n-icon><stop-outline /></n-icon></template>停止复核</n-button>
-      <n-button v-else :disabled="disabled || !consent || !model?.apiKey || !pendingCount" @click="review">
-        <template #icon><n-icon><scan-outline /></n-icon></template>视觉复核待处理项
-      </n-button>
+      <label>本轮请求上限<V3Number v-model:value="maxCalls" :min="1" :max="100" :disabled="busy || disabled" aria-label="视觉复核调用上限" /></label>
+      <button type="button" class="m-btn" v-if="busy" @click="stop"><V3Icon name="stop" size="s" />停止复核</button>
+      <button type="button" class="m-btn" v-else :disabled="disabled || !consent || !model?.apiKey || !pendingCount" @click="review">
+        <V3Icon name="search" size="s" />视觉复核待处理项
+      </button>
     </div>
-    <n-checkbox v-model:checked="consent" :disabled="busy || disabled">允许发送可疑区域图片给所选模型，可能产生费用</n-checkbox>
+    <label class="m-check"><input v-model="consent" type="checkbox" :disabled="busy || disabled">允许发送可疑区域图片给所选模型，可能产生费用</label>
     <p class="ocr-note">置信度是筛查分数，不是准确率保证。数字改动和表格歧义保留待确认，不自动覆盖原值。</p>
     <p v-for="warning in warnings" :key="warning" class="ocr-error" role="alert">{{ warning }}</p>
     <p v-if="busy" role="status">本轮已发起 {{ calls }} / {{ maxCalls }} 次复核</p>
     <p v-if="error" class="ocr-error" role="alert">{{ error }}</p>
-    <p v-if="!unresolved.length" class="ocr-note">当前没有待处理标记；这不代表全文绝对无误。</p>
+    <p v-if="!unresolved.length" class="ocr-note">没有待处理的标记了。</p>
     <div v-for="item in visible" :key="`${item.page.page}:${item.line.id}`" class="ocr-issue">
       <div class="ocr-issue-top">
         <strong>第 {{ item.page.page }} 页</strong>
         <span>{{ item.line.reasons.join('、') }} · 置信度 {{ Math.round(item.line.confidence) }}</span>
-        <n-button quaternary circle :title="`查看第 ${item.page.page} 页原图并确认`" :aria-label="`查看第 ${item.page.page} 页原图并确认`"
-          :disabled="busy || disabled" @click="inspect(item.page, item.line)">
-          <template #icon><n-icon><eye-outline /></n-icon></template>
-        </n-button>
+        <button type="button" class="m-ibtn" :title="`查看第 ${item.page.page} 页原图并确认`" :aria-label="`查看第 ${item.page.page} 页原图并确认`" :disabled="busy || disabled" @click="inspect(item.page, item.line)">
+          <V3Icon name="eye" />
+        </button>
       </div>
       <p>{{ item.line.original || '[未识别出文字]' }}</p>
       <p v-if="item.line.suggestion" class="ocr-suggestion">复核候选：{{ item.line.suggestion }}</p>
       <p v-if="item.line.note" class="ocr-note">{{ item.line.note }}</p>
     </div>
-    <n-pagination v-if="unresolved.length > 5" v-model:page="pageIndex" :page-size="5" :item-count="unresolved.length" :page-slot="4" />
-    <n-button size="small" :disabled="busy || disabled" @click="exportReport"><template #icon><n-icon><download-outline /></n-icon></template>导出复核记录</n-button>
-    <n-modal v-model:show="showDetail" preset="card" title="原图与识别结果" class="ocr-detail" :mask-closable="!saving" :closable="!saving">
+    <nav v-if="unresolved.length > 5" class="ocr-pager" aria-label="疑点分页">
+      <button type="button" class="m-btn xs" :disabled="pageIndex <= 1" @click="pageIndex--">上一页</button>
+      <span>第 {{ pageIndex }} / {{ Math.ceil(unresolved.length / 5) }} 页</span>
+      <button type="button" class="m-btn xs" :disabled="pageIndex >= Math.ceil(unresolved.length / 5)" @click="pageIndex++">下一页</button>
+    </nav>
+    <button type="button" class="m-btn sm" :disabled="busy || disabled" @click="exportReport"><V3Icon name="import" size="s" />导出复核记录</button>
+    <V3Modal v-model:show="showDetail" title="原图与识别结果" size="wide" class="ocr-detail" :closable="!saving"
+      description="对照原图核对识别文字，确认后替换这一处识别结果。">
       <p v-if="detailBusy">正在读取原图…</p>
       <p v-if="detailError" role="alert" class="ocr-error">{{ detailError }}</p>
       <img v-if="detailImage" :src="detailImage" alt="当前疑点对应的 PDF 原图区域" />
       <p v-if="selected" class="ocr-note">原识别：{{ selected.line.original || '[未识别出文字]' }}</p>
       <p v-if="selected?.line.suggestion" class="ocr-note">视觉候选：{{ selected.line.suggestion }}</p>
       <details v-if="selected?.page.ocr?.nativeText"><summary>此页原文字层（未校对）</summary><pre class="ocr-native">{{ selected.page.ocr.nativeText }}</pre></details>
-      <n-input v-model:value="editedText" type="textarea" :rows="4" :maxlength="12000" aria-label="人工确认的识别文字" :disabled="saving" />
+      <V3Input v-model:value="editedText" type="textarea" :rows="4" :maxlength="12000" aria-label="人工确认的识别文字" :disabled="saving" />
       <template #footer>
-        <div class="ocr-controls">
-          <n-button :disabled="saving" @click="showDetail = false">取消</n-button>
-          <n-button type="primary" :loading="saving" :disabled="detailBusy || !detailImage || !editedText.trim()" @click="confirm">确认此项文字</n-button>
-        </div>
+        <button type="button" class="m-btn" :disabled="saving" @click="showDetail = false">取消</button>
+        <button type="button" class="m-btn pri" :disabled="detailBusy || !detailImage || !editedText.trim() || saving" :aria-busy="saving" @click="confirm">确认此项文字</button>
       </template>
-    </n-modal>
+    </V3Modal>
   </section>
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { NButton, NCheckbox, NIcon, NInput, NInputNumber, NModal, NPagination } from 'naive-ui'
-import { DownloadOutline, EyeOutline, ScanOutline, StopOutline } from '@vicons/ionicons5'
+import V3Modal from '@/v3/components/V3Modal.vue'
+import V3Icon from '@/v3/components/V3Icon.vue'
+import V3Input from '@/v3/components/form/V3Input.vue'
+import V3Number from '@/v3/components/form/V3Number.vue'
 import type { ModelConfig } from '@/stores/config'
 import type { PdfPageText } from '@/services/knowledgePdfCache'
 import { unresolvedOcr, type OcrLine } from '@/services/ocrQuality'
@@ -121,7 +126,7 @@ async function inspect(page: PdfPageText, line: OcrLine) {
   try {
     const image = await inspectOcrLine(props.file, page.page, line, request.signal)
     if (!request.signal.aborted && active) detailImage.value = image
-  } catch (cause) { if (!request.signal.aborted) detailError.value = cause instanceof Error ? cause.message : '原图读取失败' }
+  } catch (cause) { if (!request.signal.aborted) detailError.value = errorText(cause, '原图读取失败') }
   finally { if (detailController === request) detailBusy.value = false }
 }
 async function confirm() {
@@ -130,7 +135,7 @@ async function confirm() {
   try {
     const record = await saveManualOcr(props.file, JSON.parse(JSON.stringify(selected.value.page)), selected.value.line.id, editedText.value)
     if (active) { emit('changed', record); showDetail.value = false }
-  } catch (cause) { detailError.value = cause instanceof Error ? cause.message : '保存失败' }
+  } catch (cause) { detailError.value = errorText(cause, '保存失败') }
   finally { saving.value = false; emit('busy', false) }
 }
 watch(showDetail, value => { if (!value) detailController?.abort() })
@@ -149,7 +154,8 @@ defineExpose({ stop })
 .ocr-heading,.ocr-controls,.ocr-issue-top { display:flex; gap:8px; align-items:center; flex-wrap:wrap; min-width:0; }
 .ocr-heading > span,.ocr-issue-top > span,.ocr-note { font-size:12px; color:var(--ink-2); }
 .ocr-controls label { display:flex; gap:8px; align-items:center; font-size:12px; }
-.ocr-controls :deep(.n-input-number) { width:100px; }
+.ocr-controls .m-number { width:100px; }
+.ocr-pager { display:flex; align-items:center; gap:10px; font-size:12px; color:var(--ink-2); }
 .ocr-issue { border-top:1px solid var(--line); padding-top:10px; }
 .ocr-issue p,.ocr-note { overflow-wrap:anywhere; white-space:pre-wrap; margin:6px 0; }
 .ocr-issue p { font-size:13px; }
@@ -157,6 +163,5 @@ defineExpose({ stop })
 .ocr-suggestion { color:var(--ink-2); }
 .ocr-error { color:var(--zhu); font-size:13px; overflow-wrap:anywhere; }
 .ocr-native { max-height:180px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; font-size:12px; }
-:global(.ocr-detail) { width:min(900px,calc(100vw - 32px)); }
 .ocr-detail img { display:block; width:100%; max-height:50vh; object-fit:contain; background:white; margin-bottom:12px; }
 </style>

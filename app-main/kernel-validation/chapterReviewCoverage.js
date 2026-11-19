@@ -46,10 +46,10 @@ async function requestChapterReviewWithCoverage(source, review, onProgress, reco
         if (recovery) {
             const previous = recovery.checkpoint, sourceVersionId = (0, reconstructionCandidates_1.buildAnalysisSourceVersionId)(source);
             if (previous !== undefined && !(0, chapterReviewCheckpoint_1.isReviewCheckpoint)(previous))
-                throw new Error('分段审核断点损坏，不能继续使用');
+                throw new Error('分段审校断点损坏，不能继续使用');
             if (previous?.binding === recovery.binding && previous.sourceVersionId === sourceVersionId) {
                 if (!(0, chapterReviewCheckpoint_1.isReviewCheckpoint)(previous, source))
-                    throw new Error('分段审核断点与正文范围不一致');
+                    throw new Error('分段审校断点与正文范围不一致');
                 coverage.checkpoint = (0, chapterReviewCheckpoint_1.copyReviewCheckpoint)(previous);
             }
             else

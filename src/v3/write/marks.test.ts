@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { anchorFindings, candidateAnchor, findingMarks, locateQuote, revisionPreview } from './marks'
+import { anchorFindings, candidateAnchor, findingMarks, locateQuote, relocateFindings, revisionPreview, staleFindingMarks } from './marks'
 import type { CandidateChange } from '@/types/reconstruction'
 import type { ChapterRevision } from '@/types/novel'
 import { buildAnalysisSourceVersionId } from '@/services/reconstructionCandidates'
@@ -79,5 +79,23 @@ describe('正文修订浮签预览', () => {
     expect(revisionPreview(pending, '已编辑', 'ctx').current).toBe(false)
     expect(revisionPreview(pending, '旧正文', 'changed').current).toBe(false)
     expect(revisionPreview({ ...pending, status: 'stale' }, '旧正文', 'ctx').current).toBe(false)
+  })
+})
+
+describe('relocateFindings', () => {
+  const finding = (over: Partial<ReviewFinding>): ReviewFinding => ({ id: 'x', type: 'continuity', severity: 'warning', title: 't', explanation: '', chapterId: 'c',
+    evidence: [], status: 'open', blocksFinalization: false, sourceVersionId: 'old-version', ...over })
+  it('keeps open findings from an earlier version where their quote is still unchanged', () => {
+    const edited = '他推门进来。灯还亮着。\n他推门进来。屋里只剩一盏灯。'
+    const rows = relocateFindings(edited, [
+      finding({ id: 'kept', quotedText: '灯还亮着', startOffset: 6, endOffset: 10 }),
+      finding({ id: 'edited', quotedText: '屋里没人', startOffset: 18, endOffset: 22 }),
+      finding({ id: 'done', quotedText: '灯还亮着', status: 'accepted' }),
+    ])
+    expect(rows.map(row => [row.finding.id, row.anchor])).toEqual([['kept', { start: 6, end: 10 }], ['edited', null]])
+    expect(staleFindingMarks(rows)).toEqual([{ id: 'f:kept', start: 6, end: 10, cls: 'mk-stale', title: 't · 正文已改，待重审' }])
+  })
+  it('does not fall back to bare offsets when a finding has no quote', () => {
+    expect(relocateFindings(text, [finding({ startOffset: 0, endOffset: 3 })])[0].anchor).toBeNull()
   })
 })

@@ -47,7 +47,7 @@ describe('chapter-bound character knowledge and relationships', () => {
 
   it('requires author approval, a real character, and an explicit false belief', () => {
     const { novel } = characterStateFixture()
-    expect(() => applyCandidateChangeToCanon(novel, knowledgeCandidate(novel, 0), now)).toThrow('作者确认')
+    expect(() => applyCandidateChangeToCanon(novel, knowledgeCandidate(novel, 0), now)).toThrow('需要你确认')
     for (const overrides of [{ characterId: 'missing' }, { characterName: '苏禾' }, { state: 'invented' }, { belief: '' }]) {
       expect(() => applyCandidateChangeToCanon(novel, acceptCandidateChange(knowledgeCandidate(novel, 0, overrides), now), now)).toThrow()
     }

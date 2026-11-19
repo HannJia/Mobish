@@ -1,7 +1,7 @@
 <template>
   <details v-if="drafts.length" class="editor-recovery paper-panel">
     <summary>可恢复的未提交输入（{{ drafts.length }}）</summary>
-    <p>选择载入后只填入编辑区。正式资料与作者批准状态保持原状。</p>
+    <p>选择载入后只填入编辑区。正式资料和批准状态保持不变。</p>
     <article v-for="draft in drafts" :key="draft.id">
       <strong>{{ label(draft) }}</strong> · 第 {{ draft.revision }} 版 · {{ draft.updatedAt }}
       <p v-if="conflict?.(draft)" role="status">{{ conflict(draft) }}</p>

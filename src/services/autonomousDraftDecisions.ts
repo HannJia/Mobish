@@ -35,7 +35,7 @@ export function decideAutonomousDraft(aggregate: StoryAggregate, runId: string, 
     return draft
   }
   if (run.chapterDrafts!.some(row => row.chapterIndex < draft.chapterIndex && row.status !== 'accepted')) throw new Error('请先按章节顺序接受前面的候选稿。')
-  if (contextVersion !== draft.contextVersion) throw new Error('候选稿的写作依据已经变化，请核对并保存候选稿后重新审核。')
+  if (contextVersion !== draft.contextVersion) throw new Error('候选稿的写作依据已经变化，请核对并保存候选稿后重新审校。')
   const bodyVersion = buildAnalysisSourceVersionId(draft.content)
   if (draft.stage === 'analyzed' && (!draft.review || draft.review.chapterId !== chapter.id
     || !isReviewCoverageComplete(draft.reviewCoverage, buildChapterReviewSignature(draft.content, contextVersion), draft.content)
@@ -43,7 +43,7 @@ export function decideAutonomousDraft(aggregate: StoryAggregate, runId: string, 
     || draft.review.findings.some(row => row.chapterId !== chapter.id || row.sourceVersionId !== bodyVersion)
     || draft.review.candidateChanges.some(row => row.chapterId !== chapter.id || row.sourceVersionId !== bodyVersion
       || row.novelId !== undefined && row.novelId !== novel.id))) {
-    throw new Error('候选稿的审核或提取结果不属于当前正文，请重新保存并审核。')
+    throw new Error('候选稿的审校或提取结果不属于当前正文，请重新保存并审校。')
   }
   const before = captureStoryImpact(novel, workspace)
   const signature = (row: Chapter) => buildChapterReviewSignature(row.content, buildReviewContextVersion(novel, row, knowledge,

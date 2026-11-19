@@ -12,6 +12,7 @@
 
 </template>
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
@@ -35,7 +36,7 @@ async function exportBook() {
     else if (format === 'word' || format === 'word-body') exportToWordHtml(snapshot, { bodyOnly: format === 'word-body' })
     else exportToTXT(snapshot, { bodyOnly: format === 'txt-body' })
     toast('作品已导出')
-  } catch (cause) { exportError.value = cause instanceof Error ? cause.message : '导出失败，请重试。' }
+  } catch (cause) { exportError.value = errorText(cause, '导出失败，请重试。') }
   finally { exporting.value = false }
 }
 

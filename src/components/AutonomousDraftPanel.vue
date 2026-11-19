@@ -58,11 +58,11 @@
       </article>
     </div>
 
-    <section v-if="selectedEntry" class="draft-editor" aria-label="候选稿编辑区">
+    <section v-if="selectedEntry" ref="editorSection" class="draft-editor" aria-label="候选稿编辑区">
       <div class="editor-heading">
         <div>
           <h3>第 {{ (selectedDraft?.chapterIndex ?? 0) + 1 }} 章候选稿</h3>
-          <p class="editor-description">打开后如果正文或审核上下文发生变化，请重新核对候选稿再处理。</p>
+          <p class="editor-description">打开后如果正文或审校上下文发生变化，请重新核对候选稿再处理。</p>
         </div>
         <span class="editor-status">{{ draftStatusLabel(selectedDraft?.status) }}</span>
       </div>
@@ -79,7 +79,7 @@
         </label>
 
         <p v-if="!selectedCanWrite" class="read-only-hint">{{ writeBlockedReason }}</p>
-        <p class="accept-notice">接受为正文仍需事实审核与定稿，不会直接进入 Canon。</p>
+        <p class="accept-notice">接受为正文后，还需要完成事实审校和定稿。</p>
 
         <div v-if="selectedCanWrite" class="editor-actions">
           <button
@@ -117,7 +117,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { errorText as userErrorText } from '@/services/userFacingError'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspace'
 import type { AiChapterDraft, AiRun } from '@/types/reconstruction'
 
@@ -132,6 +133,7 @@ type BusyAction = 'edit' | 'accept' | 'reject' | null
 
 const workspace = useReconstructionWorkspaceStore()
 const selectedKey = ref<string | null>(null)
+const editorSection = ref<HTMLElement | null>(null)
 const expectedDraft = ref<AiChapterDraft | null>(null)
 const formContent = ref('')
 const busyAction = ref<BusyAction>(null)
@@ -174,7 +176,7 @@ watch(() => props.runs, currentRuns => {
 function taskTypeLabel(taskType: AiRun['taskType']): string {
   const labels: Record<AiRun['taskType'], string> = {
     brainstorm: '头脑风暴', contract: '故事契约', skeleton: '故事骨架', outline: '大纲',
-    draft: '章节写作', review: '审核', memory_update: '记忆更新', export: '导出',
+    draft: '章节写作', review: '审校', memory_update: '记忆更新', export: '导出',
   }
   return labels[taskType]
 }
@@ -182,7 +184,7 @@ function taskTypeLabel(taskType: AiRun['taskType']): string {
 function runStatusLabel(status: AiRun['status']): string {
   const labels: Record<AiRun['status'], string> = {
     queued: '排队中', running: '执行中', paused: '已暂停', completed: '已完成',
-    failed: '失败', cancelled: '已取消', needs_author: '等待作者',
+    failed: '失败', cancelled: '已取消', needs_author: '等待你处理',
   }
   return labels[status]
 }
@@ -193,7 +195,7 @@ function draftStatusLabel(status: AiChapterDraft['status'] | undefined): string 
 }
 
 function stageLabel(stage: AiChapterDraft['stage']): string {
-  const labels: Record<AiChapterDraft['stage'], string> = { generated: '已生成', reviewed: '已审核', analyzed: '已分析' }
+  const labels: Record<AiChapterDraft['stage'], string> = { generated: '已生成', reviewed: '已审校', analyzed: '已分析' }
   return labels[stage]
 }
 
@@ -206,6 +208,17 @@ const writeBlockedReason = computed(() => {
   if (selectedEntry.value?.run.status === 'queued' || selectedEntry.value?.run.status === 'running') return '任务正在排队或执行中，暂不能处理候选稿。'
   return '这份候选稿已经处理，只能查看历史记录。'
 })
+
+/** 从章节卡片直接打开该章最新一份候选稿。 */
+function openChapterDraft(chapterId: string): boolean {
+  const matches = entries.value.filter(item => item.draft.chapterId === chapterId).reverse()
+  const entry = matches.find(item => item.draft.status === 'pending') || matches[0]
+  if (!entry || busyAction.value !== null) return false
+  openDraft(entry)
+  void nextTick(() => editorSection.value?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
+  return true
+}
+defineExpose({ openChapterDraft })
 
 function openDraft(entry: DraftEntry) {
   const snapshot = cloneDraft(entry.draft)
@@ -224,7 +237,7 @@ function closeEditor() {
 }
 
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : '候选稿操作失败，请稍后重试。'
+  return userErrorText(error, '候选稿操作失败，请稍后重试。')
 }
 
 function updateExpected(entry: DraftEntry, next: AiChapterDraft) {
@@ -272,7 +285,7 @@ async function acceptDraft() {
   try {
     const next = await workspace.decideAiDraft(props.novelId, entry.run.id, cloneDraft(expected), 'accept')
     updateExpected(entry, next)
-    noticeMessage.value = '已接受为正文；仍需完成事实审核与定稿，当前不会直接进入 Canon。'
+    noticeMessage.value = '已接受为正文，还需要完成事实审校和定稿。'
   } catch (error) {
     errorMessage.value = errorText(error)
   } finally {

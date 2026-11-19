@@ -6,15 +6,15 @@ export function resolveReviewEvidence(chapters: Array<Pick<Chapter, 'id' | 'cont
   if (evidence.sourceType !== 'chapter') throw new Error('这条依据来自设定或大纲，不能定位到章节正文。')
   const chapter = chapters.find(chapter => chapter.id === evidence.sourceId)
   if (!chapter) throw new Error('证据来源章节已不存在。')
-  if (!evidence.sourceVersionId) throw new Error('证据缺少正文版本，请重新审核或分析。')
-  if (evidence.sourceVersionId !== buildAnalysisSourceVersionId(chapter.content)) throw new Error('证据对应的正文已经变化，请重新审核或分析。')
+  if (!evidence.sourceVersionId) throw new Error('证据缺少正文版本，请重新审校或分析。')
+  if (evidence.sourceVersionId !== buildAnalysisSourceVersionId(chapter.content)) throw new Error('证据对应的正文已经变化，请重新审校或分析。')
   const quote = evidence.quote
   if (!quote?.trim()) throw new Error('这条依据没有正文引文，无法准确定位。')
   let startOffset = evidence.startOffset, endOffset = evidence.endOffset
   if (startOffset !== undefined || endOffset !== undefined) {
     if (!Number.isSafeInteger(startOffset) || !Number.isSafeInteger(endOffset) || startOffset! < 0
-      || endOffset! <= startOffset! || endOffset! > chapter.content.length) throw new Error('证据位置无效，请重新审核或分析。')
-    if (chapter.content.slice(startOffset, endOffset) !== quote) throw new Error('证据引文与记录位置不一致，请重新审核或分析。')
+      || endOffset! <= startOffset! || endOffset! > chapter.content.length) throw new Error('证据位置无效，请重新审校或分析。')
+    if (chapter.content.slice(startOffset, endOffset) !== quote) throw new Error('证据引文与记录位置不一致，请重新审校或分析。')
   } else {
     startOffset = chapter.content.indexOf(quote)
     if (startOffset < 0) throw new Error('当前正文中找不到证据引文。')

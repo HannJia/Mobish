@@ -48,8 +48,8 @@ export async function previewSqlHistoryCapacity(): Promise<ProjectHistoryCapacit
   const freePages = Number(Object.values(queryAll('PRAGMA freelist_count')[0] || {})[0])
   const size = queryAll<{ count: number; bytes: number }>('SELECT COUNT(*) AS count, COALESCE(SUM(length(CAST(value AS BLOB))), 0) AS bytes FROM project_history')[0]
   return { token: '', baseRevision, totalFiles: size.count, totalBytes: size.bytes, reclaimableFiles: 0, reclaimableBytes: 0,
-    protectedVersions: size.count, protectedReasons: ['当前浏览器中的全部手动恢复点、作者决定及请求账本保留。'],
-    limitations: [`当前数据库 ${(pages * pageSize / 1024).toFixed(1)} KB，其中可压缩的空闲页 ${(freePages * pageSize / 1024).toFixed(1)} KB；空间不足时保存会先尝试无损压缩。`, '此处统计恢复点 JSON 数据字节，不包含 SQLite 页、当前稿或浏览器其他存储。', '浏览器恢复点暂不提供裁剪；桌面孤立文件清理仅适用于桌面项目存储。'] }
+    protectedVersions: size.count, protectedReasons: ['当前浏览器中的全部手动恢复点、你的决定和 AI 用量记录都会保留。'],
+    limitations: [`当前数据库 ${(pages * pageSize / 1024).toFixed(1)} KB，其中可压缩的空闲页 ${(freePages * pageSize / 1024).toFixed(1)} KB；空间不足时保存会先尝试无损压缩。`, '这里只统计恢复点占用的空间。', '浏览器恢复点暂不提供裁剪；桌面孤立文件清理仅适用于桌面项目存储。'] }
 }
 
 interface HistoryRow { revision: string; created_at: string; label: string; novel_id: string; source_revision: string | null; value: string; project_ids?: string | null }

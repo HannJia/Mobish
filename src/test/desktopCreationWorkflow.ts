@@ -208,7 +208,7 @@ export async function runDesktopCreationWorkflow(phase: Phase) {
         await click('查看或修改作品契约')
         await click('编辑主线冲突', true)
         await fill('textarea[aria-label="主线冲突"]', revisedConflict)
-        await click('保存草稿')
+        await click('保存')
         await until(() => workspace.getCreationDraft(novelId)?.contract.centralConflict === revisedConflict
           && !novels.getNovel(novelId)?.chapterPlanConfirmed, '修改契约没有使旧规划确认失效')
       } else {

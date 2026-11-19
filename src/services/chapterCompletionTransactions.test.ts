@@ -15,6 +15,10 @@ import { buildChapterReviewSignature, buildReviewContextVersion } from './recons
 import { storyDecisionSourceVersion } from './storyDecisions'
 import type { Novel } from '@/types/novel'
 
+// 这些用例做真实的磁盘写入（含 fsync）和子进程调用；全量测试并行时可能超过默认 5 秒。
+// 放宽为 30 秒，只作卡死保护，不是性能指标。
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 })
+
 const require = createRequire(import.meta.url)
 const { createProjectKernel } = require('../../app-main/projectKernel.cjs')
 const { validateBackup } = require('../../app-main/projectKernelRpc.cjs')
@@ -195,7 +199,7 @@ describe.each(['sql', 'kernel'] as const)('chapter completion transactions (%s)'
     await workspace.confirmChapterCompletionClock(novel.id, chapter.id, 2, baseline)
     expect(chapter.status).toBe('writing'); expect(chapter.storyDay).toBe(2)
     expect(novel.storyClock!.currentDay).toBe(2)
-    await expect(workspace.completeChapter(novel.id, input)).rejects.toThrow('重新审核')
+    await expect(workspace.completeChapter(novel.id, input)).rejects.toThrow('重新审校')
     disposePinia(pinia); pinia = createPinia(); setActivePinia(pinia)
     novels = (await import('@/stores/novel')).useNovelStore(); await novels.initStore(); novel = novels.novels[0]
     workspace = (await import('@/stores/reconstructionWorkspace')).useReconstructionWorkspaceStore()
@@ -227,7 +231,7 @@ describe.each(['sql', 'kernel'] as const)('chapter completion transactions (%s)'
     await gate.started
     const controller = new AbortController()
     const saving = workspace.completeChapter(novel.id, input, controller.signal)
-    const rejected = expect(saving).rejects.toThrow(action === 'abort' ? '停止' : '重新审核')
+    const rejected = expect(saving).rejects.toThrow(action === 'abort' ? '停止' : '重新审校')
     if (action === 'abort') controller.abort(new Error('停止'))
     else novels.updateChapter(novel.id, input.chapterId, { title: '排队时作者修改了标题' })
     gate.release(); await blocker; await rejected

@@ -20,7 +20,7 @@ const { route, notify, push } = vi.hoisted(() => ({
 }))
 vi.mock('vue-router', () => ({ useRoute: () => reactive(route), useRouter: () => ({ push }) }))
 vi.mock('@/services/ai', () => ({ callAI: vi.fn() }))
-vi.mock('naive-ui', async original => ({ ...await original<object>(), useMessage: () => notify }))
+vi.mock('@/v3/feedback', async original => ({ ...await original<object>(), useMessage: () => notify, useDialog: () => ({ warning: vi.fn() }) }))
 const paint = { clearRect: vi.fn(), beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(),
   fillText: vi.fn(), arc: vi.fn(), fill: vi.fn(), fillRect: vi.fn(), measureText: () => ({ width: 50 }) }
 
@@ -50,8 +50,7 @@ async function setup() {
   useConfigStore().models = [{ id: 'fixture', name: 'fixture', baseUrl: 'https://example.test', modelName: 'fixture',
     apiKey: 'synthetic', temperature: 0.7, topP: 0.9, maxTokens: 4000 }]
   const wrapper = shallowMount(CharacterLibrary, { global: { renderStubDefaultSlot: true, stubs: {
-    Button: { props: ['disabled'], template: '<button :disabled="disabled"><slot /></button>' },
-    Modal: { props: ['show'], template: '<section v-if="show" role="dialog"><slot /><slot name="footer"/><slot name="action"/></section>' },
+    V3Modal: { props: ['show'], template: '<section v-if="show" role="dialog"><slot /><slot name="footer"/><slot name="action"/></section>' },
     Drawer: { props: ['show'], template: '<aside v-if="show"><slot /></aside>' },
     DrawerContent: { props: ['title'], template: '<div><h3>{{ title }}</h3><slot /></div>' },
   } } })
@@ -253,7 +252,7 @@ describe('character relationship workflow', () => {
     const { wrapper, button } = await setup()
     await button('关系图').trigger('click')
     expect(wrapper.text()).toContain('尚无已确认关系')
-    wrapper.findAllComponents({ name: 'Input' })[0].vm.$emit('update:value', '不存在')
+    wrapper.findAllComponents({ name: 'V3Input' })[0].vm.$emit('update:value', '不存在')
     await flushPromises()
     expect(wrapper.find('canvas').exists()).toBe(false)
     expect(wrapper.text()).toContain('没有匹配的角色')

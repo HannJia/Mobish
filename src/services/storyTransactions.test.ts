@@ -11,6 +11,9 @@ import type { StoredReviewCoverage } from './chapterReviewCoverage'
 import { createAiRun } from './reconstructionAiRun'
 import { confirmTestContractCards } from '@/test/contractCardsFixture'
 
+// 这些用例做真实的磁盘写入（含 fsync）和子进程调用；单独运行最慢约 4 秒，
+// 全量测试并行时会超过默认 5 秒。放宽为 30 秒，只作卡死保护，不是性能指标。
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 })
 const require = createRequire(import.meta.url)
 const { createProjectKernel } = require('../../app-main/projectKernel.cjs')
 const { validateBackup } = require('../../app-main/projectKernelRpc.cjs')
@@ -999,7 +1002,7 @@ describe.each(['sql', 'kernel'] as const)('atomic story decisions (%s)', backend
     const liveDraft = workspace.getAiRun(novel.id, run.id)!.chapterDrafts![0]!
     liveDraft.reviewCoverage = kind === 'missing' ? undefined : { ...coverage, ...(kind === 'failed' ? { status: 'failed' as const } : { signature: 'review:wrong-source' }) }
     const before = copy(await stored())
-    await expect(workspace.decideAiDraft(novel.id, run.id, copy(liveDraft), 'accept')).rejects.toThrow('审核或提取结果不属于当前正文')
+    await expect(workspace.decideAiDraft(novel.id, run.id, copy(liveDraft), 'accept')).rejects.toThrow('审校或提取结果不属于当前正文')
     expect(novel.chapters[0].content).toBe(original)
     expect((await stored())).toEqual(before)
     expect(workspace.getAiRun(novel.id, run.id)?.chapterDrafts?.[0].status).toBe('pending')
@@ -1880,7 +1883,7 @@ describe.each(['sql', 'kernel'] as const)('atomic story decisions (%s)', backend
       item.title = '作者调整过的方向'
     })
     const before = copy(await stored()), writes = writeCount
-    await expect(workspace.commitWritingSuggestion(novel.id, input)).rejects.toThrow('未覆盖作者修改')
+    await expect(workspace.commitWritingSuggestion(novel.id, input)).rejects.toThrow('未覆盖你的修改')
     expect(writeCount).toBe(writes); expect(await stored()).toEqual(before)
   })
 

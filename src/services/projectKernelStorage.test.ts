@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { createRequire } from 'node:module'
 import { mkdtemp, readFile, readdir, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
@@ -13,6 +13,9 @@ import { acceptCandidateChange } from './reconstructionReview'
 import { applyCandidateChangeToCanon } from './reconstructionCanon'
 import type { ProjectBackup } from './projectBackup'
 
+// 这些用例做真实的磁盘写入（含 fsync）和子进程调用；单独运行最慢约 4 秒，
+// 全量测试并行时会超过默认 5 秒。放宽为 30 秒，只作卡死保护，不是性能指标。
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 })
 const require = createRequire(import.meta.url)
 type Sync = { state: Record<string, unknown> | null; conflicts: Record<string, unknown>[] }
 type Snapshot = { revision: string | null; backup: ProjectBackup | null; sync: Sync }
@@ -296,7 +299,7 @@ describe('main-process project kernel on real files', () => {
     expect(results.filter(result => result.ok), JSON.stringify(results)).toHaveLength(1)
     expect(results.find(result => !result.ok)).toMatchObject({ code: 'PROJECT_CONFLICT' })
     expect(await (await open()).history()).toHaveLength(1)
-  }, 20000)
+  }, 60000)
 
   it('releases a published commit while a competing process observes the live owner', async () => {
     const backup = fixture()
@@ -325,7 +328,7 @@ describe('main-process project kernel on real files', () => {
     expect(await (await open()).history()).toHaveLength(1)
     expect((await kernel.read()).backup).toEqual(backup)
     expect((await readdir(root)).filter(name => name === '.writer-lock' || name.startsWith('.lock-'))).toEqual([])
-  }, 20000)
+  }, 60000)
 
   it('recovers a confirmed dead process lock and ignores its unpublished marker', async () => {
     const kernel = await open(), backup = fixture()
@@ -357,7 +360,7 @@ describe('main-process project kernel on real files', () => {
     const next = await reopened.commit({ baseRevision: previous.revision, backup: changed })
     expect(next.backup).toEqual(changed)
     expect(await reopened.history()).toHaveLength(2)
-  }, 20000)
+  }, 60000)
 
   it.each(['chapter', 'library', 'marker', 'manifest'])('reports damaged latest %s rather than falling back to older commits', async kind => {
     const backup = fixture(), kernel = await open()

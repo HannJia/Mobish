@@ -48,17 +48,17 @@ export function pendingItems(novels: Novel[], ws: WorkspaceReader, limit = 8): P
     const blockers = openBlockers(novel, ws.findings(novel.id))
     if (blockers.length) {
       items.push({ key: novel.id + ':blockers', icon: 'alert', title: `${t}${blockers.length} 处阻塞定稿`, detail: `${chapterLabel(novel, blockers[0].chapterId)} · ${blockers[0].title}`,
-        to: areaPath('write', novel.id, blockers[0].chapterId) })
+        to: `${areaPath('write', novel.id, blockers[0].chapterId)}?tab=review&finding=${encodeURIComponent(blockers[0].id)}` })
     }
     const waiting = ws.runs(novel.id).filter(run => run.status === 'needs_author')
     if (waiting.length) {
-      items.push({ key: novel.id + ':runs', icon: 'bolt', title: `${t}自动写作等待你确认`, detail: waiting[0].error || waiting[0].checkpoint || '到达检查点或遇到需要作者处理的问题',
+      items.push({ key: novel.id + ':runs', icon: 'bolt', title: `${t}自动写作等待你确认`, detail: waiting[0].error || waiting[0].checkpoint || '到达检查点或遇到需要你处理的问题',
         to: areaPath('auto', novel.id) })
     }
     const proposed = ws.candidates(novel.id).filter(c => c.status === 'proposed' && c.chapterId && novel.chapters.some(ch => ch.id === c.chapterId))
     if (proposed.length) {
-      items.push({ key: novel.id + ':cands', icon: 'book', title: `${t}${proposed.length} 条故事变化待确认`, detail: '确认后才会写入人物状态、事件与伏笔',
-        to: areaPath('write', novel.id, proposed[0].chapterId) })
+      items.push({ key: novel.id + ':cands', icon: 'book', title: `${t}${proposed.length} 条故事变化待确认`, detail: '确认后写入人物状态、事件与伏笔',
+        to: `${areaPath('write', novel.id, proposed[0].chapterId)}?tab=candidate` })
     }
   }
   return items.slice(0, limit)

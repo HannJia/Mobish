@@ -1,6 +1,6 @@
 <template>
-  <div class="m-overlay" @click.self="emit('close')">
-    <div class="m-modal guide" role="dialog" aria-modal="true" aria-labelledby="v3-guide-title">
+  <div class="m-overlay" @click.self="emit('close')" @keydown="onKey">
+    <div ref="dialog" class="m-modal guide" role="dialog" aria-modal="true" aria-labelledby="v3-guide-title" tabindex="-1">
       <div class="m-modal-h">
         <div><div class="eyebrow">使用说明 · {{ step + 1 }} / {{ STEPS.length }}</div><h3 id="v3-guide-title">{{ STEPS[step].title }}</h3></div>
         <button type="button" class="m-ibtn" aria-label="关闭" @click="emit('close')"><V3Icon name="x" /></button>
@@ -21,7 +21,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import V3Icon from './V3Icon.vue'
 import step1 from '@/assets/v3/onboarding/step-1.webp'
@@ -31,6 +31,19 @@ import step3 from '@/assets/v3/onboarding/step-3.webp'
 const emit = defineEmits<{ close: [] }>()
 const router = useRouter()
 const step = ref(0)
+const dialog = ref<HTMLElement | null>(null)
+// 打开时焦点进入弹窗，Esc 关闭，Tab 在弹窗内循环；关闭后焦点回到原来的位置。
+const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+onMounted(() => nextTick(() => dialog.value?.focus()))
+onBeforeUnmount(() => { if (opener?.isConnected) opener.focus() })
+function onKey(event: KeyboardEvent) {
+  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); emit('close'); return }
+  if (event.key !== 'Tab' || !dialog.value) return
+  const items = [...dialog.value.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]')]
+  const first = items[0], last = items[items.length - 1]
+  if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.value)) { event.preventDefault(); last?.focus() }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+}
 const STEPS = [
   { title: '先配置 AI 模型', art: step1, actLabel: '打开设置', act: () => { emit('close'); void router.push('/settings') },
     desc: '墨笔生花不内置 AI 额度。在“设置 → 模型配置”填写接口地址、密钥和模型名称，测试连接，再为大纲、写作、审校和对话分配模型。',

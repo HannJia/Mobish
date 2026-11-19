@@ -40,6 +40,29 @@ export function anchorFindings(content: string, findings: ReviewFinding[]): Anch
     .sort((a, b) => (a.anchor?.start ?? Infinity) - (b.anchor?.start ?? Infinity))
 }
 
+/**
+ * 正文或依据改动后，上一轮审校中仍待处理的问题。记录本身不变（仍属旧版本，不能直接标记处理），
+ * 只按引文在新正文中重新定位：引文仍逐字存在说明该段未被改动，可继续定位与生成修改候选；
+ * 引文已找不到（或无法唯一确定）则视为所在段落已改，anchor 为 null，只在案头列为“待重审”。
+ */
+export function relocateFindings(content: string, findings: ReviewFinding[]): AnchoredFinding[] {
+  return findings
+    .filter(f => f.status === 'open' || f.status === 'deferred')
+    .map(finding => {
+      const quote = finding.quotedText || finding.evidence.find(item => item.sourceType === 'chapter'
+        && item.sourceId === finding.chapterId && item.quote)?.quote
+      return { finding, anchor: quote ? locateQuote(content, quote, finding.startOffset, finding.endOffset) : null }
+    })
+    .sort((a, b) => (a.anchor?.start ?? Infinity) - (b.anchor?.start ?? Infinity))
+}
+
+/** 旧版本批注的稿面标记：统一淡色，提示“待重审”。 */
+export function staleFindingMarks(items: AnchoredFinding[]): EditorMark[] {
+  return items.flatMap(({ finding: f, anchor }) => anchor
+    ? [{ id: 'f:' + f.id, start: anchor.start, end: anchor.end, cls: 'mk-stale', title: f.title + ' · 正文已改，待重审' }]
+    : [])
+}
+
 export function findingMarks(items: AnchoredFinding[]): EditorMark[] {
   return items.flatMap(({ finding: f, anchor }) => {
     if (!anchor) return []

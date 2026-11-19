@@ -77,15 +77,15 @@ describe('V3 review center', () => {
     const wrapper = await mountView()
 
     const banner = wrapper.get('.stale-banner')
-    expect(banner.text()).toContain('1 章审核已失效')
+    expect(banner.text()).toContain('1 章审校已失效')
     expect(banner.text()).toContain('第 2 章')
     expect(banner.get('button').text()).toBe('批量重审 1 章')
     expect(wrapper.findAll('.heat-cell').map(cell => cell.classes().find(name => name.startsWith('h-')))).toEqual(['h-drafting', 'h-stale'])
-    expect(wrapper.findAll('.review-pill').map(pill => pill.text().replace(/\s+/g, ' '))).toEqual(['入典 0', '审核失效 1', '待审校 1'])
+    expect(wrapper.findAll('.review-pill').map(pill => pill.text().replace(/\s+/g, ' '))).toEqual(['入典 0', '审校失效 1', '待审校 1'])
     // 没有配置审校模型时，批量操作必须禁用而不是静默无动作。
     expect(banner.get('button').attributes('disabled')).toBeDefined()
     expect(wrapper.findAll('.qtable tbody tr').map(item => item.text())).toEqual([
-      expect.stringContaining('本章尚未审校'), expect.stringContaining('审核已失效，需要重新审校'),
+      expect.stringContaining('本章尚未审校'), expect.stringContaining('审校已失效，需要重新审校'),
     ])
     wrapper.unmount()
   })

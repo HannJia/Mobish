@@ -12,7 +12,7 @@ import type { CreateWizardForm } from '@/types/novel'
 
 const { push, leave, warning, success } = vi.hoisted(() => ({ push: vi.fn(), leave: vi.fn(), warning: vi.fn(), success: vi.fn() }))
 vi.mock('vue-router', () => ({ useRouter: () => ({ push }), onBeforeRouteLeave: (guard: () => unknown) => leave.mockImplementation(guard) }))
-vi.mock('naive-ui', async importOriginal => ({
+vi.mock('@/v3/feedback', async importOriginal => ({
   ...await importOriginal<object>(), useMessage: () => ({ success, error: vi.fn() }),
   useDialog: () => ({ warning }),
 }))
@@ -26,7 +26,6 @@ beforeEach(() => {
 })
 const options = { global: { renderStubDefaultSlot: true, stubs: {
   CreationModePicker: false,
-  Button: { props: ['disabled'], emits: ['click'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
 } } }
 
 type WizardWrapper = ReturnType<typeof shallowMount>
@@ -46,10 +45,10 @@ function proposal(writingMode: 'ai' | 'manual'): CreateWizardForm {
 
 describe('independent writing and settings choices', () => {
   it.each([
-    ['作品名称', 'Input', 'placeholder', '在作品契约中继续确认', '修灯人的故事'],
-    ['主角', 'Input', 'placeholder', '主角姓名', '顾宁'],
-    ['故事起点', 'InputNumber', 'aria-label', '起始故事日', 0],
-    ['起点名称', 'Input', 'placeholder', '例如：玄历三年春，抵达当天', '抵达当天'],
+    ['作品名称', 'V3Input', 'placeholder', '在作品契约中继续确认', '修灯人的故事'],
+    ['主角', 'V3Input', 'placeholder', '主角姓名', '顾宁'],
+    ['故事起点', 'V3Number', 'aria-label', '起始故事日', 0],
+    ['起点名称', 'V3Input', 'placeholder', '例如：玄历三年春，抵达当天', '抵达当天'],
   ])('protects unfinished %s on navigation and refresh', async (_label, component, attribute, selector, value) => {
     const wrapper = shallowMount(CreateWizard, options)
     await choose(wrapper, 'manual', 'custom')

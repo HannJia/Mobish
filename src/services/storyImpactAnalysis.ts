@@ -40,7 +40,7 @@ export function captureStoryImpact(novel: Novel, workspace: ReconstructionWorksp
     edge(key(novelRef), key(target), '作品包含分卷', 'association')
     for (const chapter of chapters) if (chapter.volumeIndex === volume.volumeIndex) edge(key(target), key(chapter.ref), '分卷规划覆盖章节')
   }
-  for (const chapter of chapters) edge(key(novelRef), key(chapter.ref), '作品设定影响章节审核')
+  for (const chapter of chapters) edge(key(novelRef), key(chapter.ref), '作品设定影响章节审校')
   const chapterAt = (from: string, index: number | undefined, reason: string) => {
     if (index === undefined || index < 0) return
     for (const chapter of novel.chapters) if (chapter.chapterIndex === index) edge(from, k('chapter', chapter.id), reason)

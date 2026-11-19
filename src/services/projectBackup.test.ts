@@ -153,9 +153,9 @@ describe('项目备份格式', () => {
   })
 
   it('拒绝格式或必需数组不正确的文件', () => {
-    expect(() => parseProjectBackup('{}')).toThrow('V3')
+    expect(() => parseProjectBackup('{}')).toThrow('不支持的旧版本')
     expect(() => parseProjectBackup(JSON.stringify({ format: 'ai-novel-writer-backup', version: 3, novels: [{ id: 'x' }], knowledgeBases: [] }))).toThrow('备份数据不完整')
-    expect(() => parseProjectBackup(JSON.stringify({ format: 'ai-novel-writer-backup', version: 1, novels: [], knowledgeBases: [] }))).toThrow('V3')
+    expect(() => parseProjectBackup(JSON.stringify({ format: 'ai-novel-writer-backup', version: 1, novels: [], knowledgeBases: [] }))).toThrow('不支持的旧版本')
   })
 
   it('rejects nested corruption, duplicate IDs, dangling knowledge references and prototype keys', () => {

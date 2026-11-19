@@ -22,7 +22,7 @@ const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD'
 
 function checkKeys(value: object, allowed: readonly string[]) {
   if (!value || Array.isArray(value) || Object.keys(value).some(key => !allowed.includes(key))) {
-    fail('不允许通过设定表单修改来源、内部编号或未支持的字段。')
+    fail('这次修改包含不支持的内容，未保存。')
   }
 }
 

@@ -115,7 +115,7 @@ export function deleteChaptersWithImpact(aggregate: StoryAggregate, chapterId: s
   // cannot be invalidated safely by merely clearing the chapter's display flag.
   for (const review of workspace.chapterReviews || []) if (!deleted.has(review.chapterId) && !changed.has(review.chapterId)
     && review.findings.some(finding => finding.evidence.some(evidence => evidence.sourceType === 'chapter' && deleted.has(evidence.sourceId)))) {
-    throw new Error('审核包含未纳入统一输入的跨章证据，无法安全失效，请先重新核对审核来源。')
+    throw new Error('审校包含未纳入统一输入的跨章证据，无法安全失效，请先重新核对审校来源。')
   }
   const before = captureStoryImpact(novel, workspace)
   novel.archivedChapters = [...(novel.archivedChapters || []), ...removed.map(chapter => ({

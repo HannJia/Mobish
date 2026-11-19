@@ -28,7 +28,8 @@ import type { CandidateChange, ReviewFinding } from '@/types/reconstruction'
 import type { CharacterMemoryAuthorDecision } from '@/types/characterMemory'
 import type { EditorMark } from '../editor/PlainTextEditor.vue'
 import type { useChapterSession } from './useChapterSession'
-import { anchorFindings, candidateAnchor, findingMarks, revisionPreview } from './marks'
+import { anchorFindings, candidateAnchor, findingMarks, relocateFindings, revisionPreview, staleFindingMarks } from './marks'
+import { buildAnalysisSourceVersionId } from '@/services/reconstructionCandidates'
 
 type Session = ReturnType<typeof useChapterSession>
 type BackgroundTaskStatus = 'pending' | 'running' | 'completed' | 'failed'
@@ -76,13 +77,19 @@ export function useChapterAi(options: ChapterAiOptions) {
 
   const currentMarks = computed<EditorMark[]>(() => {
     const content = session.content.value
-    const marks = session.workflow.value?.reviewCurrent ? findingMarks(anchorFindings(content, session.findings.value)) : []
+    const reviewCurrent = session.workflow.value?.reviewCurrent === true
+    // 按正文内容计算版本号，与 anchorFindings 的判断保持一致。
+    const version = buildAnalysisSourceVersionId(content)
+    const isCurrent = (finding: ReviewFinding) => reviewCurrent && finding.status !== 'stale' && finding.sourceVersionId === version
+    const marks = findingMarks(anchorFindings(content, session.findings.value.filter(isCurrent)))
+    // 正文改动后，旧批注按引文重新定位并淡色显示，而不是整体消失。
+    marks.push(...staleFindingMarks(relocateFindings(content, session.findings.value.filter(item => item.status !== 'stale' && !isCurrent(item)))))
     for (const candidate of session.candidates.value) {
       const anchor = candidateAnchor(content, candidate)
       if (anchor) marks.push({ id: 'c:' + candidate.id, ...anchor, cls: 'mk-cand', title: '故事变化候选 · 未入典' })
     }
-    const revision = session.pendingRevision.value
-    if (revision) {
+    const revisions = session.pendingRevisions?.value ?? (session.pendingRevision.value ? [session.pendingRevision.value] : [])
+    for (const revision of revisions) {
       const preview = revisionPreview(revision, content, session.contextVersion.value)
       if (preview.current) marks.push({ id: 'r:' + revision.id, start: preview.start, end: preview.end, cls: 'mk-cand', title: '正文修订候选 · 未入正文' })
     }
@@ -170,7 +177,7 @@ export function useChapterAi(options: ChapterAiOptions) {
           const changed = JSON.stringify(current.contentReviewCoverage) !== JSON.stringify(coverage)
           if (changed) {
             const updated = novels.updateChapter(novel.id, chapter.id, { contentReviewCoverage: coverage })
-            if (!updated) throw new Error('审核覆盖进度保存失败。')
+            if (!updated) throw new Error('审校覆盖进度保存失败。')
             await novels.saveNovelNow(novel.id)
           }
           ensureCurrent(baseContent, baseContext)
@@ -339,7 +346,7 @@ export function useChapterAi(options: ChapterAiOptions) {
   async function prepareDecision<T extends CandidateChange | ReviewFinding>(record: T, version = session.reviewSourceVersion.value) {
     const expectedRecord = JSON.parse(JSON.stringify(record)) as T
     if (!await session.saveNow()) throw new Error('正文尚未保存，本次决定未提交。')
-    if (session.reviewSourceVersion.value !== version) throw new Error('正文或审核依据已经变化，请重新核对后确认。')
+    if (session.reviewSourceVersion.value !== version) throw new Error('正文或审校依据已经变化，请重新核对后确认。')
     return { expectedRecord, expectedSourceVersionId: version }
   }
   async function acceptCandidate(candidate: CandidateChange, editedValue?: string, authorNote?: string,

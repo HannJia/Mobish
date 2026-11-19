@@ -24,7 +24,7 @@
         <p>契约约束后续生成与审校。修改后会提示受影响的骨架与章纲。</p>
         <div class="contract-actions">
           <button v-if="cancelable" type="button" class="cancel" :disabled="busy || exploring" @click="emit('cancel')">取消契约修改</button>
-          <button type="button" :disabled="busy || exploring" @click="emit('save', clone(form))">保存草稿</button>
+          <button type="button" :disabled="busy || exploring" @click="emit('save', clone(form))">保存</button>
           <button type="submit" :disabled="busy || exploring || issues.length > 0 || confirmedCount < 8" class="primary">确认契约并继续</button>
         </div>
       </footer>
@@ -32,6 +32,7 @@
   </section>
 </template>
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { computed, ref, watch } from 'vue'
 import { createEmptyCreationDraft, validateCreationStage, type ContractExploration, type ContractSuggestion, type StoryContract } from '@/types/reconstruction'
 import { adoptContractSuggestion, contractCards, contractCardConfirmed, materializeContractConfirmations, toggleContractCard } from '@/services/storyContract'
@@ -79,7 +80,7 @@ function toggle(cardId: string) {
 }
 function adopt(suggestion: ContractSuggestion) {
   try { form.value = adoptContractSuggestion(form.value, suggestion); changed() }
-  catch (error) { adoptionError.value = error instanceof Error ? error.message : '建议采用失败' }
+  catch (error) { adoptionError.value = errorText(error, '建议采用失败') }
 }
 function setExploring(value: boolean) { exploring.value = value; emit('exploring', value) }
 function confirm() {

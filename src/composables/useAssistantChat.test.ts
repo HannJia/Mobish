@@ -224,7 +224,7 @@ describe('chat lifecycle and book isolation', () => {
     config.models[0].apiKey = ''
     chat.inputText.value = '保留这个问题'
     await chat.sendMessage()
-    expect(chat.error.value).toContain('接口密钥')
+    expect(chat.error.value).toContain('API 密钥')
     expect(chat.inputText.value).toBe('保留这个问题')
     expect(chatWithOptionalSearch).not.toHaveBeenCalled()
     scope.stop()

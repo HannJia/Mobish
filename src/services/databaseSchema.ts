@@ -2,7 +2,7 @@ import type { Database } from 'sql.js'
 
 export const PROJECT_SCHEMA_VERSION = 3
 export class UnsupportedProjectSchemaError extends Error {
-  constructor() { super('仅支持 V3 项目数据，请在 V3 中新建项目。原数据文件未修改。'); this.name = 'UnsupportedProjectSchemaError' }
+  constructor() { super('这份项目数据来自不支持的旧版本，请新建项目。原数据文件未修改。'); this.name = 'UnsupportedProjectSchemaError' }
 }
 
 const PROJECT_SCHEMA = `

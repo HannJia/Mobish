@@ -5,23 +5,21 @@ import { shallowMount, flushPromises } from '@vue/test-utils'
 import AppUpdatePanel from './AppUpdatePanel.vue'
 import AppUpdateNotice from './AppUpdateNotice.vue'
 import type { Component } from 'vue'
-import { NSwitch } from 'naive-ui'
 import { useAppUpdateStore } from '@/stores/appUpdate'
 import { appUpdateInstalling } from '@/services/appLifecycle'
 import type { AppUpdateState } from '@/types/update'
 
 const dialog = vi.hoisted(() => ({ warning: vi.fn() }))
-vi.mock('naive-ui', async importOriginal => ({ ...await importOriginal<object>(), useDialog: () => dialog }))
+vi.mock('@/v3/feedback', async importOriginal => ({ ...await importOriginal<object>(), useDialog: () => dialog }))
 const base: AppUpdateState = {
   supported: true, currentVersion: '1.0.2', phase: 'available', autoCheck: false, error: '', checkedAt: '',
-  release: { version: '1.0.3', url: 'https://github.com/HannJia/novel-ai-studio/releases/tag/v1.0.3',
+  release: { version: '1.0.3', url: 'https://github.com/HannJia/mobish/releases/tag/v1.0.3',
     notes: '<script>unsafe()</script>\n修复问题', publishedAt: '', canDownload: true },
   percent: 0, total: 0, transferred: 0, bytesPerSecond: 0, revision: 1,
 }
 const mounted: ReturnType<typeof shallowMount>[] = []
 function mount(component: Component = AppUpdatePanel) {
   const wrapper = shallowMount(component, { global: { renderStubDefaultSlot: true, stubs: {
-    Button: { props: ['disabled'], emits: ['click'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
   } } })
   mounted.push(wrapper)
   return wrapper
@@ -101,7 +99,7 @@ describe('update settings and notifications', () => {
     const { bridge } = mockBridge({ ...base, phase: 'checking', autoCheck: true })
     const panel = mount()
     await flushPromises()
-    const toggle = panel.findComponent(NSwitch)
+    const toggle = panel.findComponent({ name: 'V3Switch' })
     expect(toggle.props('disabled')).toBe(false)
     toggle.vm.$emit('update:value', false)
     await flushPromises()
@@ -123,7 +121,7 @@ describe('update settings and notifications', () => {
     expect(wrapper.text()).toContain('浏览器 / 开发环境不安装更新')
     expect(wrapper.findAll('button')[0].attributes('disabled')).toBeDefined()
     expect(wrapper.text()).not.toContain('当前已是最新版本')
-    expect(wrapper.get('a').attributes('href')).toBe('https://github.com/HannJia/novel-ai-studio/releases')
+    expect(wrapper.get('a').attributes('href')).toBe('https://github.com/HannJia/mobish/releases')
   })
   it('renders release notes as plain text and downloads only on command', async () => {
     const { bridge } = mockBridge()

@@ -43,7 +43,7 @@ export interface KnowledgeSummaryProgress {
 export function createKnowledgeSummaryBudget(maxRequests = DEFAULT_SUMMARY_REQUESTS, maxTokens = DEFAULT_SUMMARY_TOKENS): KnowledgeSummaryBudget {
   if (!Number.isSafeInteger(maxRequests) || maxRequests < 1 || maxRequests > 4096
     || !Number.isSafeInteger(maxTokens) || maxTokens < 1 || maxTokens > 50_000_000) {
-    throw new Error('摘要预算无效：请求次数须为 1–4096，token 预算须为 1–50000000')
+    throw new Error('摘要预算无效：请求次数须为 1–4096，Token 预算须为 1–50000000')
   }
   return { maxRequests, maxTokens, requests: 0, inputTokens: 0, outputTokens: 0, usageEstimated: false }
 }
@@ -66,7 +66,7 @@ export function planKnowledgeSummary(kb: KnowledgeBase, entryId?: string, level:
 }
 
 function outputReservation(model: ModelConfig, maxChars: number) {
-  if (!Number.isSafeInteger(model.maxTokens) || model.maxTokens < 1) throw new Error('模型输出 token 上限无效')
+  if (!Number.isSafeInteger(model.maxTokens) || model.maxTokens < 1) throw new Error('模型输出 Token 上限无效')
   return Math.min(model.maxTokens, maxChars * 2)
 }
 function assertContextAllowance(model: ModelConfig, input: number, output: number) {
@@ -124,7 +124,7 @@ export async function generateKnowledgeSummary(plan: KnowledgeSummaryPlan, optio
     progress.plannedRequests = graph.plannedRequests
     if (budget.requests + graph.plannedRequests > budget.maxRequests) throw new Error('完整整理需要 ' + graph.plannedRequests + ' 次请求，超过剩余请求预算；未开始新请求')
     const allowance = graph.estimatedTokens
-    if (budget.inputTokens + budget.outputTokens + allowance > budget.maxTokens) throw new Error('完整整理的保守额度为 ' + allowance + ' token，超过剩余预算；未开始新请求')
+    if (budget.inputTokens + budget.outputTokens + allowance > budget.maxTokens) throw new Error('完整整理的保守额度为 ' + allowance + ' Token，超过剩余预算；未开始新请求')
     activity = startAiActivity('知识资料分批摘要：' + plan.title)
     publish()
     const request = async (text: string, limit: number, merge: boolean, label: string) => {

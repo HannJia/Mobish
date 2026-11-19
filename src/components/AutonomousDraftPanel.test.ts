@@ -75,7 +75,7 @@ describe('AutonomousDraftPanel', () => {
 
     expect(decideAiDraft.mock.calls.map(call => call[3])).toEqual(['edit', 'accept'])
     expect(decideAiDraft.mock.calls[1][2]).toEqual(edited)
-    expect(wrapper.get('[role="status"]').text()).toContain('事实审核与定稿')
+    expect(wrapper.get('[role="status"]').text()).toContain('事实审校和定稿')
     wrapper.unmount()
   })
 

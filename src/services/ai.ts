@@ -274,7 +274,7 @@ export async function listAvailableModels(
 ): Promise<AvailableModel[]> {
   const baseUrl = openAiV1BaseUrl(model.baseUrl)
   if (!baseUrl) throw new Error('请先填写 API Base URL')
-  if (!model.apiKey.trim()) throw new Error('请先填写 API Key')
+  if (!model.apiKey.trim()) throw new Error('请先填写 API 密钥')
 
   let payload: unknown
   const request = mergeSignals(signal, 30_000)

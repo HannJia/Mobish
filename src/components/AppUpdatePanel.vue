@@ -8,7 +8,9 @@
       <div class="update-col update-col-status">
         <p class="update-status" role="status">{{ statusText }}</p>
         <div v-if="state.phase === 'downloading'" class="update-progress">
-          <n-progress type="line" :percentage="Math.round(state.percent)" :processing="true" />
+          <div class="update-progress" role="progressbar" aria-label="下载进度" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="Math.round(state.percent)">
+            <span :style="{ width: Math.round(state.percent) + '%' }" />
+          </div>
           <span>{{ megabytes(state.transferred) }} / {{ megabytes(state.total) }} MB</span>
         </div>
         <p v-if="state.error" class="update-error" role="alert">{{ state.error }}</p>
@@ -17,29 +19,28 @@
       <div class="update-col update-col-actions">
         <div class="update-preference">
           <label :for="switchId">自动更新</label>
-          <n-switch :id="switchId" :value="state.autoCheck" :disabled="!state.supported || state.phase === 'installing'"
+          <V3Switch :id="switchId" :value="state.autoCheck" :disabled="!state.supported || state.phase === 'installing'"
             aria-label="自动更新" @update:value="store.setAutoCheck" />
         </div>
         <p class="update-description">开启后自动下载新版。关闭后仍检查新版并显示红点提醒，可手动下载。安装前由你确认。</p>
         <div class="update-actions">
-          <n-button :disabled="!state.supported || busy || state.phase === 'downloaded'" :loading="state.phase === 'checking'"
-            @click="store.check">
-            <template #icon><n-icon><refresh-outline /></n-icon></template>
+          <button type="button" class="m-btn" :disabled="!state.supported || busy || state.phase === 'downloaded' || state.phase === 'checking'" @click="store.check" :aria-busy="state.phase === 'checking'">
+            <V3Icon name="refresh" size="s" />
             {{ state.phase === 'error' ? '重新检查' : '检查更新' }}
-          </n-button>
-          <n-button v-if="state.phase === 'available' && state.release?.canDownload" type="primary" @click="store.download">
-            <template #icon><n-icon><download-outline /></n-icon></template>下载更新
-          </n-button>
-          <n-button v-if="state.phase === 'downloading'" @click="store.cancel">
-            <template #icon><n-icon><stop-outline /></n-icon></template>取消下载
-          </n-button>
-          <n-button v-if="state.phase === 'downloaded'" type="primary" @click="confirmInstall">
-            <template #icon><n-icon><power-outline /></n-icon></template>安装并重启
-          </n-button>
-          <n-button v-if="state.supported" quaternary :disabled="state.phase === 'installing'" @click="store.openRelease">
-            <template #icon><n-icon><open-outline /></n-icon></template>发布页
-          </n-button>
-          <a v-else class="update-release-link" href="https://github.com/HannJia/novel-ai-studio/releases"
+          </button>
+          <button type="button" class="m-btn pri" v-if="state.phase === 'available' && state.release?.canDownload" @click="store.download">
+            <V3Icon name="import" size="s" />下载更新
+          </button>
+          <button type="button" class="m-btn" v-if="state.phase === 'downloading'" @click="store.cancel">
+            <V3Icon name="stop" size="s" />取消下载
+          </button>
+          <button type="button" class="m-btn pri" v-if="state.phase === 'downloaded'" @click="confirmInstall">
+            <V3Icon name="power" size="s" />安装并重启
+          </button>
+          <button type="button" class="m-btn ghost" v-if="state.supported" :disabled="state.phase === 'installing'" @click="store.openRelease">
+            <V3Icon name="external" size="s" />发布页
+          </button>
+          <a v-else class="update-release-link" href="https://github.com/HannJia/mobish/releases"
             target="_blank" rel="noopener noreferrer">GitHub 发布页</a>
         </div>
       </div>
@@ -53,8 +54,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, useId } from 'vue'
-import { NButton, NIcon, NProgress, NSwitch } from 'naive-ui'
-import { RefreshOutline, DownloadOutline, StopOutline, PowerOutline, OpenOutline } from '@vicons/ionicons5'
+import V3Icon from '@/v3/components/V3Icon.vue'
+import V3Switch from '@/v3/components/form/V3Switch.vue'
 import { useAppUpdateStore } from '@/stores/appUpdate'
 import { useUpdateInstall } from '@/composables/useUpdateInstall'
 
@@ -84,6 +85,8 @@ onMounted(() => { void store.init() })
 </script>
 
 <style scoped>
+.update-progress { height: 6px; border-radius: 6px; background: var(--panel-2); overflow: hidden; }
+.update-progress > span { display: block; height: 100%; background: var(--zhu); transition: width var(--motion-fast); }
 .app-update-panel { display: grid; gap: 14px; min-width: 0; font-size: 14px; }
 .update-overview { display: grid; gap: 16px; grid-template-columns: 1fr; min-width: 0; }
 .update-col { display: grid; gap: 8px; align-content: start; min-width: 0; }

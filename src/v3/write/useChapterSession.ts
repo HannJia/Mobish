@@ -35,7 +35,9 @@ export function useChapterSession(options: ChapterSessionOptions) {
   const loadedKey = ref('')
   const changed = ref(0)
   const session = ref<EditorDraftSession>()
-  const pendingRevision = ref<ChapterRevision | undefined>()
+  /** 本章全部待处理的正文修订候选（新的在前）；pendingRevision 保留为最新一份，供工作流判断。 */
+  const pendingRevisions = ref<ChapterRevision[]>([])
+  const pendingRevision = computed<ChapterRevision | undefined>(() => pendingRevisions.value[0])
   let saveTimer: ReturnType<typeof setTimeout> | undefined
   let unregisterDraftSaver: (() => void) | undefined
   let loadSequence = 0
@@ -95,9 +97,11 @@ export function useChapterSession(options: ChapterSessionOptions) {
   function markChanged() { changed.value++ }
 
   async function refreshRevision() {
-    if (!options.chapterId.value) { pendingRevision.value = undefined; return }
-    const rows = await novels.getChapterRevisions(options.chapterId.value)
-    pendingRevision.value = rows.find(row => row.status === 'pending')
+    const chapterId = options.chapterId.value
+    if (!chapterId) { pendingRevisions.value = []; return }
+    const rows = await novels.getChapterRevisions(chapterId)
+    if (chapterId !== options.chapterId.value) return
+    pendingRevisions.value = rows.filter(row => row.status === 'pending')
     markChanged()
   }
 
@@ -228,8 +232,9 @@ export function useChapterSession(options: ChapterSessionOptions) {
     return result
   }
 
-  async function acceptRevision() {
-    const n = novel.value, c = chapter.value, revision = pendingRevision.value
+  async function acceptRevision(revisionId?: string) {
+    const n = novel.value, c = chapter.value
+    const revision = revisionId ? pendingRevisions.value.find(row => row.id === revisionId) : pendingRevision.value
     if (!n || !c || !revision) return false
     const accepted = await novels.acceptChapterRevision(n.id, c.id, revision.id)
     const next = novels.getNovel(n.id)?.chapters.find(item => item.id === c.id)
@@ -239,8 +244,8 @@ export function useChapterSession(options: ChapterSessionOptions) {
     return Boolean(accepted)
   }
 
-  async function rejectRevision() {
-    const revision = pendingRevision.value
+  async function rejectRevision(revisionId?: string) {
+    const revision = revisionId ? pendingRevisions.value.find(row => row.id === revisionId) : pendingRevision.value
     if (!revision) return false
     await novels.rejectChapterRevision(revision.id)
     await refreshRevision()
@@ -272,7 +277,7 @@ export function useChapterSession(options: ChapterSessionOptions) {
   return {
     novel, chapter, content, title, loading, loadError, saving, saveError, saved, contextVersion,
     reviewSignature, reviewSourceVersion, contentVersion, findings, candidates, latestReview, storyTime,
-    workflow, drafts, pendingRevision, hasPlan, saveNow, saveTitle, restoreDraft, discardDraft, restoreVersion,
+    workflow, drafts, pendingRevision, pendingRevisions, hasPlan, saveNow, saveTitle, restoreDraft, discardDraft, restoreVersion,
     refreshRevision, acceptRevision, rejectRevision, markChanged,
   }
 }

@@ -59,7 +59,7 @@ export function derivePipeline(novel: Novel, run: AiRun | undefined, limit = 8):
       const words = draft.content.replace(/\s+/g, '').length
       const findings = draft.review?.findings.length ?? null
       if (draft.status === 'accepted') return { ...blank, stage: 'accepted', stageLabel: '已写入正文', steps: ['done', 'done', 'done', 'done', 'done'], draftWords: words, findingCount: findings, note: '' }
-      if (draft.status === 'rejected') return { ...blank, stage: 'rejected', stageLabel: '已拒绝', steps: ['done', 'done', 'done', 'done', ''], draftWords: words, findingCount: findings, note: '候选稿已被作者拒绝' }
+      if (draft.status === 'rejected') return { ...blank, stage: 'rejected', stageLabel: '已拒绝', steps: ['done', 'done', 'done', 'done', ''], draftWords: words, findingCount: findings, note: '候选稿已被拒绝' }
       if (draft.stage === 'generated') return { ...blank, stage: 'reviewing', stageLabel: '待审校', steps: ['done', 'done', 'current', '', ''], draftWords: words, findingCount: null, note: '' }
       const blocked = point?.chapterIndex === chapter.chapterIndex && point.phase === 'review-needs-author'
       // 未被阻塞时不再加阶段标签：“候选稿 · N 字”和“等你确认”已经说明了状态。
@@ -119,7 +119,7 @@ export function deriveBudget(run: AiRun | undefined): BudgetView {
 
 export function stopConditions(run: AiRun | undefined): string[] {
   return [
-    '出现作者待处理问题',
+    '有需要你处理的问题',
     run?.tokenBudget || run?.requestLimit ? '预算或请求额度用尽' : '预算或请求额度用尽（开始任务时设定）',
     run?.checkpointEvery ? `每 ${run.checkpointEvery} 章设检查点` : '未设检查点，连续执行',
     '范围结束',

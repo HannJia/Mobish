@@ -1,7 +1,7 @@
 <template>
   <section class="creation-entry-source paper-panel" aria-label="创建输入来源">
     <h3>创建起点：{{ creationSetupLabels[input.method] }}</h3>
-    <p>以下是创建时保存的作者输入，供核对来源；契约、骨架及规划须逐步确认。</p>
+    <p>以下是创建作品时填写的内容。</p>
     <p v-if="input.idea" class="source-text">{{ input.idea }}</p>
     <p v-if="input.includeDiscussion">创建时选择的灵感讨论已保存在本书灵感存档。</p>
     <template v-if="input.outline">

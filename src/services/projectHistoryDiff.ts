@@ -42,13 +42,13 @@ export function buildProjectHistoryDiff(current: ProjectHistoryScope, historical
   for (const [key, title] of Object.entries(novelSections)) sections.push(list(key, title,
     record(current.novel)[key] as unknown[] || [], record(historical.novel)[key] as unknown[] || []))
   sections.push(list('chapterRevisions', '正文修订历史', current.chapterRevisions, historical.chapterRevisions))
-  const workspaceSections = { candidates: '候选与作者决定', canonMutations: 'Canon 决定历史', chapterReviews: '章节审核', reviewFindings: '审核发现', storyMemories: '故事记忆', impactReports: '影响报告', aiRuns: 'AI 请求账本（恢复时累计合并）' }
+  const workspaceSections = { candidates: '候选与作者决定', canonMutations: '故事典籍记录', chapterReviews: '章节审校', reviewFindings: '审校发现', storyMemories: '故事记忆', impactReports: '影响报告', aiRuns: 'AI 用量记录（恢复时会合并保留）' }
   for (const [key, title] of Object.entries(workspaceSections)) sections.push(list(key, title,
     record(current.workspace)[key] as unknown[] || [], record(historical.workspace)[key] as unknown[] || []))
   sections.push(list('creationDraft', '创建与场景规划', current.workspace?.creationDraft ? [current.workspace.creationDraft] : [], historical.workspace?.creationDraft ? [historical.workspace.creationDraft] : []))
   const changed = sections.filter(section => section.changes.length)
   return { novelId, sections, summary: changed.length ? changed.map(section => section.label + '：' + section.summary).join('；') : '所选作品没有变化。',
-    scopeStatement: '仅恢复所选作品、章节历史、工作区和该书灵感记录。其他作品、共享知识库、账户、密钥及无作品归属的全局灵感会话保持当前内容。缺失知识库的挂载引用将移除。恢复前的作者决定保存在保护点中，可随时只读查看。',
+    scopeStatement: '仅恢复所选作品、章节历史、工作区和该书灵感记录。其他作品、共享知识库、账户、密钥及无作品归属的全局灵感会话保持当前内容。缺失知识库的挂载引用将移除。恢复前你做过的决定保存在保护点中，可随时只读查看。',
     sharedKnowledgeBaseIds: current.knowledgeBaseIds.filter(id => historical.knowledgeBaseIds.includes(id)), unchangedKnowledgeBaseIds: [...current.knowledgeBaseIds],
-    budgetNotes: ['所有有效来源按 run.id / request.id 合并累计付费账本；当前结算优先，未知用量保守保留，不因恢复返还额度。', '旧审核须重审，旧候选停用，任务暂停待作者；不会自动继续付费请求。'] }
+    budgetNotes: ['AI 用量记录会合并保留，恢复不会退回已用的额度。', '旧审校须重审，旧候选停用，任务暂停，等你处理；不会自动继续付费请求。'] }
 }

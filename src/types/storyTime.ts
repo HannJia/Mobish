@@ -256,7 +256,7 @@ export function projectStoryTimeOrigin(novel: Novel): StoryTimeProjection {
   const row = originRecord(novel.storyClock)
   return row && recordValid(novel, row)
     ? { known: true, startDay: row.startDay, endDay: row.endDay, label: row.label, recordId: row.id }
-    : { known: false, recordId: row?.id, reason: '故事起点缺少有效的作者确认来源。' }
+    : { known: false, recordId: row?.id, reason: '故事起点还没有确认。' }
 }
 
 export function projectStoryTime(novel: Novel, chapter: Chapter): StoryTimeProjection {
@@ -271,8 +271,8 @@ function projectChapterTime(novel: Novel, chapter: Chapter, valid: (row: StoryTi
     : previous ? chapterRecord(novel.storyClock, previous.id) : undefined
   const start = prior && valid(prior) ? { startDay: prior.endDay, startRecordId: prior.id } : {}
   return { known: false, ...start, recordId: row?.id, sourceVersionId: row?.sourceVersionId,
-    reason: row ? '本章最新时间来源已失效，需作者重新确认。'
-      : start.startDay !== undefined ? '本章结束时间尚未由作者确认。' : '缺少有效的紧邻前序时间来源。' }
+    reason: row ? '本章最新时间来源已失效，需要重新确认。'
+      : start.startDay !== undefined ? '本章结束时间还没有确认。' : '缺少有效的紧邻前序时间来源。' }
 }
 
 export function projectStoryTimeAtChapter(novel: Novel, chapterIndex: number): StoryTimeProjection {

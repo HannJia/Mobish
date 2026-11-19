@@ -5,13 +5,13 @@
         <h2 class="volume-title">分卷大纲</h2><p class="volume-description">全书稳定主线和结局；当前卷详细展开，其余卷保持轮廓。</p>
       </div>
       <div class="header-actions" v-if="novel">
-        <n-button size="small" :disabled="busy" @click="addManualVolume">+ 新增分卷</n-button>
-        <n-button size="small" @click="generateVolumes" :loading="generating" :disabled="busy || !novel.outline || hasDrafts">
-          AI 生成分卷规划
-        </n-button>
-        <n-button v-if="!props.compact && volumes.length" size="small" type="primary" :disabled="busy || props.chapterPlanConfirmed || hasDrafts" @click="emit('confirmed')">
+        <button type="button" class="m-btn sm" :disabled="busy" @click="addManualVolume"><V3Icon name="plus" size="s" />新增分卷</button>
+        <button type="button" class="m-btn sm" :aria-busy="generating" :disabled="busy || !novel.outline || hasDrafts" @click="generateVolumes">
+          <V3Icon name="spark" size="s" />{{ generating ? '正在生成…' : 'AI 生成分卷规划' }}
+        </button>
+        <button v-if="!props.compact && volumes.length" type="button" class="m-btn sm pri" :disabled="busy || props.chapterPlanConfirmed || hasDrafts" @click="emit('confirmed')">
           {{ props.chapterPlanConfirmed ? '已确认并生成章节计划' : '确认分卷并生成章节计划' }}
-        </n-button>
+        </button>
       </div>
     </div>
 
@@ -64,24 +64,17 @@
           </div>
 
           <template v-if="editingId === selectedVolume.id">
-            <div class="edit-form">
-              <label>卷名</label>
-              <n-input v-model:value="editForm.title" size="small" :disabled="saving" />
-              <label>主题</label>
-              <n-input v-model:value="editForm.theme" size="small" :disabled="saving" />
-              <label>剧情概要</label>
-              <n-input v-model:value="editForm.summary" type="textarea" :rows="4" size="small" :disabled="saving" />
-              <label>关键转折点</label>
-              <n-input v-model:value="editForm.keyTurningPoints" type="textarea" :rows="2" size="small" :disabled="saving" />
-              <label>角色变化</label>
-              <n-input v-model:value="editForm.characterChanges" type="textarea" :rows="2" size="small" :disabled="saving" />
-              <label>预估章节数</label>
-              <n-input-number v-model:value="editForm.estimatedChapters" :min="1" :precision="0" size="small" :disabled="saving" />
-              <label>预估字数（万字）</label>
-              <n-input-number v-model:value="editForm.estimatedWordCount" :min="0.1" :precision="3" size="small" :disabled="saving" />
-              <div class="edit-actions">
-                <n-button size="small" :disabled="busy" @click="cancelEdit">取消</n-button>
-                <n-button size="small" type="primary" :disabled="busy" :loading="saving" @click="saveEdit(selectedVolume.id)">保存</n-button>
+            <div class="edit-form m-form-grid">
+              <V3Field label="卷名"><V3Input v-model:value="editForm.title" :disabled="saving" /></V3Field>
+              <V3Field label="主题"><V3Input v-model:value="editForm.theme" :disabled="saving" /></V3Field>
+              <V3Field label="剧情概要" span><V3Input v-model:value="editForm.summary" type="textarea" :rows="4" :disabled="saving" /></V3Field>
+              <V3Field label="关键转折点" span><V3Input v-model:value="editForm.keyTurningPoints" type="textarea" :rows="2" :disabled="saving" /></V3Field>
+              <V3Field label="角色变化" span><V3Input v-model:value="editForm.characterChanges" type="textarea" :rows="2" :disabled="saving" /></V3Field>
+              <V3Field label="预估章节数"><V3Number v-model:value="editForm.estimatedChapters" :min="1" :precision="0" :disabled="saving" /></V3Field>
+              <V3Field label="预估字数（万字）"><V3Number v-model:value="editForm.estimatedWordCount" :min="0.1" :step="0.001" :precision="3" :disabled="saving" /></V3Field>
+              <div class="edit-actions span-2">
+                <button type="button" class="m-btn sm ghost" :disabled="busy" @click="cancelEdit">取消</button>
+                <button type="button" class="m-btn sm pri" :aria-busy="saving" :disabled="busy" @click="saveEdit(selectedVolume.id)">保存</button>
               </div>
             </div>
           </template>
@@ -101,19 +94,14 @@
             </div>
             <section v-if="selectedVolumeChapters.length" class="volume-chapter-outline">
               <h4>已创建章节（{{ selectedVolumeChapters.length }} 章）</h4>
-              <ol><li v-for="chapter in selectedVolumeChapters" :key="chapter.id"><span>第 {{ chapter.chapterIndex + 1 }} 章</span><strong>{{ chapterTitleForDisplay(chapter.title, chapter.chapterIndex) }}</strong><p v-if="chapter.summary">{{ chapter.summary }}</p><small v-if="chapter.summary && getChapterSummaryStatus(chapter) !== 'current'">总结待核对，暂不用于 AI 写作和审核。</small></li></ol>
+              <ol><li v-for="chapter in selectedVolumeChapters" :key="chapter.id"><span>第 {{ chapter.chapterIndex + 1 }} 章</span><strong>{{ chapterTitleForDisplay(chapter.title, chapter.chapterIndex) }}</strong><p v-if="chapter.summary">{{ chapter.summary }}</p><small v-if="chapter.summary && getChapterSummaryStatus(chapter) !== 'current'">总结待核对，暂不用于 AI 写作和审校。</small></li></ol>
             </section>
             <div class="volume-actions">
-              <n-button size="small" :disabled="busy" @click="startEdit(selectedVolume)">编辑</n-button>
-              <n-button v-if="hasEstimateConflict(selectedVolume)" size="small" :disabled="busy" @click="syncEstimates(selectedVolume)">从概要同步预估</n-button>
-              <n-button v-if="selectedVolume.versions?.length" size="small" :disabled="busy" @click="openVersionModal(selectedVolume)">版本 {{ selectedVolume.versions.length }}</n-button>
-              <n-button size="small" :disabled="busy || hasDrafts" :loading="regeneratingId === selectedVolume.id" @click="regenerateVolume(selectedVolume)">局部重生成</n-button>
-              <n-popconfirm @update:show="show => captureDeleteBaseline(show, selectedVolume!.id)" @positive-click="removeVolume(selectedVolume.id)">
-                <template #trigger>
-                  <n-button size="small" type="error" :disabled="busy" quaternary>删除</n-button>
-                </template>
-                确定删除此分卷？
-              </n-popconfirm>
+              <button type="button" class="m-btn sm" :disabled="busy" @click="startEdit(selectedVolume)"><V3Icon name="edit" size="s" />编辑</button>
+              <button v-if="hasEstimateConflict(selectedVolume)" type="button" class="m-btn sm" :disabled="busy" @click="syncEstimates(selectedVolume)">从概要同步预估</button>
+              <button v-if="selectedVolume.versions?.length" type="button" class="m-btn sm" :disabled="busy" @click="openVersionModal(selectedVolume)">版本 {{ selectedVolume.versions.length }}</button>
+              <button type="button" class="m-btn sm" :aria-busy="regeneratingId === selectedVolume.id" :disabled="busy || hasDrafts" @click="regenerateVolume(selectedVolume)">{{ regeneratingId === selectedVolume.id ? '正在重生成…' : '局部重生成' }}</button>
+              <button type="button" class="m-btn sm ghost danger" :disabled="busy" @click="askRemoveVolume(selectedVolume)">删除</button>
             </div>
           </template>
         </div>
@@ -122,22 +110,18 @@
 
     <!-- 无总大纲提示 -->
     <div v-if="novel && !novel.outline" class="empty-state paper-panel">
-      <div class="empty-icon"><svg class="ink-mountains" viewBox="0 0 220 80" aria-hidden="true"><path fill="currentColor" d="M0 80 L40 38 L62 56 L98 14 L130 50 L150 34 L188 66 L220 46 L220 80 Z" /></svg></div>
+      <img class="m-art empty-art" :src="outlineArt" alt="">
       <h3>请先生成总大纲</h3>
       <p>分卷规划需要基于总大纲生成</p>
-      <n-button type="primary" @click="$router.push(`/outline/${novelId}`)">
-        前往大纲页
-      </n-button>
+      <button type="button" class="m-btn pri" @click="$router.push(`/outline/${novelId}`)">前往大纲页</button>
     </div>
 
     <!-- 无分卷 -->
     <div v-else-if="!volumes.length && !generating" class="empty-state paper-panel">
-      <div class="empty-icon"><svg class="ink-mountains" viewBox="0 0 220 80" aria-hidden="true"><path fill="currentColor" d="M0 80 L40 38 L62 56 L98 14 L130 50 L150 34 L188 66 L220 46 L220 80 Z" /></svg></div>
+      <img class="m-art empty-art" :src="volumesArt" alt="">
       <h3>还没有分卷规划</h3>
       <p>AI 将根据总大纲自动规划每卷的剧情走向、章节数和字数</p>
-      <n-button type="primary" @click="generateVolumes" :loading="generating" :disabled="busy">
-        AI 生成分卷规划
-      </n-button>
+      <button type="button" class="m-btn pri" :aria-busy="generating" :disabled="busy" @click="generateVolumes"><V3Icon name="spark" size="s" />AI 生成分卷规划</button>
     </div>
 
     <!-- 生成中 -->
@@ -149,28 +133,36 @@
 
 
 
-    <n-modal v-model:show="showVersionModal" preset="card" title="分卷规划版本对比" style="width: min(760px, calc(100vw - 32px));">
+    <V3Modal v-model:show="showVersionModal" title="分卷规划版本对比" size="wide"
+      :description="versionVolume ? `第 ${versionVolume.volumeIndex + 1} 卷 · ${versionVolume.title}：选择历史版本，查看与当前内容的差异。` : undefined">
       <div v-if="versionVolume" class="version-dialog">
-        <p><strong>第 {{ versionVolume.volumeIndex + 1 }} 卷 · {{ versionVolume.title }}</strong></p>
-        <n-select v-model:value="selectedVersionId" :options="versionOptions" />
+        <V3Field label="历史版本"><V3Select v-model:value="selectedVersionId" :options="versionOptions" /></V3Field>
         <div v-if="versionDiff.length" class="version-diff-list">
           <div v-for="diff in versionDiff" :key="diff.field" class="version-diff-row">
             <strong>{{ diff.field }}</strong><span>{{ diff.before }}</span><span>→</span><span>{{ diff.after }}</span>
           </div>
         </div>
-        <n-empty v-else description="当前版本与历史版本没有可见差异" />
-        <div v-if="selectedVersionId" class="version-actions">
-          <n-button type="warning" size="small" :disabled="busy" :loading="saving" @click="restoreSelectedVersion">恢复此版本</n-button>
-        </div>
+        <p v-else class="m-empty">当前版本与历史版本没有可见差异</p>
       </div>
-    </n-modal>
+      <template v-if="versionVolume && selectedVersionId" #footer>
+        <button type="button" class="m-btn" @click="showVersionModal = false">关闭</button>
+        <button type="button" class="m-btn pri" :aria-busy="saving" :disabled="busy" @click="restoreSelectedVersion">{{ saving ? '正在恢复…' : '恢复此版本' }}</button>
+      </template>
+    </V3Modal>
   </div>
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { ref, computed, reactive, watch, onDeactivated, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
-import { NButton, NEmpty, NInput, NInputNumber, NModal, NPopconfirm, NSelect, useMessage } from 'naive-ui'
+import { useDialog, useMessage } from '@/v3/feedback'
+import V3Icon from '@/v3/components/V3Icon.vue'
+import V3Modal from '@/v3/components/V3Modal.vue'
+import V3Field from '@/v3/components/form/V3Field.vue'
+import V3Input from '@/v3/components/form/V3Input.vue'
+import V3Number from '@/v3/components/form/V3Number.vue'
+import V3Select from '@/v3/components/form/V3Select.vue'
 import { useNovelStore } from '@/stores/novel'
 import { chapterTitleForDisplay } from '@/v3/write/chapterNumber'
 import { useConfigStore } from '@/stores/config'
@@ -184,6 +176,8 @@ import { comparePlanningVersions, type PlanningDiff } from '@/services/planningV
 import { parseVolumeEstimates, parseVolumesFromText } from '@/services/volumeParsing'
 import { buildBoundKnowledgeContext } from '@/services/knowledgeContext'
 import { getChapterSummaryStatus } from '@/services/derivedSources'
+import outlineArt from '@/assets/v3/empty/outline.webp'
+import volumesArt from '@/assets/v3/empty/volumes.webp'
 
 const props = withDefaults(defineProps<{
   compact?: boolean
@@ -196,6 +190,7 @@ const novelStore = useNovelStore()
 const configStore = useConfigStore()
 const workspace = useReconstructionWorkspaceStore()
 const msg = useMessage()
+const dialog = useDialog()
 
 const novelId = computed(() => route.params.novelId as string)
 const novel = computed(() => novelStore.getNovel(novelId.value))
@@ -315,7 +310,7 @@ async function addManualVolume() {
     await novelStore.setVolumesWithImpact(novelId.value, [...volumes.value, volume])
     saving.value = false
     startEdit(volumes.value.find(item => item.id === volume.id)!)
-  } catch (error) { msg.error(error instanceof Error ? error.message : '新增分卷失败') }
+  } catch (error) { msg.error(errorText(error, '新增分卷失败')) }
   finally { saving.value = false }
 }
 
@@ -402,7 +397,7 @@ async function syncEstimates(volume: Volume) {
     estimatedWordCount: values.estimatedWordCount ?? volume.estimatedWordCount,
   })
     msg.success('已同步概要中的预估，原数值已保留在历史版本')
-  } catch (error) { msg.error(error instanceof Error ? error.message : '分卷保存失败') }
+  } catch (error) { msg.error(errorText(error, '分卷保存失败')) }
   finally { saving.value = false }
 }
 
@@ -436,7 +431,7 @@ async function saveEdit(volId: string) {
     volumeDrafts.delete(volId)
     editingId.value = ''
     msg.success('已保存')
-  } catch (error) { msg.error(error instanceof Error ? error.message : '分卷保存失败') }
+  } catch (error) { msg.error(errorText(error, '分卷保存失败')) }
   finally { saving.value = false }
 }
 
@@ -474,7 +469,7 @@ async function restoreSelectedVersion() {
     showVersionModal.value = false
     versionVolume.value = null
     msg.success('分卷规划已恢复')
-  } catch (error) { msg.error(error instanceof Error ? error.message : '分卷恢复失败') }
+  } catch (error) { msg.error(errorText(error, '分卷恢复失败')) }
   finally { saving.value = false }
 }
 
@@ -516,7 +511,7 @@ ${knowledgeContext || '当前小说没有匹配的挂载知识库内容。'}` },
     }, baseline)
     msg.success(`第 ${volume.volumeIndex + 1} 卷已局部重新生成，旧版本已保留`)
   } catch (error) {
-    msg.error(error instanceof Error ? error.message : '分卷局部重新生成失败')
+    msg.error(errorText(error, '分卷局部重新生成失败'))
   } finally {
     regeneratingId.value = ''
     generationController = undefined
@@ -527,12 +522,24 @@ function captureDeleteBaseline(show: boolean, volId: string) {
   if (show) deleteBaselines.set(volId, novelStore.capturePlanningEditBaseline(novelId.value, volId))
 }
 
+// 打开确认框时记下分卷快照，确认时按这份快照删除，确认期间的修改不会被一起删掉。
+function askRemoveVolume(volume: Volume) {
+  if (busy.value) return
+  captureDeleteBaseline(true, volume.id)
+  dialog.warning({
+    title: '删除分卷',
+    content: `删除第 ${volume.volumeIndex + 1} 卷「${volume.title || '未命名分卷'}」的分卷规划？`,
+    positiveText: '删除', negativeText: '取消',
+    onPositiveClick: () => { void removeVolume(volume.id) },
+  })
+}
+
 async function removeVolume(volId: string) {
   if (busy.value) return
   saving.value = true
   try {
     if (await novelStore.deleteVolumeWithImpact(novelId.value, volId, deleteBaselines.get(volId))) msg.success('已删除')
-  } catch (error) { msg.error(error instanceof Error ? error.message : '分卷删除失败') }
+  } catch (error) { msg.error(errorText(error, '分卷删除失败')) }
   finally { saving.value = false }
 }
 </script>
@@ -574,7 +581,6 @@ async function removeVolume(volId: string) {
   min-height: 280px;
 }
 
-.empty-icon { font-size: 48px; }
 .empty-state h3 { font-size: 18px; color: var(--ink); }
 .empty-state p { font-size: 14px; color: var(--ink-3); margin-bottom: 8px; }
 
@@ -704,29 +710,15 @@ async function removeVolume(volId: string) {
 }
 
 .version-dialog { display: grid; gap: 12px; }
-.version-dialog > p { margin: 0; }
 .version-diff-list { display: grid; gap: 8px; max-height: 360px; overflow: auto; }
 .version-diff-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) 20px minmax(0, 1fr); gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-s); font-size: 13px; }
 .version-diff-row span { overflow-wrap: anywhere; }
 
 /* 编辑表单 */
-.edit-form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.edit-form label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink-2);
-}
-
 .edit-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 8px;
 }
 .volume-detail-content { padding: 24px; }
 .volume-detail-title-row h3 { font-size: 25px; }

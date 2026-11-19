@@ -33,7 +33,7 @@ export async function readStoryAggregate(novelId: string): Promise<StoredStoryAg
 
 function assertUnchanged(current: StoredStoryAggregate, expected: StoredStoryAggregate) {
   if (JSON.stringify(current) !== JSON.stringify(expected)) {
-    throw new ProjectKernelError('PROJECT_CONFLICT', '作品或审核记录已经更新，本次操作未保存，请刷新相关记录后重试。')
+    throw new ProjectKernelError('PROJECT_CONFLICT', '作品或审校记录已经更新，本次操作未保存，请刷新相关记录后重试。')
   }
 }
 

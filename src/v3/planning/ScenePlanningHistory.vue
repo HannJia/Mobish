@@ -6,7 +6,7 @@
       <article v-for="revision in heads" :key="revision.id">
         <h4>{{ revision.title || '未命名方案' }}</h4>
         <p>{{ revision.scenes.length }} 个场景 · {{ revision.complete ? '可核对确认' : '待手工补齐' }}</p>
-        <p v-if="revision.baseline !== baseline">来源规划已变化，恢复后需重新核对基线。</p>
+        <p v-if="revision.baseline !== baseline">规划已被修改，恢复后请重新核对。</p>
         <label><input v-model="comparison" type="checkbox" :value="revision.id" :disabled="comparison.length >= 3 && !comparison.includes(revision.id)" />加入比较（最多三项）</label>
         <button :disabled="busy" @click="emit('select', revision.id)">{{ selectedRevisionId === revision.id ? '重新打开此版本' : '选择并编辑' }}</button>
       </article>
@@ -22,9 +22,9 @@
     <details v-for="editor in [...editors].reverse()" :key="editor.id">
       <summary>{{ editor.updatedAt }} · {{ editor.title || editor.chapter.title }} · {{ editor.scenes.length }} 个场景</summary>
       <p>章目标：{{ editor.chapter.objective }}</p><p>生成要求：{{ editor.instructions || '无' }}</p>
-      <p v-if="editor.baseline !== baseline">保存时的规划与当前不同。恢复会保留原基线，不覆盖新规划。</p>
+      <p v-if="editor.baseline !== baseline">保存时的规划与现在不同，恢复不会覆盖新规划。</p>
       <button :disabled="busy" @click="emit('restoreEditor', editor.id)">恢复这些输入</button>
-      <button :disabled="busy" @click="emit('discardEditor', editor.id)">删除此恢复快照</button>
+      <button :disabled="busy" @click="emit('discardEditor', editor.id)">删除这份暂存</button>
     </details>
     <h3>生成与中断记录</h3>
     <details v-for="attempt in [...attempts].reverse()" :key="attempt.id">

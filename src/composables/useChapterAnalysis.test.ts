@@ -157,7 +157,7 @@ describe('辅助写作数据扫描', () => {
     const { analysis, novel } = setup()
     vi.mocked(callAI).mockResolvedValue({ content: '{"events":[', finishReason: 'length',
       usage: { completion_tokens: 8192, completion_tokens_details: { reasoning_tokens: 8000 } } })
-    await expect(analysis.analyzeChapterStructure(model)).rejects.toThrow('结束原因：length；正文长度：11 字符；输出用量：8192 token；推理用量：8000 token')
+    await expect(analysis.analyzeChapterStructure(model)).rejects.toThrow('结束原因：length；正文长度：11 字符；输出用量：8192 Token；推理用量：8000 Token')
     expect(useReconstructionWorkspaceStore().getCandidates(novel.id)).toEqual([])
     expect(storyAggregate.saveStoryAggregate).not.toHaveBeenCalled()
     expect(callAI).toHaveBeenCalledOnce()

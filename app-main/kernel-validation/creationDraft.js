@@ -86,7 +86,7 @@ function applyCreationRecovery(draft, edit) {
     else if (edit.kind === 'discard-editor') {
         const old = next.editorDrafts?.find(item => item.id === edit.id);
         if (old && JSON.stringify(old) !== edit.expected)
-            throw new Error('作者草稿已更新，未移除新输入');
+            throw new Error('草稿已更新，未移除新输入');
         next.editorDrafts = next.editorDrafts?.filter(item => item.id !== edit.id);
     }
     else {

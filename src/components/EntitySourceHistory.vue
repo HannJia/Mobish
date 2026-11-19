@@ -3,7 +3,7 @@
     <div class="history-heading">
       <div>
         <h3>设定来源与历史</h3>
-        <p>作者保存的字段会作为作者全局设定；章节来源会根据当前正文重新核对。</p>
+        <p>你保存的字段会作为作者全局设定；章节来源会根据当前正文重新核对。</p>
       </div>
       <span v-if="history.length" class="history-count">{{ history.length }} 条记录</span>
     </div>
@@ -39,13 +39,7 @@
         <div v-if="item.revision.source.kind === 'chapter'" class="history-evidence">
           <div class="history-source-meta">
             <span>第 {{ item.revision.source.chapterIndex + 1 }} 章</span>
-            <n-button
-              v-if="chapterById(item.revision.source.chapterId)"
-              text
-              size="tiny"
-              type="primary"
-              @click="$emit('open-chapter', item.revision.source.chapterId)"
-            >查看章节</n-button>
+            <button type="button" class="m-link" v-if="chapterById(item.revision.source.chapterId)" @click="$emit('open-chapter', item.revision.source.chapterId)">查看章节</button>
           </div>
           <blockquote v-for="(evidence, index) in item.revision.source.evidence" :key="`${item.revision.id}-evidence-${index}`">
             {{ evidence.quote || '未提供原文片段' }}
@@ -68,7 +62,6 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { NButton } from 'naive-ui'
 import { getEntityHistory, getEntitySourceIssues } from '@/services/entityProvenance'
 import type { EntityFieldChange, EntityKind, EntitySource } from '@/types/entityProvenance'
 import type { Novel } from '@/types/novel'

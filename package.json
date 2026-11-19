@@ -1,15 +1,15 @@
 {
   "name": "ai-novel-writer",
-  "version": "1.0.11",
+  "version": "1.1.0",
   "description": "墨笔生花 mobish，本地优先的 AI 长篇小说写作软件，支持作者主笔、AI 协作、知识库与长篇记忆",
   "author": "HannJia",
   "repository": {
     "type": "git",
-    "url": "https://github.com/HannJia/novel-ai-studio.git"
+    "url": "https://github.com/HannJia/mobish.git"
   },
-  "homepage": "https://github.com/HannJia/novel-ai-studio#readme",
+  "homepage": "https://github.com/HannJia/mobish#readme",
   "bugs": {
-    "url": "https://github.com/HannJia/novel-ai-studio/issues"
+    "url": "https://github.com/HannJia/mobish/issues"
   },
   "private": true,
   "main": "app-main/main.js",
@@ -26,7 +26,8 @@
     "audit:dead-code": "node scripts/run-knip.js",
     "typecheck": "vue-tsc --noEmit",
     "pretest": "npm run prepare:kernel",
-    "test": "vitest run",
+    "test": "vitest run && vitest run --config vitest.performance.config.ts",
+    "test:performance": "vitest run --config vitest.performance.config.ts",
     "test:cloud:http": "vitest run --config vitest.cloud-http.config.ts",
     "pretest:electron": "npm run prepare:kernel",
     "test:electron": "node scripts/electron-smoke.js",
@@ -39,8 +40,8 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
-    "sql.js": "^1.14.1",
-    "semver": "7.8.5"
+    "semver": "7.8.5",
+    "sql.js": "^1.14.1"
   },
   "devDependencies": {
     "@floating-ui/dom": "1.8.0",
@@ -55,7 +56,6 @@
     "@tiptap/pm": "3.33.0",
     "@tiptap/vue-3": "3.33.0",
     "@types/sql.js": "^1.4.10",
-    "@vicons/ionicons5": "^0.13.0",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vitest/ui": "^4.1.5",
     "@vue/test-utils": "^2.4.6",
@@ -69,7 +69,6 @@
     "knip": "^6.29.0",
     "lxgw-wenkai-webfont": "1.7.0",
     "mammoth": "1.13.0",
-    "naive-ui": "^2.44.1",
     "pdfjs-dist": "^6.3.289",
     "pinia": "^3.0.4",
     "tesseract.js": "6.0.1",
@@ -127,7 +126,7 @@
     "publish": {
       "provider": "github",
       "owner": "HannJia",
-      "repo": "novel-ai-studio",
+      "repo": "mobish",
       "releaseType": "release"
     }
   }

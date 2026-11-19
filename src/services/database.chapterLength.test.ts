@@ -24,6 +24,6 @@ it('rejects a database with missing required columns without altering or replaci
   })
   const original = memory.get('mojian-v3-sqlite-db')
   vi.resetModules(); db = await import('./database')
-  await expect(db.initDb()).rejects.toThrow('仅支持 V3')
+  await expect(db.initDb()).rejects.toThrow('不支持的旧版本')
   expect(memory.get('mojian-v3-sqlite-db')).toBe(original)
 })

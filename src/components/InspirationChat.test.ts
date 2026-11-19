@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, shallowMount } from '@vue/test-utils'
 import InspirationChat from './InspirationChat.vue'
-import { NSelect } from 'naive-ui'
 import {
   chatInspiration,
   compactInspirationContext,
@@ -47,8 +46,7 @@ function mountChat(active = true, initialIdea = '') {
     apiKey: 'synthetic', temperature: 0.7, topP: 0.9, maxTokens: 8000 }]
   return shallowMount(InspirationChat, { props: { form, active, initialIdea }, global: { renderStubDefaultSlot: true, stubs: {
     InspirationSettingsSummary: false,
-    Input: { props: ['value', 'disabled'], emits: ['update:value'], template: '<textarea :value="value" :disabled="disabled" @input="$emit(\'update:value\', $event.target.value)" />' },
-    Button: { props: ['disabled'], emits: ['click'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
+    V3Input: { name: 'V3Input', props: ['value', 'disabled'], emits: ['update:value'], template: '<textarea :value="value" :disabled="disabled" @input="$emit(\'update:value\', $event.target.value)" />' },
   } } })
 }
 type Wrapper = ReturnType<typeof mountChat>
@@ -180,10 +178,10 @@ describe('inspiration search controls', () => {
       parseInspirationSession({ id: 'second', title: '第二部', updatedAt: '2026-11-14T01:00:00Z', messages: [], settingsDraft: makeSettings('苏晴') }),
     ])
     await wrapper.setProps({ active: true })
-    wrapper.findComponent(NSelect).vm.$emit('update:value', 'first')
+    wrapper.findComponent({ name: 'V3Select' }).vm.$emit('update:value', 'first')
     await flushPromises()
     expect(wrapper.getComponent(InspirationSettingsSummary).props('form').settings.protagonist.name).toBe('林晚')
-    wrapper.findComponent(NSelect).vm.$emit('update:value', 'second')
+    wrapper.findComponent({ name: 'V3Select' }).vm.$emit('update:value', 'second')
     await flushPromises()
     expect(wrapper.getComponent(InspirationSettingsSummary).props('form').settings.protagonist.name).toBe('苏晴')
     wrapper.unmount()
@@ -415,7 +413,7 @@ describe('inspiration search controls', () => {
     Object.defineProperty(container, 'scrollHeight', { configurable: true, value: 1800 })
     await flushPromises()
     container.scrollTop = 0
-    wrapper.findComponent(NSelect).vm.$emit('update:value', 'older')
+    wrapper.findComponent({ name: 'V3Select' }).vm.$emit('update:value', 'older')
     await flushPromises()
     expect(wrapper.get('.inspiration-message.assistant').text()).toContain('旧对话回复')
     expect(container.scrollTop).toBe(1800)
@@ -513,7 +511,7 @@ describe('inspiration search controls', () => {
     expect(wrapper.findComponent(SaveChatKnowledge).props('content')).toContain('待确认草稿')
     expect(kb.entries).toHaveLength(0)
     wrapper.findComponent(SaveChatKnowledge).vm.$emit('update:show', false)
-    wrapper.findAllComponents(NSelect).find(select => select.attributes('aria-label') === '灵感参考知识库')!.vm.$emit('update:value', [])
+    wrapper.findAllComponents({ name: 'V3Select' }).find(select => select.attributes('aria-label') === '灵感参考知识库')!.vm.$emit('update:value', [])
     await wrapper.get('textarea').setValue('这轮不使用资料')
     await button(wrapper, '发送').trigger('click')
     await flushPromises()
@@ -821,7 +819,7 @@ describe('inspiration search controls', () => {
     vi.mocked(chatInspiration).mockResolvedValue({ content: '回复' })
     for (let index = 0; index < 6; index++) {
       const wrapper = mountChat()
-      wrapper.findComponent(NSelect).vm.$emit('update:value', null)
+      wrapper.findComponent({ name: 'V3Select' }).vm.$emit('update:value', null)
       await wrapper.get('textarea').setValue(`第 ${index + 1} 个灵感会话`)
       await button(wrapper, '发送').trigger('click')
       await flushPromises()

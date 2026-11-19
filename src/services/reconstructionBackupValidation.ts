@@ -560,7 +560,7 @@ export function validateReconstructionWorkspaces(value: unknown, novels: Novel[]
       ref(row.chapterId, `${at}.chapterId`, 'chapter'); ref(row.sourceVersionId, `${at}.sourceVersionId`, 'version')
       row.findings.forEach(f => checkFinding(f, `${at}.findings.${f.id}`))
       row.candidateChanges.forEach(c => checkCandidate(c, `${at}.candidateChanges.${c.id}`))
-      if (row.findings.some(f => f.chapterId !== row.chapterId) || row.candidateChanges.some(c => c.chapterId !== undefined && c.chapterId !== row.chapterId)) fail(`${at}.chapterId（内嵌审核归属错误）`)
+      if (row.findings.some(f => f.chapterId !== row.chapterId) || row.candidateChanges.some(c => c.chapterId !== undefined && c.chapterId !== row.chapterId)) fail(`${at}.chapterId（内嵌审校归属错误）`)
     }
     assertCharacterMemoryReferences(novels, item.novelId, item.canonMutations, base + '.canonMutations')
     assertEventCausalityHistory(item.canonMutations, item.candidates, item.novelId)

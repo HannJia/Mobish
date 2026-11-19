@@ -25,7 +25,7 @@ describe('chapter ending response validation', () => {
 
   it('reports truncation and usage without silently retrying or increasing the request limit', async () => {
     vi.mocked(callAI).mockResolvedValue({ content: '', finishReason: 'length', usage: { prompt_tokens: 10, completion_tokens: 900, total_tokens: 910 } })
-    await expect(useChapterEndingCheck().requestChapterEndingCheck(model, '正文')).rejects.toThrow('输出用量：900 token')
+    await expect(useChapterEndingCheck().requestChapterEndingCheck(model, '正文')).rejects.toThrow('输出用量：900 Token')
     expect(callAI).toHaveBeenCalledOnce()
     expect(vi.mocked(callAI).mock.calls[0][0]).toMatchObject({ maxTokens: 900, noAutomaticRetry: true, structuredOutput: 'concise-json' })
   })

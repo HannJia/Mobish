@@ -35,7 +35,7 @@ export async function requestCoveredContentReview(options: {
   const binding = getBinding(contexts)
   const ensureCurrent = () => {
     options.ensureCurrent()
-    if (getBinding() !== binding) throw new Error('审核设定、模型或规则已变化，未采用旧版本的分段审核')
+    if (getBinding() !== binding) throw new Error('审校设定、模型或规则已变化，未采用旧版本的分段审校')
   }
   const result = await requestChapterReviewWithCoverage(options.source, async (part, kind, facts) => {
     options.signal?.throwIfAborted()
@@ -67,8 +67,8 @@ export async function requestCoveredContentReview(options: {
             : result.finishReason === 'client_stop' ? '本次请求被停止（client_stop）'
               : '供应商返回了非正常结束标记'
         const output = result.usage?.completion_tokens
-        const usage = typeof output === 'number' && Number.isFinite(output) ? `；已输出 ${output} tokens` : ''
-        const limit = Number.isFinite(options.model.maxTokens) ? `；设置上限 ${options.model.maxTokens} tokens` : ''
+        const usage = typeof output === 'number' && Number.isFinite(output) ? `；已输出 ${output} Token` : ''
+        const limit = Number.isFinite(options.model.maxTokens) ? `；设置上限 ${options.model.maxTokens} Token` : ''
         throw new Error(`内容审查输出未正常完成：${reason}${usage}${limit}。部分报告保留供参考，不能用于通过审校。`)
       }
       if (contentReviewVerdict(report) !== 'unknown') return report.trim()

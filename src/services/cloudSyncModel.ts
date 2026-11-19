@@ -88,7 +88,7 @@ export function projectDocuments(project: ProjectBackup): Map<string, string> {
 export function parseCloudDocument(key: string, payload: string): SyncDocument {
   if (new TextEncoder().encode(payload).byteLength > MAX_SYNC_DOCUMENT_BYTES) throw new Error('云端文档超过同步上限。')
   const value = JSON.parse(payload) as SyncDocument
-  if (value?.schemaVersion !== 3) throw new Error('云端数据不是 V3 格式，已停止合并。')
+  if (value?.schemaVersion !== 3) throw new Error('云端数据来自不支持的旧版本，已停止合并。')
   const now = new Date().toISOString()
   if (value?.kind === 'inspiration' && key === `inspiration:${value.inspiration?.id}`) {
     return { kind: 'inspiration', schemaVersion: 3, inspiration: parseInspirationSession(value.inspiration) }
@@ -98,7 +98,7 @@ export function parseCloudDocument(key: string, payload: string): SyncDocument {
     return value
   }
   if (value?.kind === 'novel' && key === `novel:${value.novel?.id}` && Array.isArray(value.chapterRevisions)) {
-    if (value.schemaVersion !== 3 || !value.reconstructionWorkspace) throw new Error('云端小说缺少完整的 V3 创作工作区，已停止合并以保护本机规划和审核记录。')
+    if (value.schemaVersion !== 3 || !value.reconstructionWorkspace) throw new Error('云端小说缺少完整的创作工作区（可能来自旧版本），已停止合并以保护本机规划和审校记录。')
     // References are checked against the complete project again before application.
     const placeholders = (value.novel.knowledgeBaseIds || []).map(id => ({
       id, name: '', description: '', entries: [], createdAt: now,

@@ -24,7 +24,7 @@ export function summaryPromptSignature(instructions: string): string {
 }
 
 function outputReservation(model: ModelConfig, chars: number): number {
-  if (!Number.isSafeInteger(model.maxTokens) || model.maxTokens < 1) throw new Error('模型输出 token 上限无效')
+  if (!Number.isSafeInteger(model.maxTokens) || model.maxTokens < 1) throw new Error('模型输出 Token 上限无效')
   return Math.min(model.maxTokens, chars * 2)
 }
 

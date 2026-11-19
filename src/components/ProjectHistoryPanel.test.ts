@@ -100,7 +100,7 @@ describe('ProjectHistoryPanel retention controls', () => {
     mocks.desktop = false
     mountPanel()
     await flushPromises()
-    expect(wrapper.text()).toContain('浏览器存储不支持作者控制的版本裁剪')
+    expect(wrapper.text()).toContain('浏览器版不支持清理旧版本')
     expect(wrapper.text()).not.toContain('预览保留策略')
     expect(mocks.readRetention).not.toHaveBeenCalled()
   })
@@ -115,10 +115,10 @@ describe('ProjectHistoryPanel retention controls', () => {
     await previewButton.trigger('click')
     await flushPromises()
     expect(mocks.previewRetention).toHaveBeenCalledWith({ keepLatest: 1, keepSince: null }, [])
-    expect(wrapper.text()).toContain(firstRevision.slice(0, 16))
+    expect(wrapper.text()).toContain('将清理 1 个旧版本')
     expect(wrapper.text()).toContain('渡口档案')
-    expect(wrapper.text()).toContain('提交记录及正文不会删除')
-    const acknowledge = wrapper.findAll('input[type="checkbox"]').find(input => input.element.parentElement?.textContent?.includes('以上版本将不可恢复'))!
+    expect(wrapper.text()).toContain('清理后不能再恢复；正文不受影响')
+    const acknowledge = wrapper.findAll('input[type="checkbox"]').find(input => input.element.parentElement?.textContent?.includes('这些版本清理后不能再恢复'))!
     await acknowledge.setValue(true)
     const confirmButton = wrapper.findAll('button').find(button => button.text() === '确认应用保留策略')!
     await confirmButton.trigger('click')
@@ -126,7 +126,7 @@ describe('ProjectHistoryPanel retention controls', () => {
     expect(mocks.confirmRetention).toHaveBeenCalledWith(retentionPreview.token, latestRevision)
     expect(mocks.readRetention).toHaveBeenCalledTimes(2)
     expect(mocks.listHistory).toHaveBeenCalledTimes(2)
-    expect(wrapper.text()).toContain('保留策略已保存')
+    expect(wrapper.text()).toContain('保留设置已保存')
   })
 
   it('invalidates the prior preview when any policy input changes', async () => {
@@ -135,9 +135,9 @@ describe('ProjectHistoryPanel retention controls', () => {
     await wrapper.get('input[type="number"]').setValue('1')
     await wrapper.findAll('button').find(button => button.text() === '预览保留策略')!.trigger('click')
     await flushPromises()
-    expect(wrapper.text()).toContain('将停止恢复 1 个版本')
+    expect(wrapper.text()).toContain('将清理 1 个旧版本')
     await wrapper.get('input[type="number"]').setValue('2')
-    expect(wrapper.text()).not.toContain('将停止恢复 1 个版本')
+    expect(wrapper.text()).not.toContain('将清理 1 个旧版本')
     const confirmButton = wrapper.findAll('button').find(button => button.text() === '确认应用保留策略')
     expect(confirmButton?.attributes('disabled')).toBeUndefined()
     expect(wrapper.text()).toContain('保留条件已更改')
@@ -166,14 +166,14 @@ describe('ProjectHistoryPanel retention controls', () => {
     await wrapper.get('input[type="number"]').setValue('1')
     await wrapper.findAll('button').find(button => button.text() === '预览保留策略')!.trigger('click')
     await flushPromises()
-    const acknowledge = wrapper.findAll('input[type="checkbox"]').find(input => input.element.parentElement?.textContent?.includes('以上版本将不可恢复'))!
+    const acknowledge = wrapper.findAll('input[type="checkbox"]').find(input => input.element.parentElement?.textContent?.includes('这些版本清理后不能再恢复'))!
     await acknowledge.setValue(true)
     await wrapper.findAll('button').find(button => button.text() === '确认应用保留策略')!.trigger('click')
     await flushPromises()
     expect(mocks.confirmRetention).toHaveBeenCalledOnce()
     expect(wrapper.get('input[type="number"]').element).toHaveProperty('value', '1')
     expect(wrapper.text()).toContain('历史刷新失败')
-    expect(wrapper.text()).not.toContain('保留策略已保存')
+    expect(wrapper.text()).not.toContain('保留设置已保存')
   })
 
   it('marks pruned versions and blocks snapshot preview', async () => {
@@ -183,7 +183,7 @@ describe('ProjectHistoryPanel retention controls', () => {
     const select = wrapper.findAll('select').find(item => item.element.options.length === 3)!
     await select.setValue(firstRevision)
     await flushPromises()
-    expect(wrapper.text()).toContain('此版本已裁剪')
+    expect(wrapper.text()).toContain('这个版本已清理')
     const previewButton = wrapper.findAll('button').find(button => button.text() === '只读预览与当前版本比较')!
     expect(previewButton.attributes('disabled')).toBeDefined()
     expect(mocks.readSnapshot).not.toHaveBeenCalled()

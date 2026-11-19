@@ -91,6 +91,6 @@ export function resolveFinding(
   status: ReviewFinding['status'],
   authorNote?: string,
 ): ReviewFinding {
-  if (status === 'open') throw new Error('处理审核问题时不能恢复为 open，请重新运行审核')
+  if (status === 'open') throw new Error('处理审校问题时不能恢复为 open，请重新运行审校')
   return { ...finding, status, authorNote }
 }

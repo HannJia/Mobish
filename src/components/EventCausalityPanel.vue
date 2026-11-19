@@ -1,6 +1,6 @@
 <template>
   <section class="causality-panel" aria-label="作者确认的事件因果">
-    <p>方向为来源事件 → 目标事件。导致＝产生结果；使能＝提供必要条件；阻碍＝妨碍目标；动机＝促使行动。计划依赖、共现和模型猜测不作事实。</p>
+    <p>方向为来源事件 → 目标事件。导致＝产生结果；使能＝提供必要条件；阻碍＝妨碍目标；动机＝促使行动。</p>
     <button type="button" :disabled="saving" @click="open()">新增因果决定</button>
     <article v-for="edge in projection.edges" :key="edge.revision.edgeId">
       <strong>{{ eventName(edge.revision.fromEventId) }} —{{ eventCausalityLabels[edge.revision.relation] }}→ {{ eventName(edge.revision.toEventId) }}</strong>
@@ -16,7 +16,7 @@
     <article v-for="row in proposalRows" :key="row.candidate.id">
       <strong>{{ row.preview.title }}</strong>
       <p>{{ row.preview.detail }}</p>
-      <small>待作者核对，尚非事实</small>
+      <small>待你核对，尚未确认</small>
       <button type="button" :disabled="saving" @click="openProposal(row.candidate)">编辑并核对</button>
     </article>
     <EditorRecoveryPicker :drafts="recoverableDrafts" :busy="saving" :conflict="recoveryConflict" @restore="restoreRecovery" @discard="discardRecovery" />
@@ -31,10 +31,10 @@
         <label>完整唯一正文引文<textarea v-model="draft.quote" :required="!candidateId" :readonly="!!candidateId" /></label>
         <label>引文起始位置（从 0 起）<input v-model.number="draft.startOffset" type="number" min="0" :readonly="!!candidateId" required /></label>
         <button v-if="!candidateId" type="button" @click="locate">定位唯一引文</button>
-        <p v-if="candidateId && !proposalCanAdopt" role="status">这是未验证候选，缺少完整、有效的正文证据，不能采用。可以保存文字修改、暂缓或拒绝；请重新分析取得证据，或另建有证据的作者决定。</p>
+        <p v-if="candidateId && !proposalCanAdopt" role="status">这条还没有找到正文依据，暂时不能采用。可以重新分析，也可以暂缓或拒绝。</p>
         <label>作者说明<textarea v-model="authorNote" /></label>
         <p>打开时的正文与决定已绑定；正文、顺序或端点变化后请重新打开核对。失败时本表输入保留。</p>
-        <label><input v-model="authorChecked" type="checkbox" />我已核对两端事件、方向、类型和正文证据，确认此作者决定</label>
+        <label><input v-model="authorChecked" type="checkbox" />我已核对两端事件、方向、类型和正文证据，确认这条决定</label>
         <button type="submit" :disabled="!authorChecked || !proposalCanAdopt">{{ saving ? '保存中…' : '确认并保存' }}</button>
         <template v-if="candidateId">
           <button type="button" @click="saveProposal('save')">保存候选修改</button>
@@ -50,6 +50,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { computed, ref, watch } from 'vue'
 import EditorRecoveryPicker from '@/components/EditorRecoveryPicker.vue'
 import { useEditorRecovery, type EditorDraftSession } from '@/composables/useEditorRecovery'
@@ -93,9 +94,9 @@ function recoveryPayload() {
 function queueRecovery() {
   if (!draft.value || !recoverySession.value) return
   try { recovery.queue(recoverySession.value, recoveryPayload()) }
-  catch (cause) { error.value = cause instanceof Error ? cause.message : '恢复草稿保存失败' }
+  catch (cause) { error.value = errorText(cause, '恢复草稿保存失败') }
 }
-const recoveryConflict = (item: Pick<EditorDraft, 'openedBaseline'>) => item.openedBaseline === recoveryBaseline() ? '' : '事件、正文或候选已变化；草稿保留原基线，恢复后需重新核对。'
+const recoveryConflict = (item: Pick<EditorDraft, 'openedBaseline'>) => item.openedBaseline === recoveryBaseline() ? '' : '事件或正文已被修改，恢复草稿后请重新核对。'
 async function restoreRecovery(item: EditorDraft) {
   if (item.novelId !== props.novel.id || item.kind !== 'event-causality') return
   try {
@@ -107,7 +108,7 @@ async function restoreRecovery(item: EditorDraft) {
     baseline.value = String(payload.baseline); candidateId.value = String(payload.candidateId || '') || undefined
     expectedCandidate.value = String(payload.expectedCandidate || '') || undefined; authorNote.value = String(payload.authorNote || '')
     authorChecked.value = false; recoverySession.value = restored; error.value = ''
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : '恢复事件因果输入失败' }
+  } catch (cause) { error.value = errorText(cause, '恢复事件因果输入失败') }
 }
 async function discardRecovery(item: EditorDraft) {
   try {
@@ -115,7 +116,7 @@ async function discardRecovery(item: EditorDraft) {
     if (session?.identity.id === item.id && (session.running || session.pending || session.sequence > session.savedSequence)) await recovery.flushSession(session)
     await recovery.discard(item)
     if (session?.identity.id === item.id) recoverySession.value = undefined
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : '丢弃失败' }
+  } catch (cause) { error.value = errorText(cause, '丢弃失败') }
 }
 const records = computed(() => store.getCanonMutations(props.novel.id))
 const history = computed(() => records.value.filter(r => r.type === 'event_causality'))
@@ -166,7 +167,7 @@ function openProposal(candidate: CandidateChange) {
     authorNote.value = candidate.id === props.focusCandidateId ? props.initialAuthorNote ?? candidate.authorNote ?? '' : candidate.authorNote || ''
     captureRecoverySession()
   }
-  catch (e) { error.value = e instanceof Error ? e.message : '候选无效' }
+  catch (e) { error.value = errorText(e, '候选无效') }
 }
 watch([draft, baseline, candidateId, expectedCandidate, authorNote, authorChecked], () => { queueRecovery() }, { deep: true, flush: 'sync' })
 watch(() => [props.novel.id, props.focusCandidateId], () => {
@@ -191,7 +192,7 @@ async function save() {
     draft.value = null; recoverySession.value = undefined
     if (checkpoint && session) void recovery.consume(session, checkpoint).catch(() => undefined)
   }
-  catch (e) { error.value = e instanceof Error ? e.message : '保存失败，输入已保留。' }
+  catch (e) { error.value = errorText(e, '保存失败，输入已保留。') }
   finally { saving.value = false }
 }
 async function saveProposal(action: 'save' | 'defer' | 'reject') {
@@ -206,7 +207,7 @@ async function saveProposal(action: 'save' | 'defer' | 'reject') {
     if (checkpoint && session) void recovery.consume(session, checkpoint).catch(() => undefined)
     if (action === 'reject') { localDrafts.delete(result.id); draft.value = null; recoverySession.value = undefined }
     else stash()
-  } catch (e) { error.value = e instanceof Error ? e.message : '保存失败，输入已保留。' }
+  } catch (e) { error.value = errorText(e, '保存失败，输入已保留。') }
   finally { saving.value = false }
 }
 </script>

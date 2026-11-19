@@ -23,9 +23,9 @@
       <button type="button" class="m-ibtn mode-info" aria-label="三种写作模式的区别" :aria-expanded="modeInfoOpen" @click="modeInfoOpen = !modeInfoOpen"><V3Icon name="info" size="s" /></button>
       <div class="mode-pop" :class="{ open: modeInfoOpen }" role="tooltip">
         <strong>写作模式 · 区别在于谁来写正文</strong>
-        <div><b>主笔</b><p>你写正文。AI 提供批注、检索、选区候选与审校，由你决定是否采纳。</p></div>
-        <div><b>协作</b><p>你确认章纲，AI 提供候选稿。切换模式不会自动请求模型或改写正文。</p></div>
-        <div><b>自动</b><p>进入运行中心配置章节范围、预算和检查点；不会在这里直接启动任务。</p></div>
+        <div><b>主笔</b><p>你写正文，AI 提供批注、检索、选区候选与审校。</p></div>
+        <div><b>协作</b><p>你确认章纲，AI 提供候选稿。</p></div>
+        <div><b>自动</b><p>在运行中心设置章节范围、预算和检查点。</p></div>
         <small><V3Icon name="lock" size="s" />AI 正文先是候选；故事变化需逐条确认后入典。</small>
       </div>
     </div>
@@ -94,7 +94,7 @@
     <main class="write-main" @scroll.passive="selectionRect = null">
       <EditorRecoveryPicker :drafts="session.drafts.value" :busy="busy" @restore="restoreDraft" @discard="discardDraft" />
       <div v-if="session.novel.value.writingMode === 'ai'" class="write-banner"><V3Icon name="info" size="s" /><span>协作模式：AI 内容先保存为候选，由你预览、采纳或拒绝。批量起草请进入自动写作运行中心。</span></div>
-      <div v-if="displayStatus === 'finalized'" class="write-banner finalized-banner"><V3Icon :name="locked ? 'lock' : 'check'" size="s" /><span>{{ locked ? '本章已锁定，正文只读。' : '本章已定稿。仍可修订，保存修改后需要重新审校；历史来源保留供核对。' }}</span></div>
+      <div v-if="displayStatus === 'finalized'" class="write-banner finalized-banner"><V3Icon :name="locked ? 'lock' : 'check'" size="s" /><span>{{ locked ? '本章已锁定，正文只读。' : '本章已定稿。仍可修订，保存修改后需要重新审校。' }}</span></div>
       <section ref="paper" class="paper" :class="{ 'with-margins': showMargins }">
         <header class="paper-head">
           <div class="paper-kicker" :aria-label="'第' + (session.chapter.value.chapterIndex + 1) + '章'">{{ chapterHeading(session.chapter.value.chapterIndex) }}</div>
@@ -106,11 +106,11 @@
             <span><V3Icon name="clock" size="s" />{{ storyTimeLabel }}</span>
             <button v-if="session.chapter.value.versions?.length" type="button" class="m-link" :disabled="versionBusy" @click="openVersionPanel">版本历史 {{ session.chapter.value.versions.length }}</button>
           </div>
-          <span v-if="showMargins" class="paper-mnote">{{ activeTab === 'review' ? `批注 · ${openFindings.length} 条待处理` : '候选 · 待确认' }}</span>
+          <span v-if="showMargins && marginSummary" class="paper-mnote">{{ marginSummary }}</span>
         </header>
         <div v-if="versionOpen" class="version-panel">
           <div class="version-panel-head"><strong>正文历史版本</strong><button type="button" class="m-btn xs" @click="versionOpen = false">收起</button></div>
-          <p class="m-muted m-tiny">恢复前会自动保留当前正文，恢复后需要重新审核。</p>
+          <p class="m-muted m-tiny">恢复前会自动保留当前正文，恢复后需要重新审校。</p>
           <div class="version-actions">
             <select v-model="selectedVersionId" class="version-select" :disabled="versionBusy">
               <option v-for="version in versionOptions" :key="version.id" :value="version.id">{{ version.label }} · {{ new Date(version.savedAt).toLocaleString('zh-CN') }}</option>
@@ -126,25 +126,30 @@
                 <div :class="{ bad: !!session.workflow.value?.blockers.length }"><b>{{ session.workflow.value?.blockers.length || 0 }}</b><span>阻塞问题</span></div>
                 <div><b>{{ openFindings.filter(item => item.severity !== 'blocker').length }}</b><span>其余待处理</span></div>
                 <div :class="{ bad: !deskReview.valid }"><b>{{ session.workflow.value?.coverage ? `${session.workflow.value.coverage.completed}/${session.workflow.value.coverage.total}` : '—' }}</b><span>审校分段覆盖</span></div>
-                <div><b>{{ planBeats.length }}</b><span>计划要点 · 非完成数</span></div>
+                <div><b>{{ planBeats.length }}</b><span>计划要点</span></div>
               </div>
-              <p class="gate-detail">{{ deskReview.detail }}。候选不会自动写入正文或典籍。</p>
+              <p class="gate-detail">{{ deskReview.detail }}</p>
               <div class="gate-actions"><button class="m-btn" type="button" :disabled="busy || locked || !session.content.value.trim()" @click="reviewChapter"><V3Icon name="refresh" size="s" />全章审校</button><button class="m-btn zhu" type="button" :disabled="busy || !session.workflow.value?.primary || locked" @click="openCompletion"><V3Icon name="stamp" size="s" />{{ primaryLabel }} · 核对</button></div>
             </section>
           </PlainTextEditor>
         </div>
         <div v-if="showMargins" class="paper-margins" aria-label="页边批注与候选" :style="{ top: marginViewport.top + 'px', height: marginViewport.height + 'px' }">
           <div v-for="item in marginItems" :key="item.id" :ref="value => setMarginElement(item.id, value)" class="margin-item" :style="{ top: (marginPositions[item.id] || 0) + 'px', visibility: marginPositions[item.id] === undefined ? 'hidden' : undefined }">
-            <button v-if="item.finding" type="button" class="margin-note" :class="[item.finding.severity, { foreshadowing: item.finding.type === 'foreshadowing', done: !['open', 'deferred'].includes(item.finding.status) }]" @click="onMarkClick(item.id)"><b>{{ item.number }}</b>{{ item.finding.suggestedFix || item.finding.title }}<span>{{ findingTypeLabel[item.finding.type] }} · {{ severityLabel[item.finding.severity] }}</span></button>
+            <button v-if="item.finding" type="button" class="margin-note" :class="[item.finding.severity, { foreshadowing: item.finding.type === 'foreshadowing', done: !['open', 'deferred'].includes(item.finding.status), stale: item.stale, on: selectedFindingId === item.finding.id }]" @click="onMarkClick(item.id)"><b>{{ item.number }}</b>{{ item.finding.suggestedFix || item.finding.title }}<span>{{ findingTypeLabel[item.finding.type] }} · {{ item.stale ? '待重审' : severityLabel[item.finding.severity] }}</span></button>
             <article v-else-if="item.candidate" class="margin-slip">
               <div class="slip-head"><span>{{ candidateTypeLabel[item.candidate.type] }}候选</span><span>未入典</span></div>
               <p class="slip-story">{{ previewCandidate(item.candidate).title }}</p><p class="slip-detail">{{ previewCandidate(item.candidate).detail }}</p>
               <button type="button" class="m-btn xs" @click="showCandidate(item.id)">核对候选 <V3Icon name="chevR" size="s" /></button>
             </article>
-            <article v-else-if="revision" class="margin-slip">
+            <article v-else-if="item.revisionId && revisionMap[item.revisionId]" class="margin-slip">
               <div class="slip-head"><span>正文修订候选</span><span>未入正文</span></div>
-              <div class="slip-body"><del v-if="revision.before">{{ revision.before }}</del><ins>{{ revision.after || '（删除此段）' }}</ins></div>
-              <div class="slip-acts"><button type="button" class="m-btn xs pri" :disabled="busy || locked || !revision.current" @click="acceptRevision">采纳</button><button type="button" class="m-btn xs" @click="showCandidate(item.id)">展开</button><button type="button" class="m-btn xs" :disabled="busy" @click="rejectRevision">不用</button></div>
+              <div class="slip-body"><del v-if="revisionMap[item.revisionId].before">{{ revisionMap[item.revisionId].before }}</del><ins>{{ revisionMap[item.revisionId].after || '（删除此段）' }}</ins></div>
+              <div class="slip-acts">
+                <button type="button" class="m-btn xs pri" :disabled="busy || locked" @click="acceptRevision(item.revisionId)">采纳</button>
+                <button type="button" class="m-btn xs" :disabled="busy || locked" title="放弃这一版并按同样要求重新生成" @click="regenerateRevision(item.revisionId)">换一版</button>
+                <button type="button" class="m-btn xs" title="从页边收起，稍后在“候选”中处理" @click="parkRevision(item.revisionId)">暂存</button>
+                <button type="button" class="m-btn xs" :disabled="busy" @click="rejectRevision(item.revisionId)">不用</button>
+              </div>
             </article>
           </div>
         </div>
@@ -153,10 +158,10 @@
 
     <aside v-show="deskOpen && !focused" class="write-side desk-side" aria-label="案头">
       <div class="desk-tabs" role="tablist" aria-label="案头">
-        <button v-for="tab in tabs" :key="tab.id" type="button" :class="{ on: activeTab === tab.id }" @click="activeTab = tab.id">{{ tab.label }}<b v-if="tab.count">{{ tab.count }}</b></button>
+        <button v-for="tab in tabs" :id="'desk-tab-' + tab.id" :key="tab.id" type="button" role="tab" :aria-selected="activeTab === tab.id" :aria-controls="'desk-panel-' + tab.id" :tabindex="activeTab === tab.id ? 0 : -1" :class="{ on: activeTab === tab.id }" @click="activeTab = tab.id" @keydown="onTabKey">{{ tab.label }}<b v-if="tab.count">{{ tab.count }}</b></button>
       </div>
 
-      <section v-if="activeTab === 'review'" class="desk-panel">
+      <section v-if="activeTab === 'review'" id="desk-panel-review" class="desk-panel" role="tabpanel" aria-labelledby="desk-tab-review">
         <div v-if="chapterBackgroundTasks.length" class="background-checks">
           <strong>后台检查</strong>
           <div v-for="task in chapterBackgroundTasks" :key="task.id" class="background-task">
@@ -171,40 +176,53 @@
           <div class="review-summary-head"><strong>全章审校</strong><span class="m-tag" :class="deskReview.valid ? 'qing' : 'zi'">{{ deskReview.label }}</span></div>
           <div class="m-muted review-summary-meta">{{ deskReview.detail }}</div>
           <div class="coverage-bars" aria-label="审校覆盖情况"><i v-for="index in deskReview.total" :key="index" :class="{ off: index > deskReview.completed }" /></div>
-          <div class="review-summary-foot"><span class="m-muted">确定性 · 结构化 · 连续性 · 语义 · 作者确认</span><button class="m-btn ghost sm" type="button" :disabled="busy || !session.content.value.trim()" @click="reviewChapter">↻ 重审</button></div>
+          <div class="review-summary-foot"><span class="m-muted">基础检查 · 信息提取 · 连贯性 · 语义审校 · 作者确认</span><button class="m-btn ghost sm" type="button" :disabled="busy || !session.content.value.trim()" @click="reviewChapter">↻ 重审</button></div>
         </div>
         <div class="review-filters" role="toolbar" aria-label="审校筛选">
           <button v-for="filter in reviewFilters" :key="filter.id" type="button" class="m-chip" :class="{ on: reviewFilter === filter.id }" @click="reviewFilter = filter.id">{{ filter.label }} <span class="m-num">{{ filter.count }}</span></button>
         </div>
         <p v-if="!session.findings.value.length" class="m-muted desk-empty">当前正文还没有批注。</p>
         <p v-else-if="!visibleFindings.length" class="m-muted desk-empty">没有符合条件的批注。</p>
-        <article v-for="finding in visibleFindings" :key="finding.id" class="finding" :class="[finding.status, finding.severity, { on: selectedFindingId === finding.id, foreshadowing: finding.type === 'foreshadowing' }]" @click="onMarkClick('f:' + finding.id)">
-          <div class="finding-head"><span class="m-tag" :class="findingTagClass(finding.severity)">{{ severityLabel[finding.severity] }}</span><span class="finding-type">{{ findingTypeLabel[finding.type] }}</span><span class="finding-loc m-num">{{ findingAnchor(finding) ? `字 ${findingAnchor(finding)!.start}` : '本章' }}</span></div>
+        <article v-for="finding in visibleFindings" :key="finding.id" class="finding" :data-finding="finding.id" tabindex="0" :aria-expanded="selectedFindingId === finding.id"
+          :class="[finding.status, finding.severity, { on: selectedFindingId === finding.id, foreshadowing: finding.type === 'foreshadowing', previous: !isCurrentFinding(finding) }]"
+          @click="onMarkClick('f:' + finding.id)" @keydown.enter.self.prevent="onMarkClick('f:' + finding.id)" @keydown.space.self.prevent="onMarkClick('f:' + finding.id)">
+          <div class="finding-head"><span class="m-tag" :class="findingTagClass(finding.severity)">{{ severityLabel[finding.severity] }}</span><span class="finding-type">{{ findingTypeLabel[finding.type] }}</span><span class="finding-loc m-num">{{ anyFindingAnchor(finding) ? `字 ${anyFindingAnchor(finding)!.start}` : '本章' }}</span></div>
           <strong class="finding-title">{{ finding.title }}</strong>
-          <small v-if="!isCurrentFinding(finding)" class="m-muted">此前正文参考 · 需要重新审校</small>
+          <small v-if="!isCurrentFinding(finding) && isOpenFinding(finding)" class="finding-stale">{{ relocatedAnchor(finding) ? '正文已改，这段未动 · 待重审' : '所在段落已改 · 待重审' }}</small>
+          <small v-else-if="!isCurrentFinding(finding)" class="finding-stale">上一版正文的记录</small>
           <p v-if="findingEvidence(finding)" class="finding-quote">“{{ findingEvidence(finding) }}”</p>
           <div v-if="selectedFindingId === finding.id" class="finding-detail">
             <p>{{ finding.explanation }}</p>
             <div v-if="finding.suggestedFix" class="finding-suggestion">{{ finding.suggestedFix }}</div>
           </div>
-          <div class="finding-actions" v-if="isCurrentFinding(finding) && (finding.status === 'open' || finding.status === 'deferred')">
-            <button v-if="findingAnchor(finding)" class="m-btn xs pri" type="button" :disabled="busy || locked || !!session.pendingRevision.value" @click.stop="generateFindingRevision(finding)"><V3Icon name="spark" size="s" />修改候选</button>
+          <div class="finding-actions" v-if="isCurrentFinding(finding) && isOpenFinding(finding)">
+            <button v-if="findingAnchor(finding)" class="m-btn xs pri" type="button" :disabled="busy || locked" @click.stop="generateFindingRevision(finding)"><V3Icon name="spark" size="s" />修改候选</button>
             <button class="m-btn xs" type="button" :disabled="busy" @click.stop="resolveFinding(finding, 'accepted')">已处理</button>
             <button class="m-btn xs" type="button" :disabled="busy" @click.stop="resolveFinding(finding, 'intentional')">有意设计</button>
             <button class="m-btn xs" type="button" :disabled="busy" @click.stop="resolveFinding(finding, 'deferred')">延后</button>
+          </div>
+          <div class="finding-actions" v-else-if="relocatedAnchor(finding)">
+            <button class="m-btn xs pri" type="button" :disabled="busy || locked" @click.stop="generateFindingRevision(finding)"><V3Icon name="spark" size="s" />修改候选</button>
+            <span class="finding-hint">重审后可标记处理</span>
           </div>
         </article>
         <pre v-if="ai.reviewReport.value" class="review-report">{{ ai.reviewReport.value }}</pre>
       </section>
 
-      <section v-else-if="activeTab === 'candidate'" class="desk-panel">
-        <div class="panel-title"><strong>待确认候选</strong><span class="m-muted m-tiny">作者确认后才生效</span></div>
-        <article v-if="revision" class="candidate revision-card" data-candidate="revision">
-          <div class="finding-head"><span class="m-tag jin">未入正文</span><strong>正文修订候选</strong></div>
-          <p>{{ session.pendingRevision.value?.reason }}</p>
-          <p v-if="!revision.current" class="revision-stale" role="alert">正文或依据已变化，此候选仅供参考，不能直接采纳。</p>
-          <div class="revision-diff"><del v-if="revision.before">{{ revision.before }}</del><ins>{{ revision.after || '（删除此段）' }}</ins></div>
-          <div class="finding-actions"><button class="m-btn xs zhu" type="button" :disabled="busy || locked || !revision.current" @click="acceptRevision">采纳入正文</button><button class="m-btn xs" type="button" :disabled="!revision.current" @click="editor?.revealRange(revision.start, revision.end)">定位</button><button class="m-btn xs" type="button" :disabled="busy" @click="rejectRevision">拒绝候选</button></div>
+      <section v-else-if="activeTab === 'candidate'" id="desk-panel-candidate" class="desk-panel" role="tabpanel" aria-labelledby="desk-tab-candidate">
+        <div class="panel-title"><strong>待确认候选</strong></div>
+        <article v-for="item in revisionViews" :key="item.id" class="candidate revision-card" :data-candidate="'r:' + item.id">
+          <div class="finding-head"><span class="m-tag jin">未入正文</span><strong>正文修订候选</strong><span v-if="parkedRevisions.has(item.id)" class="m-tag dai">已暂存</span></div>
+          <p>{{ item.row.reason }}</p>
+          <p v-if="!item.current" class="revision-stale" role="alert">正文已变化，这一版不能直接采纳，可以换一版。</p>
+          <div class="revision-diff"><del v-if="item.before">{{ item.before }}</del><ins>{{ item.after || '（删除此段）' }}</ins></div>
+          <div class="finding-actions">
+            <button class="m-btn xs zhu" type="button" :disabled="busy || locked || !item.current" @click="acceptRevision(item.id)">采纳入正文</button>
+            <button class="m-btn xs" type="button" :disabled="busy || locked" @click="regenerateRevision(item.id)">换一版</button>
+            <button class="m-btn xs" type="button" :disabled="!item.current" @click="editor?.revealRange(item.start, item.end)">定位</button>
+            <button v-if="parkedRevisions.has(item.id)" class="m-btn xs" type="button" @click="unparkRevision(item.id)">放回页边</button>
+            <button class="m-btn xs" type="button" :disabled="busy" @click="rejectRevision(item.id)">不用</button>
+          </div>
         </article>
         <div class="candidate-section-title">故事变化 · 逐条确认后入典</div>
         <p v-if="editingCandidate && editingDecisionVersion !== session.reviewSourceVersion.value" class="m-muted" role="alert">正文或依据已变化，修改输入仍保留；请取消修改后重新核对。</p>
@@ -224,9 +242,9 @@
         </article>
       </section>
 
-      <section v-else-if="activeTab === 'memory'" class="desk-panel memory-panel">
-        <div class="panel-title"><strong>本章记忆投影</strong><router-link class="m-link" :to="`/codex/${novelId}`">典籍 <V3Icon name="chevR" size="s" /></router-link></div>
-        <p class="context-note">人物认知取本章之前的有效记录；本章计划是创作约束，不是已发生的事实。实际 AI 上下文还会按任务预算检索资料。</p>
+      <section v-else-if="activeTab === 'memory'" id="desk-panel-memory" class="desk-panel memory-panel" role="tabpanel" aria-labelledby="desk-tab-memory">
+        <div class="panel-title"><strong>本章人物认知</strong><router-link class="m-link" :to="`/codex/${novelId}`">典籍 <V3Icon name="chevR" size="s" /></router-link></div>
+        <p class="context-note">人物认知取自本章之前的记录；生成时还会按需检索其他资料。</p>
         <section class="context-section"><h4>本章涉及人物</h4>
           <article v-for="character in relatedCharacters" :key="character.id" class="memory-person"><CharacterAvatar :character="character" :size="30" /><div><strong>{{ character.name }}</strong><small>{{ character.identity || '身份未记录' }}</small><div class="knowledge-chips"><span v-for="state in characterKnowledge(character.id)" :key="state.id" :class="state.state" :title="state.belief || state.fact">{{ knowledgeStateLabels[state.state] }} · {{ state.fact }}</span><span v-if="!characterKnowledge(character.id).length">暂无有效认知记录</span></div></div></article>
           <p v-if="!relatedCharacters.length" class="m-muted m-tiny">正文与计划暂未关联人物。</p>
@@ -236,15 +254,15 @@
         <section class="context-section"><h4>章纲要点 · {{ planBeats.length }} 项计划</h4><div v-for="(beat, index) in planBeats" :key="index" class="memory-beat"><V3Icon name="target" size="s" /><span>{{ beat }}</span></div><p v-if="!planBeats.length" class="m-muted m-tiny">尚无本章可用章纲。</p><router-link class="m-link" :to="{ path: `/plan/${novelId}`, query: { view: 'workbench', plannerTab: 'plans' } }">核对与修改章纲</router-link></section>
         <section v-if="scenes.length" class="context-section"><h4>本章场景计划</h4><article v-for="scene in scenes" :key="scene.id" class="memory-scene" :class="{ on: selectedSceneId === scene.id }"><strong>{{ scene.title }}</strong><p>{{ scene.purpose }}</p><small v-if="scene.outputState">预期结束：{{ scene.outputState }}</small></article></section>
         <ChapterTimePanel :novel="session.novel.value" :chapter="session.chapter.value" :busy="busy" :save-content="session.saveNow" @saved="session.markChanged" />
-        <div class="context-isolation"><V3Icon name="lock" size="s" /><span>未来信息隔离：这里不投影后续章节认知。计划中的揭示不等于人物已经知道。</span></div>
+        <div class="context-isolation"><V3Icon name="lock" size="s" /><span>只显示本章之前人物已经知道的事。</span></div>
       </section>
 
-      <section v-if="chatMounted" v-show="activeTab === 'chat'" class="desk-panel">
+      <section v-if="chatMounted" v-show="activeTab === 'chat'" id="desk-panel-chat" class="desk-panel" role="tabpanel" aria-labelledby="desk-tab-chat">
         <div class="panel-title"><strong>问 AI</strong></div>
         <div class="chat-host"><BookChat v-if="session.novel.value" :novel-id="session.novel.value.id" :chapter-id="session.chapter.value?.id" :prefill="chatPrefill" :prefill-version="chatPrefillVersion" /></div>
       </section>
 
-      <section v-if="activeTab === 'advisor'" class="desk-panel">
+      <section v-if="activeTab === 'advisor'" id="desk-panel-advisor" class="desk-panel" role="tabpanel" aria-labelledby="desk-tab-advisor">
         <WritingAdvisorSidebar
           :analyzing="advisor.analyzing.value"
           :error="advisorError"
@@ -267,7 +285,7 @@
   </div>
 
   <div v-if="selectedText && selectionRect && !busy && !locked" ref="selectionTools" class="selection-tools" role="toolbar" aria-label="选区 AI 操作" :style="selectionToolStyle" @mousedown.prevent>
-    <span>{{ selectedText.length }} 字</span><button v-for="item in selectionActions" :key="item.mode" type="button" :disabled="!!session.pendingRevision.value" @click="runSelection(item.mode)">{{ item.label }}</button><i /><button type="button" @click="openSelectionChat('check')">设定核对</button><button type="button" @click="openSelectionChat('chat')">问 AI</button>
+    <span>{{ selectedText.length }} 字</span><button v-for="item in selectionActions" :key="item.mode" type="button" @click="runSelection(item.mode)">{{ item.label }}</button><i /><button type="button" @click="openSelectionChat('check')">设定核对</button><button type="button" @click="openSelectionChat('chat')">问 AI</button>
   </div>
   <button v-if="focused" type="button" class="focus-hint" @click="focused = false">专注模式 · 按 Esc 退出</button>
   <div v-if="completionOpen" class="m-overlay completion-overlay" @click.self="closeCompletion" @keydown="onCompletionKey">
@@ -275,19 +293,20 @@
       <header class="m-modal-h"><div><h3 id="completion-title">{{ primaryLabel }}前核对</h3><p id="completion-description">第{{ (session.chapter.value?.chapterIndex ?? 0) + 1 }}章 · {{ chapterTitleForDisplay(session.title.value, session.chapter.value?.chapterIndex ?? 0) }}。故事变化逐条决定，定稿不会代替作者采纳或驳回。</p></div><button type="button" class="m-ibtn" :disabled="busy" aria-label="关闭定稿核对" @click="closeCompletion"><V3Icon name="x" /></button></header>
       <div class="m-modal-b">
         <div class="gate-list"><div v-for="gate in session.workflow.value?.gate || []" :key="gate.key" class="gate-row"><i :class="gate.state" /><span>{{ gate.label }}</span><small>{{ gate.detail }}</small></div></div>
-        <section class="completion-changes"><h4>待处理 · {{ pendingCandidates.length }} 条故事变化{{ revision ? ' / 1 份正文修订' : '' }}</h4><p v-if="!pendingCandidates.length && !revision" class="m-muted m-tiny">没有待处理候选。</p><p v-for="candidate in pendingCandidates" :key="candidate.id"><span class="m-tag jin">{{ candidateTypeLabel[candidate.type] }}</span>{{ previewCandidate(candidate).title }}</p><button v-if="pendingCandidates.length || revision" type="button" class="m-btn sm" :disabled="busy" @click="handlePendingFromCompletion">去案头逐条核对</button></section>
-        <section class="completion-changes"><h4>本章入典记录 · {{ chapterMutations.length }} 条</h4><p class="m-muted m-tiny">历史写入记录保留用于追溯，不等于当前正文审核已通过。</p><p v-for="record in chapterMutations" :key="record.id"><span class="m-tag qing">{{ candidateTypeLabel[record.type] }}</span>{{ record.summary }}</p></section>
-        <p v-if="session.workflow.value?.primary === 'complete'" class="completion-note">“完成本章”会生成总结、检查结尾、审校并提取故事变化；无待处理候选且事务门槛通过时会直接定稿，否则停在候选核对。</p>
-        <p v-if="confirmationVersion !== session.reviewSourceVersion.value" class="revision-stale" role="alert">正文或审核依据已变化，请关闭后重新核对。</p>
+        <section class="completion-changes"><h4>待处理 · {{ pendingCandidates.length }} 条故事变化{{ revisionViews.length ? ` / ${revisionViews.length} 份正文修订` : '' }}</h4><p v-if="!pendingCandidates.length && !revisionViews.length" class="m-muted m-tiny">没有待处理候选。</p><p v-for="candidate in pendingCandidates" :key="candidate.id"><span class="m-tag jin">{{ candidateTypeLabel[candidate.type] }}</span>{{ previewCandidate(candidate).title }}</p><button v-if="pendingCandidates.length || revisionViews.length" type="button" class="m-btn sm" :disabled="busy" @click="handlePendingFromCompletion">去案头逐条核对</button></section>
+        <section class="completion-changes"><h4>本章入典记录 · {{ chapterMutations.length }} 条</h4><p v-for="record in chapterMutations" :key="record.id"><span class="m-tag qing">{{ candidateTypeLabel[record.type] }}</span>{{ record.summary }}</p></section>
+        <p v-if="session.workflow.value?.primary === 'complete'" class="completion-note">“完成本章”会生成总结、检查结尾、审校并提取故事变化；没有待处理的候选时会直接定稿，否则会停下来让你核对。</p>
+        <p v-if="confirmationVersion !== session.reviewSourceVersion.value" class="revision-stale" role="alert">正文或审校依据已变化，请关闭后重新核对。</p>
       </div>
       <footer class="m-modal-f"><span class="l">{{ session.workflow.value?.primary === 'finalize' ? '全部门槛通过后才可定稿' : '先满足篇幅、时间与正文修订检查' }}</span><button type="button" class="m-btn" :disabled="busy" @click="closeCompletion">返回写作</button><button type="button" class="m-btn zhu" :disabled="busy || !canSubmitCompletion || confirmationVersion !== session.reviewSourceVersion.value" @click="primaryAction">{{ busy ? '处理中…' : '确认' + primaryLabel }}</button></footer>
     </section>
   </div>
-  <div v-if="sealVisible" class="seal-overlay" role="status" aria-live="polite"><div class="chapter-seal">定稿</div><span>本章已通过事务校验</span></div>
+  <div v-if="sealVisible" class="seal-overlay" role="status" aria-live="polite"><div class="chapter-seal">定稿</div><span>本章已通过定稿检查</span></div>
   <div v-if="session.saveError.value || ai.error.value" class="write-toast" role="alert">{{ [session.saveError.value, ai.error.value].filter(Boolean).join('；') }}<button type="button" class="m-btn xs" @click="clearErrors">知道了</button></div>
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import V3Icon from '../components/V3Icon.vue'
@@ -309,7 +328,7 @@ import { useWritingAdvisor } from '@/composables/useWritingAdvisor'
 import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspace'
 import { useNovelStore } from '@/stores/novel'
 import { WORKFLOW_STEPS, chapterDot } from '../selectors/chapterWorkflow'
-import { anchorFindings, candidateAnchor, revisionPreview, type Anchor } from './marks'
+import { anchorFindings, candidateAnchor, locateQuote, relocateFindings, revisionPreview, type Anchor } from './marks'
 import { getApprovedPlanning } from '@/services/reconstructionPlanning'
 import { resolveChapterLengthPolicy } from '@/services/chapterLength'
 import { getCharacterStateSnapshot, knowledgeStateLabels } from '@/services/reconstructionCharacterState'
@@ -320,6 +339,7 @@ import type { WritingAdviceSuggestion } from '@/services/writingAdvisor'
 import type { SelectionRevisionMode } from '@/services/selectionRevision'
 import { copyText } from '@/utils/clipboard'
 import { placeSelectionToolbar } from './selectionToolbar'
+import { writeCommand } from '../shell'
 
 defineOptions({ name: 'V3WriteView' })
 const route = useRoute(), router = useRouter()
@@ -388,7 +408,17 @@ const completionOpen = ref(false), confirmationVersion = ref(''), completionDial
 const sealVisible = ref(false)
 let completionTrigger: HTMLElement | null = null
 let sealTimer: ReturnType<typeof setTimeout> | undefined
-const activeTab = ref<'review' | 'candidate' | 'memory' | 'chat' | 'advisor'>('advisor')
+type DeskTab = 'review' | 'candidate' | 'memory' | 'chat' | 'advisor'
+const deskTabIds: DeskTab[] = ['advisor', 'chat', 'memory', 'candidate', 'review']
+function routeTab(): DeskTab | undefined {
+  const tab = route.query.tab
+  return typeof tab === 'string' && (deskTabIds as string[]).includes(tab) ? tab as DeskTab : undefined
+}
+const activeTab = ref<DeskTab>(routeTab() || 'advisor')
+/** 暂存的正文修订候选：从页边收起，仍在“候选”标签中保留。仅本次打开有效。 */
+const parkedRevisions = ref(new Set<string>())
+/** 记住每份修订候选的生成要求，换一版时沿用。 */
+const revisionInstructions = new Map<string, string>()
 watch(activeTab, tab => { if (tab === 'chat') chatMounted.value = true })
 const decisionBusy = ref(false)
 const editingCandidate = ref<CandidateChange>()
@@ -471,7 +501,10 @@ const memorySnapshot = computed(() => session.novel.value && session.chapter.val
 function characterKnowledge(id: string) { return memorySnapshot.value.knowledge.filter(state => state.characterId === id) }
 const openPromises = computed(() => (effectiveNovel.value?.eventLog || []).filter(event => event.type === '伏笔' && event.chapterIndex >= 0
   && event.chapterIndex < (session.chapter.value?.chapterIndex ?? 0) && !['resolved', 'abandoned', 'unverified'].includes(event.status || '')))
-const revision = computed(() => session.pendingRevision.value ? revisionPreview(session.pendingRevision.value, session.content.value, session.contextVersion.value) : undefined)
+const pendingRevisionRows = computed(() => session.pendingRevisions?.value ?? (session.pendingRevision.value ? [session.pendingRevision.value] : []))
+const revisionViews = computed(() => pendingRevisionRows.value.map(row => ({ id: row.id, row,
+  ...revisionPreview(row, session.content.value, session.contextVersion.value) })))
+const revisionMap = computed(() => Object.fromEntries(revisionViews.value.map(item => [item.id, item])))
 const selectionToolStyle = computed(() => {
   const rect = selectionRect.value
   if (!rect) return {}
@@ -498,24 +531,42 @@ const deskReview = computed(() => deriveDeskReview({ signature: session.reviewSi
 function isCurrentFinding(finding: ReviewFinding) {
   return session.workflow.value?.reviewCurrent === true && finding.status !== 'stale' && finding.sourceVersionId === session.contentVersion.value
 }
+function isOpenFinding(finding: ReviewFinding) { return finding.status === 'open' || finding.status === 'deferred' }
 const currentFindings = computed(() => session.findings.value.filter(isCurrentFinding))
-const openFindings = computed(() => currentFindings.value.filter(finding => ['open', 'deferred'].includes(finding.status)))
+const openFindings = computed(() => currentFindings.value.filter(isOpenFinding))
 const anchoredFindings = computed(() => anchorFindings(session.content.value, currentFindings.value))
 function findingAnchor(finding: ReviewFinding) { return anchoredFindings.value.find(item => item.finding.id === finding.id)?.anchor }
-interface MarginItem { id: string; start: number; finding?: ReviewFinding; candidate?: CandidateChange; number?: number }
+// 正文或依据改动后，上一轮仍待处理的批注按引文重新定位；记录本身不改，重审前不能标记处理。
+const relocatedFindings = computed(() => relocateFindings(session.content.value,
+  session.findings.value.filter(finding => finding.status !== 'stale' && !isCurrentFinding(finding))))
+function relocatedAnchor(finding: ReviewFinding) { return relocatedFindings.value.find(item => item.finding.id === finding.id)?.anchor ?? null }
+function anyFindingAnchor(finding: ReviewFinding) { return findingAnchor(finding) || relocatedAnchor(finding) }
+interface MarginItem { id: string; start: number; finding?: ReviewFinding; stale?: boolean; candidate?: CandidateChange; revisionId?: string; number?: number }
+// 页边批注与候选并排显示，不随案头标签切换。
 const marginItems = computed<MarginItem[]>(() => {
-  if (activeTab.value !== 'review' && activeTab.value !== 'candidate') return []
-  if (activeTab.value === 'review') return anchoredFindings.value.flatMap(({ finding, anchor }, index) => anchor
-    ? [{ id: 'f:' + finding.id, start: anchor.start, finding, number: index + 1 }] : [])
   const items: MarginItem[] = []
+  for (const { finding, anchor } of anchoredFindings.value) if (anchor) items.push({ id: 'f:' + finding.id, start: anchor.start, finding })
+  for (const { finding, anchor } of relocatedFindings.value) if (anchor) items.push({ id: 'f:' + finding.id, start: anchor.start, finding, stale: true })
   for (const candidate of pendingCandidates.value) {
     const anchor = candidateAnchor(session.content.value, candidate)
     if (anchor) items.push({ id: 'c:' + candidate.id, start: anchor.start, candidate })
   }
-  if (revision.value?.current && session.pendingRevision.value) items.push({ id: 'r:' + session.pendingRevision.value.id, start: revision.value.start })
-  return items.sort((left, right) => left.start - right.start)
+  for (const item of revisionViews.value) {
+    if (item.current && !parkedRevisions.value.has(item.id)) items.push({ id: 'r:' + item.id, start: item.start, revisionId: item.id })
+  }
+  items.sort((left, right) => left.start - right.start)
+  let number = 0
+  for (const item of items) if (item.finding) item.number = ++number
+  return items
 })
-const showMargins = computed(() => deskOpen.value && !focused.value && marginItems.value.length > 0)
+const showMargins = computed(() => marginItems.value.length > 0)
+// 页边底部摘要：只统计页边上看得到的项，数量为 0 的不显示。
+const marginSummary = computed(() => {
+  const open = marginItems.value.filter(item => item.finding && !item.stale && ['open', 'deferred'].includes(item.finding.status)).length
+  const stale = marginItems.value.filter(item => item.stale).length
+  const slips = marginItems.value.filter(item => item.candidate || item.revisionId).length
+  return [open && `${open} 条待处理`, stale && `${stale} 条待重审`, slips && `${slips} 份候选`].filter(Boolean).join(' · ')
+})
 const marginPositions = ref<Record<string, number>>({})
 const marginViewport = ref({ top: 0, height: 0 })
 const marginElements = new Map<string, HTMLElement>()
@@ -557,7 +608,7 @@ function onEditorHostScroll() {
 }
 const gateReady = computed(() => session.saved.value && session.workflow.value?.gate.every(gate => gate.state === 'ok') === true)
 const canSubmitCompletion = computed(() => !!session.workflow.value?.primary && !locked.value && (session.workflow.value.primary === 'finalize' ? gateReady.value
-  : session.workflow.value.length.status === 'within' && session.storyTime.value?.known === true && !revision.value))
+  : session.workflow.value.length.status === 'within' && session.storyTime.value?.known === true && !revisionViews.value.length))
 const visibleFindings = computed(() => session.findings.value.filter(finding => {
   if (reviewFilter.value === 'all') return true
   if (!isCurrentFinding(finding)) return false
@@ -578,12 +629,22 @@ const backgroundTaskLabel: Record<'pending' | 'running' | 'completed' | 'failed'
   pending: '等待中', running: '进行中', completed: '已完成', failed: '失败',
 }
 const tabs = computed(() => [
+  // 按使用时机排列：写的时候用的在前，写完后才用的审校在最后。
   { id: 'advisor' as const, label: '顾问', count: 0 },
-  { id: 'memory' as const, label: '记忆', count: 0 },
-  { id: 'candidate' as const, label: '候选', count: pendingCandidates.value.length + (revision.value ? 1 : 0) },
   { id: 'chat' as const, label: '对话', count: 0 },
-  { id: 'review' as const, label: '审校', count: currentFindings.value.filter(item => item.status === 'open' || item.status === 'deferred').length },
+  { id: 'memory' as const, label: '记忆', count: 0 },
+  { id: 'candidate' as const, label: '候选', count: pendingCandidates.value.length + revisionViews.value.length },
+  { id: 'review' as const, label: '审校', count: openFindings.value.length },
 ])
+function onTabKey(event: KeyboardEvent) {
+  const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
+  if (!step) return
+  event.preventDefault()
+  const ids = tabs.value.map(tab => tab.id)
+  const next = ids[(ids.indexOf(activeTab.value) + step + ids.length) % ids.length]
+  activeTab.value = next
+  void nextTick(() => document.getElementById('desk-tab-' + next)?.focus())
+}
 
 watch([() => session.novel.value?.chapters, chapterId], () => {
   if (chapterId.value || !session.novel.value) return
@@ -603,8 +664,40 @@ function revealRouteEvidence() {
 watch([() => route.query.evidenceVersion, () => route.query.evidenceStart, () => route.query.evidenceEnd,
   () => session.loading.value, () => session.contentVersion.value, editor], revealRouteEvidence, { flush: 'post' })
 
+// 从审校中心、书架等处跳进来时，按 ?tab=&finding= 打开对应标签并定位到那条批注。
+const focusedRouteKey = ref('')
+function applyRouteFocus() {
+  if (session.loading.value || !session.chapter.value || !editor.value) return
+  const tab = routeTab()
+  const findingId = typeof route.query.finding === 'string' ? route.query.finding : ''
+  const key = `${chapterId.value}:${tab || ''}:${findingId}`
+  if ((!tab && !findingId) || focusedRouteKey.value === key) return
+  const finding = findingId ? session.findings.value.find(item => item.id === findingId) : undefined
+  if (findingId && !finding) return
+  focusedRouteKey.value = key
+  showDesk(finding ? 'review' : tab!)
+  if (!finding) return
+  selectedFindingId.value = finding.id
+  if (reviewFilter.value !== 'all' && !visibleFindings.value.some(item => item.id === finding.id)) reviewFilter.value = 'all'
+  void nextTick(() => {
+    const anchor = anyFindingAnchor(finding)
+    if (anchor) editor.value?.revealRange(anchor.start, anchor.end, { focus: false })
+    scrollFindingCard(finding.id)
+  })
+}
+function scrollFindingCard(id: string) {
+  void nextTick(() => {
+    for (const element of document.querySelectorAll<HTMLElement>('[data-finding]')) {
+      if (element.dataset.finding === id) { element.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); break }
+    }
+  })
+}
+watch([() => route.query.tab, () => route.query.finding, chapterId, () => session.loading.value, () => session.findings.value, editor],
+  applyRouteFocus, { flush: 'post', immediate: true })
+
 watch(() => session.chapter.value?.id, () => {
-  activeTab.value = 'advisor'
+  activeTab.value = routeTab() || 'review'
+  parkedRevisions.value = new Set()
   editingCandidate.value = undefined
   causalityCandidateId.value = ''
   versionOpen.value = false
@@ -680,16 +773,24 @@ async function restoreSelectedVersion() {
     if (restored) selection.value = { start: 0, end: 0, text: '' }
     versionOpen.value = false
   } catch (cause) {
-    session.saveError.value = cause instanceof Error ? cause.message : String(cause)
+    session.saveError.value = errorText(cause, String(cause))
   } finally { versionBusy.value = false }
 }
 async function save() {
-  try { await session.saveNow() } catch (cause) { session.saveError.value = cause instanceof Error ? cause.message : String(cause) }
+  try { await session.saveNow() } catch (cause) { session.saveError.value = errorText(cause, String(cause)) }
 }
 async function saveTitle() { if (!session.saved.value && !locked.value) await save() }
-function openCompletion(event: MouseEvent) {
+// 命令面板中的“本章操作”。
+watch(writeCommand, command => {
+  if (!command || session.loading.value || !session.chapter.value) return
+  if (command.name === 'focus') focused.value = true
+  else if (command.name === 'save') { if (!busy.value && !locked.value) void save() }
+  else if (command.name === 'review') { if (!busy.value && !locked.value && session.content.value.trim()) void reviewChapter() }
+  else if (command.name === 'completion') { if (!busy.value && session.workflow.value?.primary && !locked.value) openCompletion() }
+})
+function openCompletion(event?: MouseEvent) {
   confirmationVersion.value = session.reviewSourceVersion.value
-  completionTrigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
+  completionTrigger = event?.currentTarget instanceof HTMLElement ? event.currentTarget : document.activeElement instanceof HTMLElement ? document.activeElement : null
   selectionRect.value = null
   completionOpen.value = true
   void nextTick(() => completionDialog.value?.focus())
@@ -723,7 +824,7 @@ async function primaryAction() {
     sealVisible.value = true
     if (sealTimer) clearTimeout(sealTimer)
     sealTimer = setTimeout(() => { sealVisible.value = false }, 1800)
-  } else if (pendingCandidates.value.length || revision.value) showDesk('candidate')
+  } else if (pendingCandidates.value.length || revisionViews.value.length) showDesk('candidate')
 }
 async function reviewChapter() {
   showDesk('review')
@@ -734,19 +835,47 @@ function onSelection(value: SelectionInfo) {
   selection.value = { start: value.start, end: value.end, text: value.text }
   selectionRect.value = value.rect
 }
+// 生成的修订候选直接出现在页边，与对应批注并排；不切换案头标签。
+async function proposeRevision(mode: SelectionRevisionMode, instruction: string, range: { start: number; end: number }) {
+  const before = new Set(pendingRevisionRows.value.map(row => row.id))
+  await ai.generateSelection(mode, instruction, range)
+  const created = pendingRevisionRows.value.find(row => !before.has(row.id))
+  if (created) revisionInstructions.set(created.id, instruction)
+  if (!showMargins.value) showDesk('candidate')
+}
 async function runSelection(mode: SelectionRevisionMode) {
-  if (!selectedText.value || revision.value || locked.value) return
+  if (!selectedText.value || locked.value) return
   const range = { start: selection.value.start, end: selection.value.end }
   selectionRect.value = null
-  await runDecision(async () => { await ai.generateSelection(mode, '', range); showDesk('candidate') })
+  await runDecision(() => proposeRevision(mode, '', range))
 }
 async function generateFindingRevision(finding: ReviewFinding) {
-  const anchor = findingAnchor(finding)
-  if (!anchor || !isCurrentFinding(finding) || revision.value || locked.value) return
+  const anchor = anyFindingAnchor(finding)
+  if (!anchor || !isOpenFinding(finding) || locked.value) return
+  await runDecision(() => proposeRevision('rewrite', [finding.title, finding.explanation, finding.suggestedFix].filter(Boolean).join('\n'), anchor))
+}
+/** 换一版：按原要求在同一位置重新生成，新版生成成功后才放弃旧版。 */
+async function regenerateRevision(id: string) {
+  const item = revisionMap.value[id]
+  if (!item || locked.value) return
+  const mode = item.row.selection?.mode || 'rewrite'
+  const range = item.current
+    ? (item.row.selection ? { start: item.row.selection.startOffset, end: item.row.selection.endOffset } : { start: item.start, end: item.end })
+    : item.before ? locateQuote(session.content.value, item.before) : null
+  if (!range || (mode !== 'continue' && range.end <= range.start)) {
+    ai.error.value = '原文这段已经改动，找不到这份候选对应的位置。请重新选中正文再生成。'
+    return
+  }
+  const instruction = [revisionInstructions.get(id), '请给出与上一版明显不同的写法。'].filter(Boolean).join('\n')
   await runDecision(async () => {
-    await ai.generateSelection('rewrite', [finding.title, finding.explanation, finding.suggestedFix].filter(Boolean).join('\n'), anchor)
-    showDesk('candidate')
+    await proposeRevision(mode, instruction, range)
+    await session.rejectRevision(id)
+    revisionInstructions.delete(id)
   })
+}
+function parkRevision(id: string) { parkedRevisions.value = new Set([...parkedRevisions.value, id]) }
+function unparkRevision(id: string) {
+  const next = new Set(parkedRevisions.value); next.delete(id); parkedRevisions.value = next
 }
 function openSelectionChat(kind: 'check' | 'chat') {
   if (!selectedText.value) return
@@ -764,9 +893,8 @@ async function discardDraft(draft: EditorDraft) { await runDecision(() => sessio
 function showCandidate(id: string) {
   showDesk('candidate')
   void nextTick(() => {
-    const key = id.startsWith('r:') ? 'revision' : id
     document.querySelectorAll<HTMLElement>('[data-candidate]').forEach(element => {
-      if (element.dataset.candidate === key) element.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      if (element.dataset.candidate === id) element.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     })
   })
 }
@@ -778,13 +906,15 @@ function onMarkClick(id: string) {
     if (!finding) return
     selectedFindingId.value = finding.id
     showDesk('review')
-    anchor = findingAnchor(finding)
+    anchor = anyFindingAnchor(finding)
+    scrollFindingCard(finding.id)
   } else if (id.startsWith('c:')) {
     const candidate = session.candidates.value.find(item => item.id === recordId)
     if (candidate) anchor = candidateAnchor(session.content.value, candidate)
     showCandidate(id)
   } else if (id.startsWith('r:')) {
-    if (revision.value?.current) anchor = revision.value
+    const item = revisionMap.value[recordId]
+    if (item?.current) anchor = item
     showCandidate(id)
   }
   if (anchor) editor.value?.revealRange(anchor.start, anchor.end, { focus: false })
@@ -803,7 +933,7 @@ function previewCandidate(candidate: CandidateChange) {
 async function runDecision(action: () => Promise<unknown>) {
   if (decisionBusy.value) return
   decisionBusy.value = true
-  try { await action() } catch (cause) { ai.error.value = cause instanceof Error ? cause.message : String(cause) }
+  try { await action() } catch (cause) { ai.error.value = errorText(cause, String(cause)) }
   finally { decisionBusy.value = false }
 }
 async function resolveFinding(finding: ReviewFinding, status: 'accepted' | 'intentional' | 'deferred') { await runDecision(() => ai.resolveFinding(finding, status)) }
@@ -821,17 +951,20 @@ async function confirmEditedCandidate(candidate: CandidateChange, value: string,
 async function openCausality(candidate: CandidateChange) { if (await session.saveNow()) causalityCandidateId.value = candidate.id }
 async function rejectCandidate(candidate: CandidateChange) { await runDecision(() => ai.rejectCandidate(candidate)) }
 async function deferCandidate(candidate: CandidateChange) { await runDecision(() => ai.deferCandidate(candidate)) }
-async function acceptRevision() {
-  if (!revision.value?.current || locked.value) return
+async function acceptRevision(id: string) {
+  if (!revisionMap.value[id]?.current || locked.value) return
   await runDecision(async () => {
     if (!session.saved.value && !await session.saveNow()) return
-    if (await session.acceptRevision()) {
+    if (await session.acceptRevision(id)) {
       selection.value = { start: 0, end: 0, text: '' }; selectionRect.value = null
-      ai.statusText.value = '修订已采纳，请重新审校。'
+      revisionInstructions.delete(id)
+      ai.statusText.value = '修订已采纳。改动处的批注待重审，其余批注仍在原处。'
     }
   })
 }
-async function rejectRevision() { await runDecision(() => session.rejectRevision()) }
+async function rejectRevision(id: string) {
+  await runDecision(async () => { await session.rejectRevision(id); revisionInstructions.delete(id) })
+}
 function clearErrors() { session.saveError.value = ''; ai.error.value = '' }
 
 async function saveAdvisorSuggestion(action: 'plan' | 'note', suggestion: WritingAdviceSuggestion) {
@@ -852,7 +985,7 @@ async function saveAdvisorSuggestion(action: 'plan' | 'note', suggestion: Writin
     })
     session.markChanged()
   } catch (cause) {
-    advisorSaveError.value = cause instanceof Error ? cause.message : String(cause)
+    advisorSaveError.value = errorText(cause, String(cause))
   } finally {
     advisorSaving.value = false
   }
@@ -863,7 +996,7 @@ async function copyAdvisorSuggestion(suggestion: WritingAdviceSuggestion) {
   try { await copyText(text) }
   catch { advisorSaveError.value = '复制失败，请手动选择文本。' }
 }
-watch([marginItems, showMargins, sideOpen, versionOpen], () => { void nextTick(scheduleMargins) }, { flush: 'post' })
+watch([marginItems, showMargins, sideOpen, deskOpen, focused, versionOpen], () => { void nextTick(scheduleMargins) }, { flush: 'post' })
 watch([paper, editorHost], (elements, previous) => {
   previous?.forEach(element => { if (element) layoutObserver?.unobserve(element) })
   elements.forEach(element => { if (element) layoutObserver?.observe(element) })
@@ -994,6 +1127,11 @@ onBeforeUnmount(() => {
 .finding.foreshadowing { border-left-color: var(--qing); }.finding.foreshadowing .finding-type { color: var(--qing); font-weight: 600; }
 .finding:hover, .candidate:hover { background: var(--paper); box-shadow: var(--shadow-1); }
 .finding.on { box-shadow: 0 0 0 2px var(--zhu-mid), var(--shadow-1); }
+.finding:focus-visible { outline: 2px solid var(--zhu); outline-offset: 2px; }
+.finding.previous { border-left-style: dashed; }.finding.previous .finding-title, .finding.previous .finding-quote { opacity: .72; }
+.finding-stale { display: block; margin: -2px 0 4px; color: var(--zi); font-size: 11px; }
+.finding-hint { align-self: center; color: var(--ink-4); font-size: 11px; }
+.margin-note.stale { opacity: .55; }.margin-note.stale:hover, .margin-note.stale.on { opacity: 1; }.margin-note.on > b { background: currentColor; color: var(--paper); }
 .finding-head { align-items: center; font-size: 11.5px; color: var(--ink-3); }
 .finding-type { white-space: nowrap; }.finding-loc { margin-left: auto; color: var(--ink-4); font-size: 10px; }
 .finding-title { display: block; margin: 7px 0 6px; font-size: 13.5px; line-height: 1.5; }
@@ -1008,7 +1146,6 @@ onBeforeUnmount(() => {
 .candidate .finding-title { font-size: 13px; }
 .candidate .quote { margin: 6px 0 8px !important; padding: 6px 10px; background: var(--panel); border-left-color: var(--zhu-mid); border-radius: 0 4px 4px 0; font: 13px/1.7 var(--f-serif); }
 .write-loading, .write-error { padding: 60px; color: var(--ink-2); }.write-error { color: var(--zhu); }.write-toast { position: fixed; right: 24px; bottom: 52px; z-index: 30; display: flex; align-items: center; gap: 10px; max-width: 520px; padding: 10px 14px; background: var(--rail); color: var(--rail-hi); border-radius: 8px; box-shadow: var(--shadow-3); font-size: 12.5px; }
-.crumb-link { color: var(--ink-3); text-decoration: none; }.crumb-link:hover { color: var(--zhu); }.crumb-sep { margin: 0 7px; color: var(--ink-4); }
 @media (min-width: 1600px) { .write-page { --side-w: 248px; --desk-w: 360px; }.write-page.no-side { --side-w: 0px; }.write-page.no-desk { --desk-w: 0px; }.paper { --paper-inset: 64px; --margin-w: 214px; padding-left: 64px; } }
 @media (max-width: 1120px) { .write-page { --desk-w: 0px; }.desk-side { grid-area: auto; position: absolute; z-index: 25; right: 0; top: 0; bottom: 0; width: min(360px, 85%); box-shadow: var(--shadow-3); }.top-save { font-size: 0; gap: 0; }.top-save i { margin: 0; }.crumb-volume { display: none; } }
 @media (max-width: 800px) { .write-page { --side-w: 0px; }.tree-side { grid-area: auto; position: absolute; z-index: 26; left: 0; top: 0; bottom: 0; width: 235px; box-shadow: var(--shadow-3); }.write-main { padding: 18px 16px 24px; }.paper { --paper-inset: 32px; --margin-w: 170px; padding-left: 32px; padding-top: 40px; }.paper-meta { gap: 5px 8px; }.chapter-title { font-size: 26px; }.gate-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }.chapter-gate { padding: 14px; }.lifecycle { gap: 3px; }.lc-bar { width: 6px; } }

@@ -50,8 +50,8 @@ describe('云同步文档与冲突判断', () => {
   it('rejects retired cloud formats and V3 workspace ownership mismatches', () => {
     const a = book(), b = book()
     const legacy = { kind: 'novel', novel: a, chapterRevisions: [] }
-    expect(() => parseCloudDocument('novel:' + a.id, canonicalJson(legacy))).toThrow('不是 V3 格式')
-    expect(() => parseCloudDocument('novel:' + a.id, canonicalJson({ ...legacy, schemaVersion: 2, reconstructionWorkspace: plannedProjectWorkspace(a) }))).toThrow('不是 V3 格式')
+    expect(() => parseCloudDocument('novel:' + a.id, canonicalJson(legacy))).toThrow('不支持的旧版本')
+    expect(() => parseCloudDocument('novel:' + a.id, canonicalJson({ ...legacy, schemaVersion: 2, reconstructionWorkspace: plannedProjectWorkspace(a) }))).toThrow('不支持的旧版本')
     const mismatched = { ...legacy, schemaVersion: 3, reconstructionWorkspace: plannedProjectWorkspace(b) }
     expect(() => parseCloudDocument('novel:' + a.id, canonicalJson(mismatched))).toThrow()
     const project = createProjectBackup([a], [])

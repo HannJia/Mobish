@@ -2,14 +2,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, shallowMount } from '@vue/test-utils'
 import { reactive } from 'vue'
-import { NCheckbox, NRadioGroup, NSwitch } from 'naive-ui'
 import CloudSyncPanel from './CloudSyncPanel.vue'
 import { copyText } from '@/utils/clipboard'
 
 const holder = vi.hoisted(() => ({ store: null as any }))
 vi.mock('@/stores/cloudSync', () => ({ useCloudSyncStore: () => holder.store }))
 vi.mock('@/utils/clipboard', () => ({ copyText: vi.fn() }))
-vi.mock('naive-ui', async original => ({ ...await original<object>(), useDialog: () => ({ warning: vi.fn() }) }))
+vi.mock('@/v3/feedback', async original => ({ ...await original<object>(), useDialog: () => ({ warning: vi.fn() }) }))
 beforeEach(() => {
   vi.mocked(copyText).mockReset().mockResolvedValue('browser')
   holder.store = reactive({ session: null, error: '', busy: false, state: { binding: null, enabled: false }, endpoint: 'https://example.test',
@@ -20,9 +19,8 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
 function mountPanel() {
   return shallowMount(CloudSyncPanel, { global: { renderStubDefaultSlot: true, stubs: {
-    Input: { props: ['value'], emits: ['update:value'], template: '<input :value="value" @input="$emit(\'update:value\', $event.target.value)" />' },
-    Button: { props: ['disabled'], template: '<button :disabled="disabled"><slot /></button>' },
-    Modal: { props: ['show'], template: '<section v-if="show"><slot /><slot name="footer" /></section>' },
+    V3Input: { name: 'V3Input', props: ['value'], emits: ['update:value'], template: '<input :value="value" @input="$emit(\'update:value\', $event.target.value)" />' },
+    V3Modal: { props: ['show', 'title'], template: '<section v-if="show"><slot /><slot name="footer" /></section>' },
   } } })
 }
 describe('cloud password forms', () => {
@@ -78,7 +76,7 @@ describe('cloud password forms', () => {
   it('can start the first download without selecting or approving local uploads', async () => {
     holder.store.session = { user: { username: 'author', usedBytes: 0, quotaBytes: 100, role: 'user' } }
     const wrapper = mountPanel()
-    const toggle = wrapper.findComponent(NSwitch)
+    const toggle = wrapper.findComponent({ name: 'V3Switch' })
     expect(toggle.props('disabled')).toBe(false)
     toggle.vm.$emit('update:value', true)
     await flushPromises()
@@ -97,7 +95,7 @@ describe('cloud password forms', () => {
     const wrapper = mountPanel()
     const approveButton = () => wrapper.findAll('button').find(button => button.text() === '将所选内容加入云同步')!
     expect(approveButton().attributes('disabled')).toBeDefined()
-    wrapper.findAllComponents(NCheckbox)[0].vm.$emit('update:checked', true)
+    await wrapper.findAll('.cloud-consent input[type="checkbox"]')[0].setValue(true)
     await flushPromises()
     expect(approveButton().attributes('disabled')).toBeUndefined()
     await approveButton().trigger('click')
@@ -116,7 +114,7 @@ describe('cloud password forms', () => {
   })
   it('requires a repeated six-character password on registration even for direct submit', async () => {
     const wrapper = mountPanel()
-    wrapper.findComponent(NRadioGroup).vm.$emit('update:value', 'register')
+    await wrapper.findAll('[role="radio"]').find(button => button.text() === '邀请码注册')!.trigger('click')
     await flushPromises()
     await wrapper.get('input[aria-label="云同步账号"]').setValue('author')
     await wrapper.get('input[aria-label="云同步密码"]').setValue('123456')

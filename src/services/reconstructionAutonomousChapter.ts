@@ -46,7 +46,7 @@ export function createAutonomousEmptyChapterProcessor(runtime: AutonomousChapter
       return { status: 'needs_author', checkpoint: `chapter-${chapterIndex}:needs-author`,
         message: `候选稿生成以 ${draft.generationFinishReason} 结束，尚未进入审校。请编辑或明确接受候选稿；如需重新生成，请拒绝后创建新任务。` }
     }
-    if (!draft && chapter.content.trim()) return { status: 'needs_author', message: '当前章节已有正文，自动任务不会覆盖作者内容。' }
+    if (!draft && chapter.content.trim()) return { status: 'needs_author', message: '当前章节已有正文，自动任务不会覆盖你写的内容。' }
     const base = draft?.baseContent ?? chapter.content
     const view = () => {
       const current = runtime.getNovel(), target = current?.chapters.find(row => row.id === chapter.id)
@@ -69,7 +69,7 @@ export function createAutonomousEmptyChapterProcessor(runtime: AutonomousChapter
         ? draft.review.sourceVersionId === buildChapterReviewSourceVersion(draft.content, planningVersion)
         : draft.reviewCoverage?.signature === signature
       if (!knownInput || draft.reviewCoverage && draft.reviewCoverage.signature !== signature) {
-        return { status: 'needs_author', message: '候选稿的审核规则已变化或来源未验证，请先保存候选修改，再重新审核；旧报告已保留。' }
+        return { status: 'needs_author', message: '候选稿的审校规则已变化或来源未验证，请先保存候选修改，再重新审校；旧报告已保留。' }
       }
     }
     if (!draft) {
@@ -139,6 +139,6 @@ export function createAutonomousEmptyChapterProcessor(runtime: AutonomousChapter
     }
     const passed = draft!.stage === 'analyzed' && draft!.review?.status === 'ready_to_finalize'
     return { status: passed ? 'completed' : 'needs_author', checkpoint: `chapter-${chapterIndex}:${passed ? 'reviewed' : 'review-needs-author'}`,
-      message: passed ? undefined : '候选稿已保存，审核或故事变化提取需要作者处理' + (draft!.analysisError ? '；' + draft!.analysisError : '') }
+      message: passed ? undefined : '候选稿已保存，审校或故事变化提取需要你处理' + (draft!.analysisError ? '；' + draft!.analysisError : '') }
   }
 }

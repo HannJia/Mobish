@@ -70,7 +70,7 @@ describe('autonomous draft work views', () => {
     const novel = makeNovel()
     const accepted = makeDraft({ status: 'accepted', content: '已接受正文' })
 
-    expect(() => buildAutonomousDraftNovel(novel, makeRun([accepted]), 0)).toThrow('正式正文与草稿正文不一致')
+    expect(() => buildAutonomousDraftNovel(novel, makeRun([accepted]), 0)).toThrow('正式正文与候选稿正文不一致')
 
     const consistentNovel = makeNovel()
     consistentNovel.chapters[0].content = '已接受正文'
@@ -106,7 +106,7 @@ describe('editAutonomousDraft', () => {
   })
 
   it('only accepts non-empty edits to pending drafts', () => {
-    expect(() => editAutonomousDraft(makeDraft({ status: 'accepted' }), '新正文', 'context-2', now)).toThrow('只有 pending')
+    expect(() => editAutonomousDraft(makeDraft({ status: 'accepted' }), '新正文', 'context-2', now)).toThrow('只有待处理的')
     expect(() => editAutonomousDraft(makeDraft(), ' \n\t', 'context-2', now)).toThrow('正文不能为空')
   })
 })

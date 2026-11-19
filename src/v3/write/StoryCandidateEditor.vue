@@ -22,13 +22,13 @@
         <button v-for="entry in sameWording" :key="entry.proposition.id" type="button" @click="chooseSameWording(entry.proposition.id)">引用：{{ entry.proposition.text }} · {{ describeProposition(entry.proposition) }}</button>
       </div>
       <template v-if="identityAction !== 'new'">
-        <p>相似文字只是线索。选择并确认表示作者已核对主体、对象、范围和证据；相反认知仍会并列显示。</p>
+        <p>相似文字只是线索。选择并确认表示你已核对主体、对象、范围和证据；相反认知仍会并列显示。</p>
         <label>归入命题<select v-model="targetId"><option value="">请选择已有命题</option><option v-for="entry in propositions" :key="entry.proposition.id" :value="entry.proposition.id">{{ entry.proposition.text }} · {{ describeProposition(entry.proposition) }}</option></select></label>
         <label v-if="identityAction === 'merge'">另一个已有命题<select v-model="mergeFromId"><option value="">请选择待归并命题</option><option v-for="entry in propositions" :key="entry.proposition.id" :value="entry.proposition.id">{{ entry.proposition.text }} · {{ describeProposition(entry.proposition) }}</option></select></label>
         <label>等价说明<textarea v-model="identityReason" rows="2"></textarea></label>
         <div v-if="resolutionStates.length > 1" class="conflict-choice">
           <p>以下认知仍独立保留。仅确认等价不会消除它们。</p>
-          <p v-for="state in resolutionStates" :key="state.id">{{ knowledgeStateLabels[state.state] }}：{{ state.fact }}<span v-if="state.state === 'false_belief'">；角色误信：{{ state.belief }}（不代表客观事实）</span> · {{ state.id }}</p>
+          <p v-for="state in resolutionStates" :key="state.id">{{ knowledgeStateLabels[state.state] }}：{{ state.fact }}<span v-if="state.state === 'false_belief'">；角色误信：{{ state.belief }}</span> · {{ state.id }}</p>
           <label><input v-model="resolveConflicts" type="checkbox" />以本次认知明确取代上述认知；保留原记录、证据与处理说明。</label>
         </div>
         <label><input v-model="identityConfirmed" type="checkbox" />我已核对并确认命题等价；原 ID、证据、冲突认知及本次决定保留。</label>

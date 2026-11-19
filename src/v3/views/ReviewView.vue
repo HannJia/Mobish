@@ -1,7 +1,8 @@
 <template>
   <Teleport defer to="#v3-crumb"><router-link class="crumb-link" to="/">书架</router-link><span class="crumb-sep">/</span><span class="crumb-b">审校中心</span></Teleport>
   <Teleport defer to="#v3-tools">
-    <button class="m-btn sm" type="button" :disabled="batchBusy || !reviewModel || !allTargets.length" :title="reviewModel ? '' : '尚未配置审校模型'" @click="runBatchReview(allTargets)">{{ batchBusy ? `审校中 ${batchIndex}/${batchTotal}` : allTargets.length ? `批量审校 ${allTargets.length} 章` : '批量审校' }}</button>
+    <button v-if="batchBusy" class="m-btn sm" type="button" :disabled="batchStopping" title="当前这一章审完前就会中止，已完成的章节保留" @click="stopBatchReview">{{ batchStopping ? '正在停止…' : `停止审校 ${batchIndex}/${batchTotal}` }}</button>
+    <button v-else class="m-btn sm" type="button" :disabled="!reviewModel || !allTargets.length" :title="reviewModel ? '' : '尚未配置审校模型'" @click="runBatchReview(allTargets)">{{ allTargets.length ? `批量审校 ${allTargets.length} 章` : '批量审校' }}</button>
   </Teleport>
   <Teleport defer to="#v3-status"><span class="status-it">{{ snapshot.totals.reviewed }}/{{ snapshot.totals.chapters }} 章已审校</span><span class="status-it">{{ snapshot.totals.blockers }} 条阻塞</span><span class="status-it">{{ snapshot.totals.pendingDecisions }} 项待处理</span></Teleport>
 
@@ -11,7 +12,7 @@
   <div v-else class="review-page">
     <main class="review-main">
       <header class="review-head">
-        <div><h1>审校中心</h1><p class="review-sub">全书 {{ snapshot.totals.chapters }} 章 · 按章查看审核状态、失效原因和待处理问题。</p></div>
+        <div><h1>审校中心</h1><p class="review-sub">全书 {{ snapshot.totals.chapters }} 章 · 按章查看审校状态、失效原因和待处理问题。</p></div>
         <button v-if="focusRow" class="m-btn" type="button" title="优先定位到最需要处理的章节，没有待处理项时为最后一个有正文的章节" @click="openChapter(focusRow.chapter.id)">打开第 {{ focusRow.chapter.chapterIndex + 1 }} 章</button>
       </header>
 
@@ -32,8 +33,8 @@
       <section v-if="staleRows.length" class="stale-banner" role="status">
         <V3Icon name="refresh" />
         <div>
-          <b>{{ staleRows.length }} 章审核已失效</b>
-          <p>{{ staleChapterText }}曾经审校过，之后正文、审核依据或剧情设定发生了变化（{{ staleReasons }}）。重新审校后才恢复有效。<template v-if="lockedStale">另有 {{ lockedStale }} 章已锁定，需先解锁。</template></p>
+          <b>{{ staleRows.length }} 章审校已失效</b>
+          <p>{{ staleChapterText }}曾经审校过，之后正文、审校依据或剧情设定发生了变化（{{ staleReasons }}）。重新审校后才恢复有效。<template v-if="lockedStale">另有 {{ lockedStale }} 章已锁定，需先解锁。</template></p>
         </div>
         <button class="m-btn" type="button" :disabled="batchBusy || !reviewModel || !staleTargets.length" :title="reviewModel ? '' : '尚未配置审校模型'" @click="runBatchReview(staleTargets)">批量重审 {{ staleTargets.length }} 章</button>
       </section>
@@ -51,7 +52,7 @@
               <td><strong>{{ item.title }}</strong><small v-if="item.detail">{{ item.detail }}</small></td>
               <td class="act">
                 <button v-if="item.kind === 'review'" class="m-btn sm" type="button" :disabled="batchBusy || taskStatus[item.chapterId] === 'running' || !reviewModel" :title="reviewModel ? '' : '尚未配置审校模型'" @click="reviewOne(item.chapterId)">{{ reviewLabel(item.chapterId) }}</button>
-                <button v-else class="m-btn sm" type="button" @click="openChapter(item.chapterId)">处理</button>
+                <button v-else class="m-btn sm" type="button" @click="openQueueItem(item)">处理</button>
               </td>
             </tr>
           </tbody>
@@ -63,14 +64,15 @@
     <aside class="review-guide" aria-label="五层审校与作者处理">
       <h2 class="h-sec">五层审校</h2>
       <div v-for="(layer, index) in reviewLayers" :key="layer.title" class="layer"><span class="no num">{{ index + 1 }}</span><div><b>{{ layer.title }}</b><p>{{ layer.detail }}</p></div></div>
-      <h2 class="h-sec author-title">全书作者处理</h2>
+      <h2 class="h-sec author-title">全书处理记录</h2>
       <div class="author-stats"><span>采纳修改 <b class="num">{{ authorProcessing.accepted }}</b></span><span>有意设计 <b class="num">{{ authorProcessing.intentional }}</b></span><span>延后 <b class="num">{{ authorProcessing.deferred }}</b></span><span>驳回误报 <b class="num">{{ authorProcessing.rejected }}</b></span></div>
     </aside>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { errorText } from '@/services/userFacingError'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
 import { useKnowledgeStore } from '@/stores/knowledge'
@@ -81,7 +83,7 @@ import { buildChapterReviewInput, buildChapterReviewSubmission } from '@/service
 import { requestCoveredContentReview } from '@/services/chapterReview'
 import type { StoredReviewCoverage } from '@/services/chapterReviewCoverage'
 import V3Icon from '../components/V3Icon.vue'
-import { deriveReviewCenter, type ReviewCenterRow, type ReviewCenterSnapshot, type ReviewHeat, type ReviewQueueLevel } from '../selectors/reviewCenter'
+import { deriveReviewCenter, type ReviewCenterRow, type ReviewCenterSnapshot, type ReviewHeat, type ReviewQueueItem, type ReviewQueueLevel } from '../selectors/reviewCenter'
 
 defineOptions({ name: 'V3ReviewView' })
 const route = useRoute(), router = useRouter()
@@ -101,17 +103,17 @@ const snapshot = computed<ReviewCenterSnapshot>(() => {
 })
 const rows = computed(() => snapshot.value.rows)
 
-const heatLabel: Record<ReviewHeat, string> = { idea: '构思', outlined: '章纲', drafting: '待审校', reviewing: '审校中', revision: '待修订', ready: '可定稿', stale: '审核失效', final: '定稿' }
+const heatLabel: Record<ReviewHeat, string> = { idea: '构思', outlined: '章纲', drafting: '待审校', reviewing: '审校中', revision: '待修订', ready: '可定稿', stale: '审校失效', final: '定稿' }
 const heatOrder: ReviewHeat[] = ['final', 'ready', 'revision', 'stale', 'reviewing', 'drafting', 'outlined', 'idea']
 const levelTag: Record<ReviewQueueLevel, { tone: string; label: string }> = {
   blocker: { tone: 'zhu', label: '阻塞' }, warning: { tone: 'jin', label: '提醒' }, suggestion: { tone: 'dai', label: '建议' },
   candidate: { tone: 'qing', label: '候选' }, review: { tone: 'zi', label: '重审' },
 }
 const reviewLayers = [
-  { title: '确定性检查', detail: '字数、占位符、重复段落、名称一致、事件顺序' },
-  { title: '结构化提取', detail: '新增人物、事件、关系、知情变化、伏笔变化' },
+  { title: '基础检查', detail: '字数、占位符、重复段落、名称一致、事件顺序' },
+  { title: '信息提取', detail: '新增人物、事件、关系、知情变化、伏笔变化' },
   { title: '连续性检查', detail: '时间、地点、人物状态、物品归属、角色知情' },
-  { title: 'AI 语义审核', detail: '章纲完成度、因果、动机、视角、节奏' },
+  { title: 'AI 语义审校', detail: '章纲完成度、因果、动机、视角、节奏' },
   { title: '作者确认', detail: '逐条接受、拒绝、编辑、延后或标为有意设计' },
 ]
 
@@ -178,7 +180,7 @@ const staleChapterText = computed(() => {
 const staleReasons = computed(() => {
   const counts = new Map<string, number>()
   for (const row of staleRows.value) {
-    const reason = row.invalidationReason || '审核已不再对应当前内容'
+    const reason = row.invalidationReason || '审校已不再对应当前内容'
     counts.set(reason, (counts.get(reason) || 0) + 1)
   }
   return [...counts].map(([reason, count]) => `${reason} ${count} 章`).join(' · ')
@@ -188,13 +190,18 @@ function reviewLabel(chapterId: string) { return taskStatus[chapterId] === 'runn
 async function hydrate() {
   loading.value = true; loadError.value = ''
   try { if (!novelId.value) throw new Error('审校中心缺少作品编号。'); await workspace.hydrateFromPersistence(novelId.value) }
-  catch (error) { loadError.value = error instanceof Error ? error.message : String(error) }
+  catch (error) { loadError.value = errorText(error, String(error)) }
   finally { loading.value = false }
 }
 onMounted(() => { void hydrate() })
 function openChapter(chapterId: string) { router.push(`/write/${novelId.value}/${chapterId}`) }
+/** “处理”直接打开写作台对应标签，并定位到这条批注或候选。 */
+function openQueueItem(item: ReviewQueueItem) {
+  const query = item.kind === 'finding' ? { tab: 'review', finding: item.id.slice('finding:'.length) } : { tab: 'candidate' }
+  router.push({ path: `/write/${novelId.value}/${item.chapterId}`, query })
+}
 
-async function reviewOne(chapterId: string) {
+async function reviewOne(chapterId: string, signal?: AbortSignal) {
   const currentNovel = novelStore.getNovel(novelId.value), currentChapter = currentNovel?.chapters.find(chapter => chapter.id === chapterId), model = reviewModel.value
   if (!currentNovel || !currentChapter || !model || !currentChapter.content.trim()) return
   taskStatus[chapterId] = 'running'; batchError.value = ''
@@ -204,28 +211,51 @@ async function reviewOne(chapterId: string) {
     const signature = input.signature
     const ensureCurrent = () => {
       const latestNovel = novelStore.getNovel(currentNovel.id), latestChapter = latestNovel?.chapters.find(chapter => chapter.id === chapterId)
-      if (!latestNovel || !latestChapter || latestChapter.content !== source || buildChapterReviewInput(latestNovel, latestChapter, { knowledge: knowledge.knowledgeBases, creationDraft: workspace.getCreationDraft(latestNovel.id), canonMutations: workspace.getCanonMutations(latestNovel.id), storyMemories: workspace.getStoryMemories(latestNovel.id) }).signature !== signature) throw new Error('正文或审核依据已变化，未采用旧版本审校结果。')
+      if (!latestNovel || !latestChapter || latestChapter.content !== source || buildChapterReviewInput(latestNovel, latestChapter, { knowledge: knowledge.knowledgeBases, creationDraft: workspace.getCreationDraft(latestNovel.id), canonMutations: workspace.getCanonMutations(latestNovel.id), storyMemories: workspace.getStoryMemories(latestNovel.id) }).signature !== signature) throw new Error('正文或审校依据已变化，未采用旧版本审校结果。')
     }
     let coverage: StoredReviewCoverage | undefined
-    const reviewText = await requestCoveredContentReview({ source, chapterIndex: currentChapter.chapterIndex, model, buildContext: input.buildContext, ensureCurrent, checkpoint: currentChapter.contentReviewCoverage?.checkpoint, checkpointKey: signature,
+    const reviewText = await requestCoveredContentReview({ source, chapterIndex: currentChapter.chapterIndex, model, buildContext: input.buildContext, ensureCurrent, checkpoint: currentChapter.contentReviewCoverage?.checkpoint, checkpointKey: signature, signal,
       onProgress: value => { coverage = { ...value, signature }; novelStore.updateChapter(currentNovel.id, chapterId, { contentReviewCoverage: coverage }) },
       onCheckpoint: async value => { ensureCurrent(); const next = { ...value, signature }; novelStore.updateChapter(currentNovel.id, chapterId, { contentReviewCoverage: next }); await novelStore.saveNovelNow(currentNovel.id); ensureCurrent() } })
     ensureCurrent()
     if (!coverage) throw new Error('审校覆盖进度缺失。')
-    await workspace.commitChapterReview(currentNovel.id, buildChapterReviewSubmission(input, reviewText, coverage, workspace.getChapterReviews(currentNovel.id, chapterId), workspace.getCandidates(currentNovel.id), new Date().toISOString()))
+    await workspace.commitChapterReview(currentNovel.id, buildChapterReviewSubmission(input, reviewText, coverage, workspace.getChapterReviews(currentNovel.id, chapterId), workspace.getCandidates(currentNovel.id), new Date().toISOString()), signal)
     taskStatus[chapterId] = 'done'
-  } catch (error) { taskStatus[chapterId] = 'error'; batchError.value = error instanceof Error ? error.message : String(error) }
+  } catch (error) {
+    if (signal?.aborted) { delete taskStatus[chapterId]; return }
+    taskStatus[chapterId] = 'error'; batchError.value = errorText(error, String(error))
+  }
 }
 
+let batchController: AbortController | undefined
+const batchStopping = ref(false)
 async function runBatchReview(targets: ReviewCenterRow[]) {
   if (batchBusy.value || !reviewModel.value) return
   // 先固定要审校的章节：逐章提交会改变快照，不能边审边重新计算范围。
   const ids = targets.map(row => row.chapter.id)
   if (!ids.length) { batchError.value = '当前没有需要审校的章节。'; return }
-  batchBusy.value = true; batchIndex.value = 0; batchTotal.value = ids.length; batchError.value = ''
-  try { for (const id of ids) { batchIndex.value++; await reviewOne(id) } }
-  finally { batchBusy.value = false }
+  const controller = new AbortController()
+  batchController = controller
+  batchBusy.value = true; batchStopping.value = false; batchIndex.value = 0; batchTotal.value = ids.length; batchError.value = ''
+  try {
+    for (const id of ids) {
+      if (controller.signal.aborted) break
+      batchIndex.value++
+      await reviewOne(id, controller.signal)
+    }
+    if (controller.signal.aborted) batchError.value = `批量审校已停止：完成 ${Math.max(0, batchIndex.value - 1)}/${ids.length} 章，已完成的结果已保存。`
+  } finally {
+    if (batchController === controller) batchController = undefined
+    batchBusy.value = false; batchStopping.value = false
+  }
 }
+function stopBatchReview() {
+  if (!batchController) return
+  batchStopping.value = true
+  batchController.abort()
+}
+// 离开审校中心时中止批量审校，避免在后台继续消耗模型调用。
+onBeforeUnmount(() => batchController?.abort())
 </script>
 
 <style scoped>
@@ -235,7 +265,6 @@ async function runBatchReview(targets: ReviewCenterRow[]) {
 .review-head h1 { margin: 0 0 3px; font: 600 18px var(--f-serif); letter-spacing: .06em; }
 .review-sub { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.6; }
 .num { font-family: var(--f-num); font-variant-numeric: tabular-nums; }
-.h-sec { margin: 0 0 10px; color: var(--ink-3); font: 600 12px/1 var(--f-ui); letter-spacing: .12em; }
 
 .review-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .review-pill { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 1px solid var(--line); border-radius: 13px; background: var(--paper); color: var(--ink-3); font-size: 12px; }
@@ -298,9 +327,6 @@ async function runBatchReview(targets: ReviewCenterRow[]) {
 
 .empty, .review-loading, .review-error { padding: 40px; color: var(--ink-3); }
 .review-error { color: var(--zhu); }
-.crumb-link { color: var(--ink-3); text-decoration: none; }
-.crumb-link:hover { color: var(--zhu); }
-.crumb-sep { margin: 0 7px; color: var(--ink-4); }
 
 @media (max-width: 1100px) {
   .review-page { display: block; overflow: auto; }

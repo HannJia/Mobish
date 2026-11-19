@@ -4,11 +4,11 @@
     <header class="archive-header">
       <div>
         <h2 class="page-title">灵感记录</h2>
-        <p class="page-subtitle">创建前的讨论存档，与书内助手对话独立保存。备选或已否定的想法不代表最终设定。</p>
+        <p class="page-subtitle">创建作品前的灵感讨论，与书内助手的对话分开保存。</p>
       </div>
       <div class="archive-actions">
-        <n-button :disabled="!messages.length" tertiary @click="exportArchive('markdown')">导出 Markdown</n-button>
-        <n-button :disabled="!messages.length" tertiary @click="exportArchive('json')">导出 JSON</n-button>
+        <button type="button" class="m-btn ghost" :disabled="!messages.length" @click="exportArchive('markdown')">导出 Markdown</button>
+        <button type="button" class="m-btn ghost" :disabled="!messages.length" @click="exportArchive('json')">导出 JSON</button>
       </div>
     </header>
     <div v-if="!messages.length" class="archive-empty paper-panel">
@@ -20,9 +20,9 @@
       <section class="archive-discussion paper-panel">
       <nav class="archive-pagination" aria-label="灵感记录分页">
         <h3>创建讨论 <span>共 {{ messages.length }} 条消息</span></h3>
-        <n-button :disabled="page <= 1" @click="changePage(page - 1)">上一页</n-button>
+        <button type="button" class="m-btn" :disabled="page <= 1" @click="changePage(page - 1)">上一页</button>
         <span>第 {{ page }} / {{ pageCount }} 页 · 共 {{ messages.length }} 条</span>
-        <n-button :disabled="page >= pageCount" @click="changePage(page + 1)">下一页</n-button>
+        <button type="button" class="m-btn" :disabled="page >= pageCount" @click="changePage(page + 1)">下一页</button>
       </nav>
       <div class="archive-history" ref="historyElement" tabindex="0" aria-label="灵感对话存档">
         <article v-for="message in visibleMessages" :key="message.id" class="archive-message" :class="message.role">
@@ -44,10 +44,10 @@
 </template>
 
 <script setup lang="ts">
+import { errorText } from '@/services/userFacingError'
 import BookPage from '@/v3/components/BookPage.vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { NButton } from 'naive-ui'
 import { useNovelStore } from '@/stores/novel'
 import { exportInspirationArchive } from '@/services/export'
 import { formatChatReply } from '@/utils/chatPresentation'
@@ -74,7 +74,7 @@ function exportArchive(format: 'markdown' | 'json') {
   if (!novel.value || !messages.value.length) return
   error.value = ''
   try { exportInspirationArchive(novel.value, format) }
-  catch (cause) { error.value = cause instanceof Error ? cause.message : '导出失败，请重试' }
+  catch (cause) { error.value = errorText(cause, '导出失败，请重试') }
 }
 watch(() => route.params.novelId, () => { void changePage(1); error.value = '' })
 watch(pageCount, () => { if (page.value > pageCount.value) void changePage(pageCount.value) })

@@ -1,9 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRequire } from 'node:module'
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { createTestProjectBackup } from '@/test/projectBackupFixture'
+
+// 这些用例做真实的磁盘写入（含 fsync）和子进程调用；全量测试并行时可能超过默认 5 秒。
+// 放宽为 30 秒，只作卡死保护，不是性能指标。
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 })
 
 const require = createRequire(import.meta.url)
 const { createProjectKernelHandler, validateBackup } = require('../../app-main/projectKernelRpc.cjs')
