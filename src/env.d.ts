@@ -24,6 +24,7 @@ interface ElectronAPI {
   configEncrypt: (value: string) => Promise<string>
   configDecrypt: (value: string) => Promise<string>
   configSecurityStatus: () => Promise<{ encryptionAvailable: boolean }>
+  webSearchRequest?: (request: import('./services/webSearchService').WebSearchHttpRequest) => Promise<{ ok: boolean; status: number; text: string }>
   onBeforeClose: (callback: () => void | Promise<void>) => () => void
   onExitConfirm: (callback: (errorDetail: string) => void) => () => void
   sendExitChoice: (confirmed: boolean) => void

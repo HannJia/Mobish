@@ -16,6 +16,8 @@ describe('Embedding 服务', () => {
   it('规范化 OpenAI 兼容接口地址', () => {
     expect(embeddingEndpoint('http://127.0.0.1:11434/v1/')).toBe('http://127.0.0.1:11434/v1/embeddings')
     expect(embeddingEndpoint('https://example.com')).toBe('https://example.com/v1/embeddings')
+    expect(embeddingEndpoint('https://open.bigmodel.cn/api/paas/v4')).toBe('https://open.bigmodel.cn/api/paas/v4/embeddings')
+    expect(embeddingEndpoint('https://dashscope.aliyuncs.com/compatible-mode/v1')).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings')
   })
 
   it('按批次请求并归一化向量', async () => {

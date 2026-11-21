@@ -4,7 +4,8 @@ const EMBEDDING_TIMEOUT = 120_000
 
 export function embeddingEndpoint(baseUrl: string): string {
   const normalized = baseUrl.trim().replace(/\/+$/, '')
-  return normalized.endsWith('/v1') ? `${normalized}/embeddings` : `${normalized}/v1/embeddings`
+  // 与对话接口相同：已带版本号（如智谱 /api/paas/v4）或以 /openai 结尾的地址原样使用。
+  return /\/v\d+(?:beta|alpha)?$/i.test(normalized) || /\/openai$/i.test(normalized) ? `${normalized}/embeddings` : `${normalized}/v1/embeddings`
 }
 
 // Index identity excludes credentials, query parameters and fragments.

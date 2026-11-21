@@ -11,6 +11,7 @@ const { createUpdateHandshake } = require('./updateHandshake.cjs')
 const { createCloudSessionStorage } = require('./cloudSession.cjs')
 const { createProjectKernelHandler, validateBackup } = require('./projectKernelRpc.cjs')
 const { createClipboardWriter } = require('./clipboard.cjs')
+const { createWebSearchProxy } = require('./webSearchProxy.cjs')
 
 const isSmokeTest = process.env.AI_NOVEL_WRITER_SMOKE_TEST === '1'
 // 开发模式下的 Vite 服务器地址
@@ -22,8 +23,14 @@ const isVisualSmoke = isSmokeTest && ['visual', 'ui'].includes(process.env.AI_NO
 const isDeepVisualSmoke = isSmokeTest && process.env.AI_NOVEL_WRITER_SMOKE_WORKFLOW_KIND === 'deep'
 const isSelectionSmoke = isSmokeTest && process.env.AI_NOVEL_WRITER_SMOKE_WORKFLOW_KIND === 'selection'
 const clipboardSmokeScenario = process.env.AI_NOVEL_WRITER_SMOKE_CLIPBOARD_SCENARIO || 'normal'
-const APP_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#8f1d22"/><path d="M12 52c8-5 17-6 26-3 6 2 10 1 14-2-2 8-9 13-17 12-9-1-15-2-23 2z" fill="#31181b" opacity=".48"/><text x="32" y="45" text-anchor="middle" font-family="Microsoft YaHei, SimSun, serif" font-size="34" font-weight="700" fill="#fff8ed">墨</text></svg>'
-const appIcon = nativeImage.createFromDataURL('data:image/svg+xml;base64,' + Buffer.from(APP_ICON_SVG).toString('base64'))
+// 窗口图标：Electron 读不了 SVG。安装版不设置，由 mobish.exe 内嵌的图标显示；开发版用项目里的 icon.ico。
+function windowIcon() {
+  if (app.isPackaged) return undefined
+  try {
+    const devIconPath = path.join(__dirname, '..', 'build', 'icon.ico')
+    return fs.existsSync(devIconPath) ? nativeImage.createFromPath(devIconPath) : undefined
+  } catch { return undefined }
+}
 
 if (isSmokeTest) {
   app.commandLine.appendSwitch('no-sandbox')
@@ -376,7 +383,7 @@ function createWindow() {
     minWidth: isVisualSmoke || isDeepVisualSmoke || isSelectionSmoke ? 480 : 1024,
     minHeight: 700,
     title: '墨笔生花 · AI 小说写作',
-    icon: appIcon,
+    icon: windowIcon(),
     autoHideMenuBar: true,
     show: !isSmokeTest,
     webPreferences: {
@@ -490,6 +497,21 @@ function createWindow() {
           const cloudHealth = ${process.env.AI_NOVEL_WRITER_SMOKE_CLOUD === '1'
             ? "(await (await fetch('https://154.94.227.164/v1/health', { headers: { Authorization: 'Bearer smoke-no-account' }, signal: AbortSignal.timeout(15000) })).json()).protocol === 1"
             : 'null'};
+          const searxngBase = ${JSON.stringify(process.env.AI_NOVEL_WRITER_SMOKE_SEARXNG_URL || '')};
+          let webSearch = null;
+          let webSearchDetail = null;
+          if (searxngBase) {
+            const allowed = await window.electronAPI.webSearchRequest({ provider: 'searxng', method: 'GET',
+              url: searxngBase + '/search?q=%E6%B5%8B%E8%AF%95&format=json', headers: { Accept: 'application/json' } });
+            let rejected = false;
+            try {
+              await window.electronAPI.webSearchRequest({ provider: 'tavily', method: 'POST', url: searxngBase + '/search', headers: {}, body: '{}' });
+            } catch { rejected = true; }
+            const parsed = allowed?.ok ? JSON.parse(allowed.text) : null;
+            webSearch = allowed?.status === 200 && parsed?.results?.[0]?.title === 'MOJIAN-SMOKE-SEARCH'
+              && parsed.results[0].content === '测试' && rejected;
+            webSearchDetail = { status: allowed?.status, title: parsed?.results?.[0]?.title, rejected };
+          }
           return {
             rendered: Boolean(document.querySelector('#app')?.children.length),
             bridgeAvailable: typeof window.electronAPI?.configSecurityStatus === 'function',
@@ -501,6 +523,8 @@ function createWindow() {
               && await window.electronAPI.cloudSessionRead() === null,
             cloudSessionUnavailable,
             cloudHealth,
+            webSearch,
+            webSearchDetail,
           };
         })()`)
         if (process.env.AI_NOVEL_WRITER_SMOKE_WORKFLOW_KIND === 'shelf-resume') {
@@ -991,6 +1015,7 @@ ipcMain.handle('config:write', async (event, data) => {
   const keys = [
     ...(Array.isArray(parsed?.models) ? parsed.models.map(model => model?.apiKey) : []),
     parsed?.embedding?.apiKey,
+    parsed?.webSearchService?.apiKey,
   ].filter(value => typeof value === 'string' && value.length > 0)
   if (keys.some(value => !value.startsWith('enc:'))) {
     throw new Error('拒绝把明文 API Key 写入配置文件')
@@ -1065,6 +1090,12 @@ ipcMain.handle('config:decrypt', async (event, value) => {
   if (!value.startsWith('enc:')) throw new Error('只接受 V3 加密配置。')
   if (!safeStorage.isEncryptionAvailable()) throw new Error('系统安全存储不可用，无法解密 API Key')
   return safeStorage.decryptString(Buffer.from(value.slice(4), 'base64'))
+})
+
+const webSearchProxy = createWebSearchProxy((url, init) => net.fetch(url, init))
+ipcMain.handle('web-search:request', async (event, request) => {
+  assertMainWindowSender(event)
+  return webSearchProxy(request)
 })
 
 ipcMain.handle('config:security-status', async (event) => {

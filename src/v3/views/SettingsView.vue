@@ -13,20 +13,20 @@
       <h1 class="page-title">设置</h1>
     </div>
       <button
-        v-for="item in navItems"
+        v-for="item in visibleNavItems"
         :key="item.key"
         type="button"
         role="tab"
         class="settings-nav-item"
-        :aria-selected="activeNav === item.key"
-        :tabindex="activeNav === item.key ? 0 : -1"
+        :aria-selected="selectedNavKey === item.key"
+        :tabindex="selectedNavKey === item.key ? 0 : -1"
         @click="selectNav(item.key)"
       ><V3Icon :name="item.icon" /><span>{{ item.label }}</span></button>
     </nav>
     <div ref="contentEl" class="settings-content">
       <p v-if="hasUnsavedChanges" class="settings-draft-note" role="status">有未保存的模型或技能草稿。切换条目或分区会暂存，离开设置前请保存。</p>
       <section v-show="activeTab === 'cloud'" class="settings-section cloud-settings-section">
-        <CloudSyncPanel />
+        <CloudSyncPanel v-if="CLOUD_SYNC_AVAILABLE" />
         <ProjectHistoryPanel />
       </section>
       <!-- 模型配置 -->
@@ -63,19 +63,20 @@
               </div>
               <div v-if="model.name && model.name !== model.modelName" class="model-detail">备注：{{ model.name }}</div>
               <div class="model-detail model-key">{{ maskKey(model.apiKey) }}</div>
+              <!-- 类型只作文字说明；标签只列实际会用到这个模型的任务（含未分配时的默认和对话跟随大纲）。 -->
               <div class="model-badges">
-                <span class="badge" :class="model.kind === 'embedding' ? 'badge-vector' : 'badge-outline'">{{ model.kind === 'embedding' ? '向量模型' : '写作／对话' }}</span>
-                <span v-if="configStore.assignments.outline === model.id" class="badge badge-outline">大纲</span>
-                <span v-if="configStore.assignments.writing === model.id" class="badge badge-writing">写作</span>
-                <span v-if="configStore.assignments.review === model.id" class="badge badge-review">审查</span>
-                <span v-if="configStore.assignments.chat === model.id" class="badge badge-outline">对话 / 联网</span>
+                <span class="model-kind-text">{{ model.kind === 'embedding' ? '向量模型' : '写作／对话模型' }} ·</span>
+                <template v-if="modelTasks(model).length">
+                  <span v-for="task in modelTasks(model)" :key="task.key" class="badge" :class="task.className" :title="task.title">{{ task.label }}</span>
+                </template>
+                <span v-else class="model-kind-text">未分配任务</span>
               </div>
             </div>
             <div class="model-actions">
-              <button type="button" class="m-btn xs ghost" :aria-busy="testingId === model.id" @click="testModel(model)">
-                {{ testingId === model.id ? '测试中...' : model.kind === 'embedding' ? '测试向量' : '测试对话' }}
+              <button v-if="model.kind === 'embedding'" type="button" class="m-btn xs ghost" :aria-busy="testingId === model.id" @click="testModel(model)">
+                {{ testingId === model.id ? '测试中...' : '测试' }}
               </button>
-              <ModelSearchTest v-if="model.kind !== 'embedding'" :model="model" compact />
+              <ModelSearchTest v-else :model="model" compact :connection="testModelForCombined" />
               <button type="button" class="m-btn xs ghost" @click="editModel(model)">编辑</button>
               <button type="button" class="m-btn xs ghost danger-text" @click="handleDeleteModel(model.id)">删除</button>
             </div>
@@ -89,21 +90,49 @@
         <button type="button" class="m-btn sm ghost" @click="closeModelModal">收起</button>
       </div>
       <div class="model-form">
-        <V3Field label="模型类型">
-          <V3Select v-model:value="modelForm.kind" :options="modelKindOptions" aria-label="模型类型" />
-          <p class="model-discovery-hint">按接口实际支持的能力选择。向量模型用于语义检索。</p>
-        </V3Field>
+        <div class="model-kind-field">
+          <div class="model-kind-switch" role="radiogroup" aria-label="模型类型">
+            <button v-for="option in modelKindOptions" :key="option.value" type="button" role="radio" class="model-kind-option"
+              :class="{ on: modelForm.kind === option.value }" :aria-checked="modelForm.kind === option.value"
+              :disabled="Boolean(editingModel) && modelForm.kind !== option.value" @click="modelForm.kind = option.value">
+              <V3Icon :name="option.icon" size="s" /><span>{{ option.label }}</span>
+            </button>
+          </div>
+          <p class="model-discovery-hint">{{ modelKindOptions.find(option => option.value === modelForm.kind)?.note }}{{ editingModel ? '已添加的模型不能更改类型。' : '' }}</p>
+        </div>
         <V3Field label="配置备注（选填）">
           <V3Input v-model:value="modelForm.name" placeholder="如：主用接口 / 备用接口；留空使用模型 ID" />
           <p class="model-discovery-hint">仅用于区分配置，不改变实际模型。批量添加按各模型原始 ID 命名，不继承此备注。</p>
         </V3Field>
+        <V3Field v-if="!editingModel && modelForm.kind === 'embedding'" label="常用服务商（选填）">
+          <div class="provider-presets" role="group" aria-label="常用向量服务商">
+            <button v-for="preset in EMBEDDING_PROVIDER_PRESETS" :key="preset.id" type="button" class="m-btn xs" :class="{ pri: activeEmbeddingProvider?.id === preset.id }"
+              :aria-pressed="activeEmbeddingProvider?.id === preset.id" @click="applyEmbeddingPreset(preset)">{{ preset.label }}</button>
+          </div>
+          <p class="model-discovery-hint">选择后自动填写官方接口地址。需要接口兼容 OpenAI 的 /embeddings；使用中转站或本地服务（如 Ollama）时直接填写接口地址。
+            <a v-if="activeEmbeddingProvider" :href="activeEmbeddingProvider.consoleUrl" target="_blank" rel="noopener noreferrer">申请 API 密钥</a></p>
+        </V3Field>
+        <V3Field v-if="!editingModel && modelForm.kind !== 'embedding'" label="常用服务商（选填）">
+          <div class="provider-presets" role="group" aria-label="常用服务商">
+            <div v-for="group in providerPresetGroups" :key="group.label" class="provider-row">
+              <span class="provider-group">{{ group.label }}</span>
+              <button v-for="preset in group.items" :key="preset.id" type="button" class="m-btn xs" :class="{ pri: activeProvider?.id === preset.id }"
+                :aria-pressed="activeProvider?.id === preset.id" @click="applyProviderPreset(preset)">{{ preset.label }}</button>
+            </div>
+          </div>
+          <p class="model-discovery-hint">选择后自动填写官方接口地址，再填 API 密钥并获取模型列表。使用中转站时直接填写接口地址即可。</p>
+        </V3Field>
         <V3Field label="接口地址">
           <V3Input
             v-model:value="modelForm.baseUrl"
-            placeholder="如：https://api.deepseek.com"
+            :placeholder="modelForm.kind === 'embedding' ? '如：https://api.siliconflow.cn/v1；本地服务如 http://127.0.0.1:11434/v1' : '如：https://api.deepseek.com'"
             @update:value="handleModelSourceChange"
           />
         </V3Field>
+        <p v-if="activeProvider" class="model-discovery-hint provider-note">
+          {{ activeProvider.label }}：{{ activeProvider.searchNote }}
+          <a :href="activeProvider.consoleUrl" target="_blank" rel="noopener noreferrer">申请 API 密钥</a>
+        </p>
         <V3Field label="API 密钥">
           <V3Input
             v-model:value="modelForm.apiKey"
@@ -117,7 +146,7 @@
         <V3Field label="模型名称（原始 ID）">
           <V3Input
             v-model:value="modelForm.modelName"
-            placeholder="如：deepseek-chat / gpt-4o / qwen-max"
+            :placeholder="modelForm.kind === 'embedding' ? (activeEmbeddingProvider?.modelHint || '如：text-embedding-v4 / bge-m3') : activeProvider ? activeProvider.modelHint : '如：deepseek-chat / gpt-4o / qwen-max'"
             @update:value="handleManualModelNameChange"
           />
           <div class="model-discovery-row">
@@ -161,9 +190,9 @@
         </V3Field>
         <details v-if="modelForm.kind !== 'embedding'" class="model-advanced">
           <summary>高级参数与联网测试</summary>
-          <V3Field label="对话联网协议">
-          <V3Select v-model:value="modelForm.chatSearchProtocol" :options="chatSearchProtocolOptions" />
-          <p class="model-discovery-hint">在灵感对话或写作台的书内对话开启“联网”时使用，需要所用接口支持联网搜索。</p>
+          <V3Field label="对话联网方式">
+          <V3Select v-model:value="modelForm.chatSearchProtocol" :options="chatSearchModeOptions" aria-label="对话联网方式" />
+          <p class="model-discovery-hint">在灵感对话或写作台的书内对话开启“联网”时使用。“自动”会按官方接口地址选择；中转站需要支持所选方式。选“独立搜索服务”时使用“联网搜索”页的设置。</p>
           <ModelSearchTest v-if="showAddModel" :model="searchTestModel" />
         </V3Field>
         <div class="form-row">
@@ -214,6 +243,7 @@
               @update:value="(v: string) => configStore.setAssignment('outline', v)"
               placeholder="选择模型"
             />
+            <p class="assignment-recommend">推荐：推理能力强、上下文长的旗舰模型，规划要前后一致，速度慢些没关系。例如 Claude Opus、GPT 旗舰版、Gemini Pro、DeepSeek 推理模式、通义千问 Max。</p>
           </V3Field>
           <V3Field class="assignment-item" label="正文写作">
             <V3Select
@@ -222,6 +252,7 @@
               @update:value="(v: string) => configStore.setAssignment('writing', v)"
               placeholder="选择模型"
             />
+            <p class="assignment-recommend">推荐：中文文笔好、单次输出长的模型。调用次数最多，兼顾价格和速度。例如 Claude Sonnet、DeepSeek、Kimi、通义千问 Plus、豆包。</p>
           </V3Field>
           <V3Field class="assignment-item" label="章节审查">
             <V3Select
@@ -230,6 +261,7 @@
               @update:value="(v: string) => configStore.setAssignment('review', v)"
               placeholder="选择模型"
             />
+            <p class="assignment-recommend">推荐：上下文长、细致的模型，最好和正文写作用不同的模型，更容易发现问题。例如 Gemini Pro、GPT 旗舰版、GLM 旗舰版、通义千问 Max。</p>
           </V3Field>
           <V3Field class="assignment-item chat-assignment" label="对话 / 联网模型">
             <V3Select
@@ -239,14 +271,17 @@
               aria-label="对话 / 联网模型"
               placeholder="默认跟随大纲模型"
             />
-            <p class="assignment-hint">用于灵感对话和写作台的书内对话。联网开关只控制是否搜索；大纲生成、设定整理仍使用大纲模型。所选模型的接口需支持联网协议。</p>
+            <p class="assignment-recommend">推荐：响应快、价格低的模型。例如 DeepSeek、Gemini Flash、通义千问 Flash、GLM Flash、豆包。</p>
+            <p class="assignment-hint">用于灵感对话和写作台的书内对话。联网开关只控制是否搜索；大纲生成、设定整理仍使用大纲模型。模型没有内置搜索时，改用“联网搜索”页的搜索服务。</p>
           </V3Field>
           <V3Field class="assignment-item embedding-assignment" label="语义检索">
             <V3Select :value="configStore.assignments.embedding || ''" :options="embeddingModelOptions" aria-label="语义检索模型" placeholder="选择向量模型" @update:value="(v: string) => configStore.setAssignment('embedding', v)" />
+            <p class="assignment-recommend">推荐：支持中文的向量模型。例如 bge-m3、通义 text-embedding-v4、OpenAI text-embedding-3 系列。</p>
             <p class="assignment-hint">使用支持 Embedding 的向量模型。</p>
           </V3Field>
         </div>
       </section>
+      <WebSearchServicePanel v-show="activeTab === 'websearch'" />
 
       <section v-show="activeTab === 'look'" class="settings-section paper-panel look-section">
         <h2 class="section-title">外观</h2>
@@ -291,7 +326,7 @@
           API 密钥已由操作系统安全存储加密后写入本机配置文件。
         </p>
         <p v-else-if="configStore.securityStatus.storage === 'local-development'" class="security-status">
-          API 密钥保存在当前浏览器的本地配置中；桌面版使用操作系统加密保存。如需跨设备同步，可在"云端配置"中单独开启。
+          API 密钥保存在当前浏览器的本地配置中；桌面版使用操作系统加密保存。{{ CLOUD_SYNC_AVAILABLE ? '如需跨设备同步，可在"云端配置"中单独开启。' : '' }}
         </p>
         <p v-else class="security-status">
           当前环境无法加密保存 API 密钥，关闭应用或浏览器标签后需要重新填写。
@@ -389,7 +424,7 @@
       <section v-show="activeTab === 'about'" class="settings-section paper-panel about-section">
         <h2 class="section-title">关于墨笔生花</h2>
         <div class="about-brand"><span class="seal">墨</span><div><h3>墨笔生花</h3><p class="about-version">版本 v{{ appVersion }}</p></div></div>
-        <p class="about-desc">本地优先的 AI 长篇小说写作工具。创作内容保存在本机，可按需开启云同步。</p>
+        <p class="about-desc">本地优先的 AI 长篇小说写作工具。创作内容保存在本机{{ CLOUD_SYNC_AVAILABLE ? '，可按需开启云同步' : '' }}。</p>
         <div class="about-features"><article><span><V3Icon name="pen" size="l" /></span><div><h4>作者主笔</h4><p>尊重创作意图，随时编辑故事与正文。</p></div></article><article><span><V3Icon name="spark" size="l" /></span><div><h4>AI 辅助</h4><p>为构思、写作与审查提供支持。</p></div></article><article><span><V3Icon name="book" size="l" /></span><div><h4>知识库与剧情记忆</h4><p>整理人物、世界观和情节，让长篇创作更连贯。</p></div></article></div>
         <section class="about-update" aria-labelledby="about-update-title"><h3 id="about-update-title" class="about-help-title">软件更新</h3><AppUpdatePanel /></section>
         <details class="font-licenses">
@@ -445,7 +480,10 @@ import { useConfigStore, type ModelConfig, type ModelConnectionTestRecord, type 
 import { listAvailableModels, openAiV1BaseUrl, testConnection, type AvailableModel } from '@/services/ai'
 import { testEmbeddingConnection } from '@/services/embeddings'
 import { modelConnectionFingerprint } from '@/services/modelConnectionTest'
-import { chatSearchProtocolOptions } from '@/services/chatSearch'
+import { chatSearchModeOptions, splitSearchMode } from '@/services/chatSearch'
+import { detectModelProvider, EMBEDDING_PROVIDER_PRESETS, MODEL_PROVIDER_PRESETS, type ChatSearchAdapter, type EmbeddingProviderPreset, type ModelProviderPreset } from '@/services/modelProviders'
+import WebSearchServicePanel from '@/components/WebSearchServicePanel.vue'
+import { CLOUD_SYNC_AVAILABLE } from '@/services/features'
 import type { ChatSearchProtocol } from '@/types/chat'
 import type { WritingSkill, WritingSkillTask } from '@/types/skill'
 import { version as appVersion } from '../../../package.json'
@@ -492,21 +530,29 @@ const route = useRoute()
 const router = useRouter()
 const theme = useThemeStore()
 
-type SettingsTab = 'models' | 'workflow' | 'look' | 'retrieval' | 'skills' | 'cloud' | 'about'
-// “任务分配”定位到模型配置页的锚点，软件更新统一放在“关于”页。
-const navItems: Array<{ key: string; label: string; icon: IconName; tab: SettingsTab; anchor?: string }> = [
+type SettingsTab = 'models' | 'websearch' | 'workflow' | 'look' | 'retrieval' | 'skills' | 'cloud' | 'about'
+// 任务分配在模型配置页内，不单列导航；保留 section=assign，供“前往任务分配”等入口定位到该区域。
+// 软件更新统一放在“关于”页。
+const navItems: Array<{ key: string; label: string; icon: IconName; tab: SettingsTab; anchor?: string; hidden?: boolean }> = [
   { key: 'models', label: '模型配置', icon: 'grid', tab: 'models' },
-  { key: 'assign', label: '任务分配', icon: 'target', tab: 'models', anchor: '#model-task-assignments' },
+  { key: 'assign', label: '任务分配', icon: 'target', tab: 'models', anchor: '#model-task-assignments', hidden: true },
+  { key: 'websearch', label: '联网搜索', icon: 'globe', tab: 'websearch' },
   { key: 'workflow', label: 'AI 工作流', icon: 'bolt', tab: 'workflow' },
   { key: 'look', label: '外观', icon: 'sun', tab: 'look' },
   { key: 'retrieval', label: '语义检索', icon: 'search', tab: 'retrieval' },
   { key: 'skills', label: '写作技能', icon: 'pen', tab: 'skills' },
-  { key: 'cloud', label: '云同步与历史', icon: 'cloud', tab: 'cloud' },
+  // 云同步未开放时，这一页只剩本地的项目历史；section=cloud 的链接保持可用。
+  CLOUD_SYNC_AVAILABLE ? { key: 'cloud', label: '云同步与历史', icon: 'cloud', tab: 'cloud' } : { key: 'cloud', label: '项目历史', icon: 'clock', tab: 'cloud' },
   { key: 'about', label: '关于', icon: 'info', tab: 'about' },
 ]
 const activeNav = computed(() => navItems.some(item => item.key === route.query.section) ? String(route.query.section) : 'models')
 const activeNavItem = computed(() => navItems.find(item => item.key === activeNav.value)!)
 const activeTab = computed(() => activeNavItem.value.tab)
+const visibleNavItems = navItems.filter(item => !item.hidden)
+// 隐藏条目（任务分配）选中时，高亮它所在页面的导航项。
+const selectedNavKey = computed(() => activeNavItem.value.hidden
+  ? visibleNavItems.find(item => item.tab === activeNavItem.value.tab)?.key ?? 'models'
+  : activeNav.value)
 const contentEl = ref<HTMLElement | null>(null)
 watch(activeNav, scrollToActiveSection, { immediate: true })
 async function selectNav(key: string) {
@@ -621,7 +667,10 @@ const editingSkill = ref<string | null>(null)
 const embeddingForm = reactive({ batchSize: configStore.embedding.batchSize })
 const assignedEmbeddingModel = computed(() => configStore.getModelForTask('embedding'))
 watch(() => configStore.embedding.batchSize, value => { embeddingForm.batchSize = value })
-const modelKindOptions = [{ label: '写作／对话', value: 'chat' }, { label: '向量模型（Embedding）', value: 'embedding' }]
+const modelKindOptions: Array<{ label: string; value: 'chat' | 'embedding'; icon: IconName; note: string }> = [
+  { label: '写作／对话', value: 'chat', icon: 'pen', note: '用于大纲、正文、审查和对话。' },
+  { label: '向量模型（Embedding）', value: 'embedding', icon: 'layers', note: '只用于语义检索，按含义查找资料，不能用来写作或对话。' },
+]
 const embeddingModelOptions = computed(() => [
   { label: '暂不分配', value: '' },
   ...configStore.models.filter(model => model.kind === 'embedding').map(model => ({ label: model.name || model.modelName, value: model.id })),
@@ -657,8 +706,27 @@ const modelForm = reactive({
   temperature: 0.7,
   topP: 0.9,
   maxTokens: 4096,
-  chatSearchProtocol: 'auto' as ChatSearchProtocol,
+  chatSearchProtocol: 'auto' as ChatSearchProtocol | ChatSearchAdapter,
 })
+const providerPresetGroups = [
+  { label: '国内', items: MODEL_PROVIDER_PRESETS.filter(item => item.region === 'domestic') },
+  { label: '海外', items: MODEL_PROVIDER_PRESETS.filter(item => item.region === 'overseas') },
+]
+const activeProvider = computed(() => modelForm.kind === 'embedding' ? null : detectModelProvider(modelForm.baseUrl))
+const activeEmbeddingProvider = computed(() => {
+  if (modelForm.kind !== 'embedding') return null
+  const base = modelForm.baseUrl.trim().replace(/\/+$/, '').toLowerCase()
+  return EMBEDDING_PROVIDER_PRESETS.find(preset => preset.baseUrl.toLowerCase() === base) ?? null
+})
+function applyEmbeddingPreset(preset: EmbeddingProviderPreset) {
+  modelForm.baseUrl = preset.baseUrl
+  handleModelSourceChange()
+}
+function applyProviderPreset(preset: ModelProviderPreset) {
+  modelForm.baseUrl = preset.baseUrl
+  modelForm.chatSearchProtocol = 'auto'
+  handleModelSourceChange()
+}
 type ModelDraft = {
   form: typeof modelForm
   baseline: string
@@ -724,6 +792,7 @@ onBeforeUnmount(() => {
 
 const searchTestModel = computed<ModelConfig>(() => ({
   ...modelForm,
+  ...splitSearchMode(modelForm.chatSearchProtocol),
   id: editingModel.value || 'search-test',
   apiKey: modelForm.apiKey.trim() || configStore.models.find(model => model.id === editingModel.value)?.apiKey || '',
 }))
@@ -786,7 +855,7 @@ function editModel(model?: ModelConfig) {
     temperature: model.temperature,
     topP: model.topP,
     maxTokens: model.maxTokens,
-    chatSearchProtocol: model.chatSearchProtocol || 'auto',
+    chatSearchProtocol: model.searchAdapter || model.chatSearchProtocol || 'auto',
   })
   availableModels.value = draft?.availableModels || []
   selectedModelNames.value = draft?.selectedModelNames || (model ? [model.modelName] : [])
@@ -886,7 +955,7 @@ function handleSaveModel() {
     : null
   const apiKey = modelForm.apiKey.trim() || existingModel?.apiKey || ''
   if (!apiKey && modelForm.kind !== 'embedding') return
-  const config = { ...modelForm, apiKey, name: modelForm.name.trim() || modelName, modelName }
+  const config = { ...modelForm, ...splitSearchMode(modelForm.chatSearchProtocol), apiKey, name: modelForm.name.trim() || modelName, modelName }
   if (editingModel.value) {
     configStore.updateModel(editingModel.value, config)
     message.success('模型配置已更新')
@@ -930,7 +999,7 @@ function handleBatchSaveModels() {
       temperature: modelForm.temperature,
       topP: modelForm.topP,
       maxTokens: modelForm.maxTokens,
-      chatSearchProtocol: modelForm.chatSearchProtocol,
+      ...splitSearchMode(modelForm.chatSearchProtocol),
     })
     existing.add(key)
     added += 1
@@ -985,16 +1054,16 @@ function connectionTestRecord(status: ModelConnectionTestRecord['status'], finge
   return { status, testedAt: new Date().toISOString(), fingerprint, environment }
 }
 
-async function runModelConnectionTest(model: ModelConfig) {
+async function runModelConnectionTest(model: ModelConfig, quiet = false): Promise<{ ok: boolean; message: string } | null> {
   const snapshot = { ...model }
   const environment = configStore.securityStatus.environment
   const attempt = configStore.beginModelConnectionTest(model.id, environment)
-  if (!attempt) return
+  if (!attempt) return null
   try {
     const fingerprint = await modelConnectionFingerprint(snapshot)
-    if (!configStore.isCurrentModelConnectionTest(attempt)) return
+    if (!configStore.isCurrentModelConnectionTest(attempt)) return null
     const started = await configStore.recordModelConnectionTest(attempt, connectionTestRecord('testing', fingerprint, environment))
-    if (!started || !configStore.isCurrentModelConnectionTest(attempt)) return
+    if (!started || !configStore.isCurrentModelConnectionTest(attempt)) return null
 
     let status: 'ok' | 'fail'
     let successMessage = ''
@@ -1016,13 +1085,45 @@ async function runModelConnectionTest(model: ModelConfig) {
     }
 
     const published = await configStore.recordModelConnectionTest(attempt, connectionTestRecord(status, fingerprint, environment))
-    if (!published) return
+    if (!published) return null
     testState[model.id] = status
-    if (status === 'ok') message.success(successMessage)
-    else message.error(failureMessage)
+    if (!quiet) {
+      if (status === 'ok') message.success(successMessage)
+      else message.error(failureMessage)
+    }
+    return { ok: status === 'ok', message: status === 'ok' ? successMessage || '连接正常' : failureMessage }
   } finally {
     configStore.finishModelConnectionTest(attempt)
   }
+}
+
+/** 合并测试的第一步：测对话连接，结果交给测试组件显示。 */
+async function testModelForCombined(model: ModelConfig) {
+  const generation = ++modelTestUiGeneration
+  testingId.value = model.id
+  try {
+    return await runModelConnectionTest(model, true)
+      ?? { ok: false, message: '这个模型的另一项测试还在进行，请稍后重试。' }
+  } catch (error) {
+    return { ok: false, message: errorText(error, '连接测试失败') }
+  } finally {
+    if (generation === modelTestUiGeneration) testingId.value = null
+  }
+}
+
+const TASK_BADGES = [
+  { key: 'outline', label: '大纲', className: 'badge-outline' },
+  { key: 'writing', label: '写作', className: 'badge-writing' },
+  { key: 'review', label: '审查', className: 'badge-review' },
+  { key: 'chat', label: '对话', className: 'badge-outline' },
+  { key: 'embedding', label: '语义检索', className: 'badge-vector' },
+] as const
+/** 实际会用到这个模型的任务：按任务分配解析，包括未分配时的默认模型和对话跟随大纲。 */
+function modelTasks(model: ModelConfig) {
+  return TASK_BADGES.filter(task => configStore.getModelForTask(task.key)?.id === model.id).map(task => ({
+    ...task,
+    title: task.key === 'chat' && !configStore.models.some(item => item.id === configStore.assignments.chat && item.kind !== 'embedding') ? '对话跟随大纲模型' : '',
+  }))
 }
 
 async function testModel(model: ModelConfig) {
@@ -1478,6 +1579,23 @@ function handleDeleteSkill(id: string) {
 }
 
 .model-discovery-hint { color: var(--ink-3); }
+.provider-presets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* 国内、海外各占一行，分组名不会落到上一行末尾。 */
+.provider-presets:has(.provider-row) { display: grid; gap: 8px; }
+.provider-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.provider-row .provider-group { flex: 0 0 2.5em; }
+/* 设置页表单的字段标题比全局默认的 12px 大一号，颜色更深。 */
+.settings-v3 :deep(.m-field-l) { color: var(--ink); font-size: 13px; }
+.model-kind-field { grid-column: 1 / -1; display: grid; gap: 6px; margin-bottom: 14px; }
+.model-kind-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-width: 460px; }
+.model-kind-option { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--ink-2); font: inherit; font-size: 14px; cursor: pointer; white-space: nowrap; }
+.model-kind-option:hover:not(:disabled) { border-color: var(--line-2); color: var(--ink); }
+.model-kind-option.on { border-color: var(--zhu); color: var(--ink); font-weight: 600; box-shadow: 0 0 0 3px var(--zhu-soft); }
+.model-kind-option:disabled { cursor: not-allowed; opacity: .45; }
+.model-kind-option:focus-visible { outline: 2px solid var(--zhu); outline-offset: 2px; }
+.provider-group { font-size: 12px; color: var(--ink-3); margin-right: 2px; }
+.provider-note { margin: -6px 0 10px; }
+.provider-note a { color: var(--zhu); margin-left: 4px; }
 .model-discovery-success { color: var(--qing); }
 .model-discovery-error { margin: 0; color: var(--zhu); }
 
@@ -1588,7 +1706,7 @@ function handleDeleteSkill(id: string) {
 .back-icon { transform: rotate(180deg); }
 .danger-text { color: var(--zhu); }
 .restore-skill { margin-right: auto; }
-.model-advanced summary { cursor: pointer; color: var(--ink-2); padding: 8px 0; }
+.model-advanced summary { cursor: pointer; color: var(--ink); font-weight: 600; padding: 8px 0; }
 .model-advanced .form-row { margin-top: 14px; }
 .section-header .section-title { margin-bottom: 0; }
 .model-editor h3 { font-size: 21px; }
@@ -1598,12 +1716,13 @@ function handleDeleteSkill(id: string) {
 .model-security-status { margin-top: -12px; }
 .model-security-status .security-status { background: none; padding: 0 4px; }
 .badge-vector { color: var(--dai); background: var(--dai-soft); }
+.model-kind-text { color: var(--ink-3); font-size: 12px; }
 .optional-label { font: 12px var(--f-ui); color: var(--ink-2); padding: 3px 8px; border: 1px solid var(--line-2); border-radius: var(--r-s); vertical-align: middle; }
 .retrieval-model-status { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 24px 0; }
 .retrieval-model-status strong { display: block; margin-top: 8px; overflow-wrap: anywhere; }
 .setting-label { font-size: 13px; color: var(--ink-2); }
 .retrieval-advanced { border-top: 1px solid var(--line); padding-top: 16px; }
-.retrieval-advanced summary { cursor: pointer; color: var(--ink-2); }
+.retrieval-advanced summary { cursor: pointer; color: var(--ink); font-weight: 600; }
 .retrieval-advanced .batch-field { max-width: 240px; margin: 20px 0 12px; }
 .workflow-card { font-family: var(--f-ui); }
 .workflow-card h4 { font-family: var(--f-serif); font-size: 20px; }
@@ -1630,7 +1749,7 @@ function handleDeleteSkill(id: string) {
 .skill-select { font: 600 20px var(--f-serif); color: var(--ink); border: 0; background: transparent; padding: 0; text-align: left; cursor: pointer; }
 .skill-row .model-actions { flex-basis: 100%; justify-content: flex-end; }
 .skill-editor { padding: 24px; min-width: 0; }
-.skill-editor h3 { font-size: 23px; margin-bottom: 24px; }
+.skill-editor h3 { font-size: 20px; margin-bottom: 20px; }
 .skill-editor .section-actions { margin-top: 20px; }
 .skill-editor-empty { padding: 32px; color: var(--ink-2); border: 1px dashed var(--line-2); border-radius: 9px; }
 @media (max-width: 1000px) { .skill-workbench { grid-template-columns: 1fr; } .skill-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -1646,7 +1765,7 @@ function handleDeleteSkill(id: string) {
 .skill-info p { margin-top: 10px; font-size: 14px; line-height: 1.7; }
 .skill-row .model-actions { position: absolute; right: 16px; bottom: 12px; }
 .skill-editor { padding: 24px; }
-.skill-editor h3 { font-size: 25px; margin-bottom: 24px; }
+.skill-editor h3 { font-size: 20px; margin-bottom: 20px; }
 @media (max-width: 760px) { .settings-header { display: none; } .skill-row { padding: 16px; } }
 .workflow-card { position: relative; min-height: 180px; display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 8px 18px; padding: 24px; align-content: start; }
 .workflow-symbol { grid-row: span 2; display: grid; place-items: center; width: 60px; height: 60px; border-radius: 50%; background: var(--dai-soft); color: var(--dai); }
@@ -1675,7 +1794,7 @@ function handleDeleteSkill(id: string) {
 .about-features article > span { display: grid; place-items: center; flex: 0 0 40px; height: 40px; border-radius: 50%; background: var(--hover); }
 .about-features h4 { font: 600 18px var(--f-serif); margin-bottom: 6px; }
 .about-features p { font-size: 14px; margin: 0; }
-.about-help-title { font-size: 24px; padding: 20px 0 10px; border-top: 1px solid var(--line); }
+.about-help-title { font-size: 20px; padding: 20px 0 10px; border-top: 1px solid var(--line); }
 .about-links a { display: grid; grid-template-columns: 140px minmax(0, 1fr) 24px; align-items: center; color: var(--ink); }
 .about-links small { color: var(--ink-2); font-size: 14px; }
 .about-backup-note { margin-top: 20px; font-size: 13px; color: var(--ink-2); }
@@ -1751,8 +1870,12 @@ function handleDeleteSkill(id: string) {
 .settings-v3 .assignment-item { display: grid; grid-template-columns: 160px minmax(220px, 280px) minmax(0, 1fr); align-items: center; gap: 4px 16px; padding: 12px 16px; border-top: 1px solid var(--line); }
 .settings-v3 .assignment-item:first-child { border-top: 0; }
 .settings-v3 .assignment-item.m-field { margin-bottom: 0; }
-.settings-v3 .assignment-item > label { color: var(--ink); font-size: 13px; font-weight: 600; }
-.settings-v3 .assignment-hint { grid-column: 3; color: var(--ink-3); font-size: 12px; }
+.settings-v3 .assignment-item > :deep(label) { color: var(--ink); font-size: 15px; font-weight: 600; }
+.settings-v3 .assignment-hint { grid-column: 3; grid-row: 1 / span 2; color: var(--ink-3); font-size: 12px; }
+/* 推荐说明放在任务名称和下拉框下面一行；右侧的补充说明跨两行。模型例子只写系列名，避免版本号很快过时。 */
+.settings-v3 .assignment-item > :deep(label) { grid-column: 1; grid-row: 1; }
+.settings-v3 .assignment-item > :not(label):not(p) { grid-column: 2; grid-row: 1; }
+.settings-v3 .assignment-recommend { grid-column: 1 / 3; grid-row: 2; margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
 
 /* AI 工作流：三张选项卡 */
 .settings-v3 .workflow-cards { gap: 12px; margin: 16px 0; }
@@ -1778,7 +1901,8 @@ function handleDeleteSkill(id: string) {
 @media (max-width: 1100px) {
   .settings-v3 .model-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .settings-v3 .assignment-item { grid-template-columns: 140px minmax(0, 1fr); }
-  .settings-v3 .assignment-hint { grid-column: 1 / -1; }
+  .settings-v3 .assignment-hint { grid-column: 1 / -1; grid-row: auto; }
+  .settings-v3 .assignment-recommend { grid-column: 1 / -1; }
 }
 @media (max-width: 760px) {
   .settings-v3.page-container { overflow: auto; }
@@ -1789,6 +1913,8 @@ function handleDeleteSkill(id: string) {
   .settings-v3 .settings-content { padding: 20px 14px 40px; overflow: visible; }
   .settings-v3 .model-list { grid-template-columns: 1fr; }
   .settings-v3 .assignment-item { grid-template-columns: 1fr; }
+  .settings-v3 .assignment-item > :deep(label), .settings-v3 .assignment-item > :not(label):not(p),
+  .settings-v3 .assignment-recommend, .settings-v3 .assignment-hint { grid-column: 1; grid-row: auto; }
   .settings-v3 .workflow-cards { grid-template-columns: 1fr; }
 }
 @media (max-width: 420px) {

@@ -1,42 +1,76 @@
 import { callAI, openAiV1BaseUrl, type ChatMessage } from '@/services/ai'
-import type { ModelConfig } from '@/stores/config'
+import { useConfigStore, type ModelConfig } from '@/stores/config'
 import type { ChatSearchProtocol, ChatSearchRecord, ChatSource } from '@/types/chat'
 import { finishAiActivity, startAiActivity } from './aiActivity'
+import { autoSearchAdapter, type ChatSearchAdapter } from './modelProviders'
 import { readSearchPayload, SearchResponseError as SearchError } from './searchResponse'
+import { effectiveWebSearchLabel, searchContextMessage, searchWebWithFallback, WEB_SEARCH_PROVIDERS, WebSearchServiceError } from './webSearchService'
 
-// Only these documented server-side tools are supported. A model name or /models
-// response does not prove that a relay actually forwards the corresponding tool.
-export const chatSearchProtocolOptions: Array<{ label: string; value: ChatSearchProtocol }> = [
-  { label: '自动匹配协议（不代表接口已支持）', value: 'auto' },
-  { label: '响应接口网页搜索（Responses）', value: 'responses' },
-  { label: 'Claude 消息接口网页搜索（Messages）', value: 'anthropic' },
+type ResolvedProtocol = Exclude<ChatSearchProtocol, 'auto'>
+/** 实际使用的联网方式：原有的四种协议，加上通义、智谱、Gemini 与独立搜索服务。 */
+export type ChatSearchMode = ResolvedProtocol | ChatSearchAdapter
+type SearchModel = Pick<ModelConfig, 'baseUrl' | 'modelName' | 'chatSearchProtocol' | 'searchAdapter'>
+
+const ADAPTERS: ChatSearchAdapter[] = ['qwen', 'zhipu', 'gemini', 'search-service']
+
+// 设置页的联网方式选项。原有四种协议随云端配置同步；新增的方式只保存在本机，
+// 其他设备在“自动”下按官方接口地址识别出同样的方式。
+export const chatSearchModeOptions: Array<{ label: string; value: ChatSearchProtocol | ChatSearchAdapter }> = [
+  { label: '自动（按接口地址识别）', value: 'auto' },
+  { label: '独立搜索服务（先搜索，再交给模型）', value: 'search-service' },
+  { label: 'OpenAI / 火山方舟 Responses 网页搜索', value: 'responses' },
+  { label: 'Claude 消息接口网页搜索', value: 'anthropic' },
+  { label: 'Gemini Google 搜索', value: 'gemini' },
+  { label: '通义千问联网搜索', value: 'qwen' },
+  { label: '智谱网络搜索', value: 'zhipu' },
   { label: 'OpenRouter 网页插件', value: 'openrouter' },
-  { label: '聊天补全搜索专用模型（Chat Completions）', value: 'chat-completions' },
+  { label: '聊天补全搜索专用模型', value: 'chat-completions' },
 ]
+/** 把设置页选择的联网方式拆成随云端同步的协议值和只存本机的方式。 */
+export function splitSearchMode(value: ChatSearchProtocol | ChatSearchAdapter): { chatSearchProtocol: ChatSearchProtocol; searchAdapter: ChatSearchAdapter | undefined } {
+  return (ADAPTERS as string[]).includes(value)
+    ? { chatSearchProtocol: 'auto', searchAdapter: value as ChatSearchAdapter }
+    : { chatSearchProtocol: value as ChatSearchProtocol, searchAdapter: undefined }
+}
+/** @deprecated 保留给旧代码引用，等同于 chatSearchModeOptions。 */
+export const chatSearchProtocolOptions = chatSearchModeOptions
 
 type Json = Record<string, unknown>
-type ResolvedProtocol = Exclude<ChatSearchProtocol, 'auto'>
 const object = (value: unknown): Json => value && typeof value === 'object' && !Array.isArray(value) ? value as Json : {}
 const array = (value: unknown): unknown[] => Array.isArray(value) ? value : []
 
-const protocolInfo: Record<ResolvedProtocol, { label: string; path: string }> = {
+const modeInfo: Record<ChatSearchMode, { label: string; path: string }> = {
   responses: { label: 'Responses', path: '/responses' },
   anthropic: { label: 'Claude Messages', path: '/messages' },
   openrouter: { label: 'OpenRouter', path: '/chat/completions' },
   'chat-completions': { label: 'Chat Completions', path: '/chat/completions' },
+  qwen: { label: '通义千问联网搜索', path: '/chat/completions' },
+  zhipu: { label: '智谱网络搜索', path: '/chat/completions' },
+  gemini: { label: 'Gemini Google 搜索', path: ':generateContent' },
+  'search-service': { label: '独立搜索服务', path: '先搜索再回答' },
 }
 
-export function searchProtocolDescription(model: Pick<ModelConfig, 'baseUrl' | 'modelName' | 'chatSearchProtocol'>): string {
-  const { label, path } = protocolInfo[resolveChatSearchProtocol(model)]
-  return `${model.chatSearchProtocol && model.chatSearchProtocol !== 'auto' ? '已选择' : '自动推测'}：${label} · ${path}`
+/** 对话记录里的协议字段必须是旧版本也认识的值，新增方式按其请求格式归入 chat-completions。 */
+function recordProtocol(mode: ChatSearchMode): ResolvedProtocol {
+  return (ADAPTERS as string[]).includes(mode) ? 'chat-completions' : mode as ResolvedProtocol
 }
 
-function httpSearchError(status: number, protocol: ResolvedProtocol): SearchError {
-  const { label, path } = protocolInfo[protocol]
-  const reason = status === 401 ? '搜索接口未通过身份验证。普通对话可用也不代表此搜索接口接受同一密钥。'
+export function searchProtocolDescription(model: SearchModel): string {
+  const mode = resolveChatSearchMode(model)
+  const { label, path } = modeInfo[mode]
+  const chosen = model.searchAdapter || (model.chatSearchProtocol && model.chatSearchProtocol !== 'auto')
+  if (mode === 'search-service') {
+    return `${chosen ? '已选择' : '自动识别'}：${label} · ${effectiveWebSearchLabel(useConfigStore().webSearchService)}`
+  }
+  return `${chosen ? '已选择' : '自动推测'}：${label} · ${path}`
+}
+
+function httpSearchError(status: number, mode: ChatSearchMode): SearchError {
+  const { label, path } = modeInfo[mode]
+  const reason = status === 401 ? '搜索接口未通过身份验证。普通对话可用，不一定说明搜索接口也接受同一密钥。'
     : status === 403 ? '搜索接口拒绝访问，请确认服务商的搜索权限、模型权限及访问限制。'
     : [400, 404, 405, 422].includes(status)
-      ? `接口不接受 ${label} 搜索请求，请向服务商确认 ${path} 及搜索工具支持情况，在模型设置中选择对应协议。`
+      ? `接口不接受 ${label} 搜索请求，请向服务商确认 ${path} 及搜索工具支持情况，在模型设置中选择对应的联网方式。`
     : status === 429 ? '搜索请求被限流或额度不足，请检查服务商的搜索额度与频率限制。'
     : status >= 500 ? '服务商的搜索接口暂时异常，请稍后重试。'
     : '搜索接口未接受请求，请检查服务商的接口要求。'
@@ -51,15 +85,26 @@ export function safeSourceUrl(value: unknown): string | null {
   } catch { return null }
 }
 
-export function resolveChatSearchProtocol(model: Pick<ModelConfig, 'baseUrl' | 'modelName' | 'chatSearchProtocol'>): Exclude<ChatSearchProtocol, 'auto'> {
+export function resolveChatSearchMode(model: SearchModel): ChatSearchMode {
+  if (model.searchAdapter && ADAPTERS.includes(model.searchAdapter)) return model.searchAdapter
   const configured = model.chatSearchProtocol
-  if (configured && configured !== 'auto' && chatSearchProtocolOptions.some(item => item.value === configured)) return configured
+  if (configured && configured !== 'auto' && (['responses', 'anthropic', 'openrouter', 'chat-completions'] as string[]).includes(configured)) return configured
+  const official = autoSearchAdapter(model.baseUrl)
+  if (official) return official
   let hostname = ''
   try { hostname = new URL(model.baseUrl).hostname } catch { /* validated before sending */ }
   if (hostname === 'openrouter.ai' || hostname.endsWith('.openrouter.ai')) return 'openrouter'
+  // DeepSeek 与 Kimi 的接口没有可用的内置搜索；中转站一般只提供 Gemini 的 OpenAI 兼容接口，
+  // 拿不到 Google 搜索。这几类经中转站调用时改用独立搜索服务，需要时可在模型设置里手动改。
+  if (/deepseek|kimi|moonshot|gemini/i.test(model.modelName)) return 'search-service'
   if (/claude/i.test(model.modelName)) return 'anthropic'
   if (/search-preview|search-api/i.test(model.modelName)) return 'chat-completions'
   return 'responses'
+}
+
+/** 兼容旧调用：返回写入对话记录的协议值。 */
+export function resolveChatSearchProtocol(model: SearchModel): ResolvedProtocol {
+  return recordProtocol(resolveChatSearchMode(model))
 }
 
 function sourcesFrom(candidates: unknown[]): ChatSource[] {
@@ -81,17 +126,17 @@ function sourcesFrom(candidates: unknown[]): ChatSource[] {
   return [...unique.values()].slice(0, 30)
 }
 
-export function parseSearchResponse(raw: unknown, protocol: Exclude<ChatSearchProtocol, 'auto'>): { content: string; search: ChatSearchRecord } {
+export function parseSearchResponse(raw: unknown, mode: ChatSearchMode): { content: string; search: ChatSearchRecord } {
   const data = object(raw)
   if (data.error || data.type === 'error') throw new Error('联网接口返回错误，未获得有效搜索回复。')
-  if ((protocol === 'anthropic' || protocol === 'responses') && Array.isArray(data.choices)) {
+  if ((mode === 'anthropic' || mode === 'responses') && Array.isArray(data.choices)) {
     throw new SearchError('PROTOCOL_MISMATCH', '服务商返回了普通 Chat Completions 格式，与所选搜索协议不匹配。请确认中转接口是否转发搜索工具。')
   }
   let content = ''
   let searched = false
   let candidates: unknown[] = []
   let status: ChatSearchRecord['status'] = 'not-used'
-  if (protocol === 'responses') {
+  if (mode === 'responses') {
     if (data.status === 'failed' || data.status === 'incomplete' || data.status === 'cancelled') {
       throw new Error('联网回复未完整生成，请缩短问题或提高模型输出上限后重试。')
     }
@@ -109,7 +154,7 @@ export function parseSearchResponse(raw: unknown, protocol: Exclude<ChatSearchPr
         }
       }
     }
-  } else if (protocol === 'anthropic') {
+  } else if (mode === 'anthropic') {
     if (data.stop_reason === 'pause_turn' || data.stop_reason === 'max_tokens') {
       throw new Error('联网任务尚未完成或回复达到输出上限；本次不自动追加计费请求，请调整后重试。')
     }
@@ -140,6 +185,17 @@ export function parseSearchResponse(raw: unknown, protocol: Exclude<ChatSearchPr
       }
     }
     searched ||= Number(object(object(data.usage).server_tool_use).web_search_requests) > 0
+  } else if (mode === 'gemini') {
+    const candidate = object(array(data.candidates)[0])
+    if (candidate.finishReason === 'MAX_TOKENS') throw new Error('联网回复达到输出上限，请在设置中提高“最大输出 Token 数”后重试。')
+    if (candidate.finishReason === 'SAFETY' || candidate.finishReason === 'PROHIBITED_CONTENT') throw new Error('Gemini 因内容安全原因没有回答这个问题。')
+    content = array(object(candidate.content).parts).map(part => object(part).text).filter((text): text is string => typeof text === 'string').join('')
+    const grounding = object(candidate.groundingMetadata)
+    searched = array(grounding.webSearchQueries).length > 0
+    candidates = array(grounding.groundingChunks).map(chunk => {
+      const web = object(object(chunk).web)
+      return { url: web.uri, title: web.title }
+    })
   } else {
     const choice = object(array(data.choices)[0])
     if (choice.finish_reason === 'length') throw new Error('联网回复达到输出上限，请在设置中提高“最大输出 Token 数”后重试。')
@@ -148,14 +204,20 @@ export function parseSearchResponse(raw: unknown, protocol: Exclude<ChatSearchPr
     candidates = array(message.annotations)
       .filter(value => object(value).type === 'url_citation')
       .map(value => object(value).url_citation || value)
-    // Some compatible services silently ignore unknown parameters. HTTP 200 and
-    // prose such as "I searched" are not proof of an actual search.
+    if (mode === 'qwen') {
+      // 百炼开启 enable_source 后返回 search_info.search_results；不同接口版本放在顶层或消息里。
+      const info = object(data.search_info || message.search_info)
+      candidates.push(...array(info.search_results).map(item => ({ url: object(item).url, title: object(item).title })))
+    } else if (mode === 'zhipu') {
+      candidates.push(...array(data.web_search).map(item => ({ url: object(item).link, title: object(item).title, cited_text: object(item).content })))
+    }
+    // 兼容接口可能静默忽略未知参数；HTTP 200 或回答里写“我搜索了”都不能证明真的搜索过。
     status = 'unverified'
   }
   const sources = sourcesFrom(candidates)
-  if (!content.trim()) throw new Error('联网接口没有返回可显示的回答，可能不支持所选搜索协议。')
+  if (!content.trim()) throw new Error('联网接口没有返回可显示的回答，可能不支持所选联网方式。')
   if (searched || sources.length) status = 'searched'
-  return { content, search: { protocol, status, sources } }
+  return { content, search: { protocol: recordProtocol(mode), status, sources } }
 }
 
 interface AssistantChatOptions {
@@ -169,7 +231,64 @@ interface AssistantChatOptions {
   noAutomaticRetry?: boolean
 }
 
-export async function chatWithOptionalSearch(options: AssistantChatOptions): Promise<{ content: string; search?: ChatSearchRecord; responseFormat?: 'json' | 'claude-sse' }> {
+/** Gemini 原生接口地址：官方 OpenAI 兼容地址去掉末尾的 /openai。 */
+function geminiNativeBase(baseUrl: string): string {
+  return String(baseUrl || '').trim().replace(/\/+$/, '').replace(/\/openai$/i, '')
+}
+
+function lastUserText(messages: ChatMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (message.role === 'user' && typeof message.content === 'string' && message.content.trim()) return message.content
+  }
+  return ''
+}
+
+type SearchChatResult = { content: string; search?: ChatSearchRecord; responseFormat?: 'json' | 'claude-sse'; fallback?: string }
+
+/**
+ * 独立搜索服务：先查网页，再把结果作为参考资料交给当前模型。
+ * builtInFailure 表示是从模型内置搜索退回来的，原因写进返回的 fallback 说明（不写入对话记录）。
+ */
+async function chatWithSearchService(options: AssistantChatOptions, builtInFailure?: string): Promise<SearchChatResult> {
+  const { model, messages, signal } = options
+  const service = useConfigStore().webSearchService
+  const info = WEB_SEARCH_PROVIDERS[service.provider]
+  const activity = startAiActivity(builtInFailure ? '联网搜索（改用搜索服务）' : '联网搜索')
+  let sources: ChatSource[]
+  let fallback = builtInFailure ? `${builtInFailure}，已改用` : ''
+  try {
+    const outcome = await searchWebWithFallback(service, lastUserText(messages), signal)
+    sources = outcome.sources
+    const used = WEB_SEARCH_PROVIDERS[outcome.provider].label
+    if (outcome.fallbackReason) fallback = `${fallback ? fallback.replace(/，已改用$/, '；') : ''}${outcome.fallbackReason}，已改用${used}`
+    else if (fallback) fallback += used
+    finishAiActivity(activity)
+  } catch (error) {
+    if (signal.aborted) { finishAiActivity(activity, signal.reason); throw signal.reason }
+    const code = error instanceof WebSearchServiceError ? error.code : 'SEARCH_SERVICE_FAILED'
+    const failure = new SearchError(code, `[${code}] ${info?.label || '搜索服务'}：${error instanceof Error ? error.message : '搜索未完成。'}`)
+    finishAiActivity(activity, failure)
+    throw failure
+  }
+  const query = lastUserText(messages).replace(/\s+/g, ' ').trim().slice(0, 200)
+  const withContext: ChatMessage[] = sources.length
+    ? [...messages.slice(0, -1), { role: 'system', content: searchContextMessage(query, sources) }, messages[messages.length - 1]]
+    : messages
+  const result = await callAI({
+    model, messages: withContext, signal, stream: options.stream ?? true, onChunk: options.onChunk,
+    timeoutMs: options.timeoutMs, noAutomaticRetry: options.noAutomaticRetry,
+  })
+  return { content: result.content, search: { protocol: 'chat-completions', status: sources.length ? 'searched' : 'not-used', sources },
+    ...(fallback ? { fallback } : {}) }
+}
+
+/** 内置搜索出错（配置错误除外）或没有搜索证据时，能否改用独立搜索服务。 */
+function shouldFallBack(error: unknown): boolean {
+  return error instanceof SearchError && error.code !== 'INVALID_URL'
+}
+
+export async function chatWithOptionalSearch(options: AssistantChatOptions): Promise<SearchChatResult> {
   const { model, messages, signal } = options
   signal.throwIfAborted()
   if (!options.webSearch) {
@@ -183,23 +302,43 @@ export async function chatWithOptionalSearch(options: AssistantChatOptions): Pro
       noAutomaticRetry: options.noAutomaticRetry,
     })
   }
+  const mode = resolveChatSearchMode(model)
+  if (mode === 'search-service') return chatWithSearchService(options)
+  const service = useConfigStore().webSearchService
+  let builtIn: SearchChatResult
+  try {
+    builtIn = await chatWithBuiltInSearch(options, mode)
+  } catch (error) {
+    // 内置搜索失败时改用独立搜索服务；只发送问题给搜索服务，模型密钥仍只发往原接口。
+    if (signal.aborted || !shouldFallBack(error) || !service.freeFallback) throw error
+    const detail = error instanceof Error ? error.message.replace(/^[[^]]+]s*/, '') : '未完成'
+    return chatWithSearchService(options, `模型内置搜索失败（${detail.slice(0, 160)}）`)
+  }
+  if (builtIn.search?.status === 'not-used' && service.freeFallback) {
+    signal.throwIfAborted()
+    return chatWithSearchService(options, '模型内置搜索没有返回搜索证据')
+  }
+  return builtIn
+}
+
+async function chatWithBuiltInSearch(options: AssistantChatOptions, mode: Exclude<ChatSearchMode, 'search-service'>): Promise<SearchChatResult> {
+  const { model, messages, signal } = options
   let endpoint: URL
-  try { endpoint = new URL(openAiV1BaseUrl(model.baseUrl)) }
+  try { endpoint = new URL(mode === 'gemini' ? geminiNativeBase(model.baseUrl) : openAiV1BaseUrl(model.baseUrl)) }
   catch { throw new SearchError('INVALID_URL', 'API 地址无效，请检查模型设置中的 API Base URL。') }
   if (!['https:', 'http:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
     throw new Error('API 地址必须是有效的 HTTP(S) 基地址，不能包含凭据、查询参数或片段。')
   }
   if (!model.apiKey.trim()) throw new Error('请先在设置中填写有效的 API 密钥。')
   if (model.apiKey.startsWith('enc:') || model.apiKey.includes('***')) throw new Error('API 密钥是密文或遮蔽文本，请填写当前服务商的有效密钥。')
-  const protocol = resolveChatSearchProtocol(model)
   let path = '/chat/completions'
   const headers: Record<string, string> = { 'Content-Type': 'application/json', Authorization: `Bearer ${model.apiKey}` }
   let body: Json = { model: model.modelName, messages, max_tokens: model.maxTokens, stream: false }
-  if (protocol === 'responses') {
+  if (mode === 'responses') {
     path = '/responses'
     body = { model: model.modelName, input: messages, max_output_tokens: model.maxTokens, stream: false, store: false,
       tools: [{ type: 'web_search' }], tool_choice: 'auto' }
-  } else if (protocol === 'anthropic') {
+  } else if (mode === 'anthropic') {
     path = '/messages'
     headers['x-api-key'] = model.apiKey
     headers['anthropic-version'] = '2023-06-01'
@@ -208,7 +347,24 @@ export async function chatWithOptionalSearch(options: AssistantChatOptions): Pro
       system: messages.filter(item => item.role === 'system').map(item => item.content).join('\n\n'),
       messages: messages.filter(item => item.role !== 'system'),
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }] }
-  } else if (protocol === 'openrouter') {
+  } else if (mode === 'gemini') {
+    path = `/models/${encodeURIComponent(model.modelName.replace(/^models\//, ''))}:generateContent`
+    delete headers.Authorization
+    headers['x-goog-api-key'] = model.apiKey
+    const system = messages.filter(item => item.role === 'system').map(item => item.content).join('\n\n')
+    body = {
+      contents: messages.filter(item => item.role !== 'system')
+        .map(item => ({ role: item.role === 'assistant' ? 'model' : 'user', parts: [{ text: item.content }] })),
+      ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+      tools: [{ google_search: {} }],
+      generationConfig: { maxOutputTokens: model.maxTokens },
+    }
+  } else if (mode === 'qwen') {
+    body.enable_search = true
+    body.search_options = { enable_source: true }
+  } else if (mode === 'zhipu') {
+    body.tools = [{ type: 'web_search', web_search: { enable: true, search_engine: 'search_std', search_result: true } }]
+  } else if (mode === 'openrouter') {
     body.plugins = [{ id: 'web', max_results: 3 }]
   } else {
     body.web_search_options = { search_context_size: 'medium' }
@@ -226,11 +382,11 @@ export async function chatWithOptionalSearch(options: AssistantChatOptions): Pro
     })
     if (!response.ok) {
       void response.body?.cancel().catch(() => {})
-      throw httpSearchError(response.status, protocol)
+      throw httpSearchError(response.status, mode)
     }
-    const payload = await readSearchPayload(response, protocol, controller.signal)
+    const payload = await readSearchPayload(response, recordProtocol(mode), controller.signal)
     controller.signal.throwIfAborted()
-    return { ...parseSearchResponse(payload.data, protocol), responseFormat: payload.format }
+    return { ...parseSearchResponse(payload.data, mode), responseFormat: payload.format }
   } catch (error) {
     if (signal.aborted) {
       finishAiActivity(activity, signal.reason)
@@ -240,7 +396,7 @@ export async function chatWithOptionalSearch(options: AssistantChatOptions): Pro
       : error instanceof TypeError
         ? new SearchError('SEARCH_CONNECTION_FAILED', '搜索请求未取得可读取的响应。普通对话正常时，请检查搜索路径、服务商的跨域支持及公司网络策略；仅凭此错误不能认定密钥失效或电脑断网。')
         : error
-    const { label, path } = protocolInfo[protocol]
+    const { label, path } = modeInfo[mode]
     const detail = cause instanceof Error ? cause.message : '搜索请求未完成。'
     const failure = new SearchError(cause instanceof SearchError ? cause.code : 'SEARCH_FAILED',
       `[${cause instanceof SearchError ? cause.code : 'SEARCH_FAILED'}] ${label} ${path}：${detail}`)
@@ -262,15 +418,16 @@ export interface ChatSearchTestResult {
 export async function testChatSearch(model: ModelConfig, signal: AbortSignal): Promise<ChatSearchTestResult> {
   try {
     const result = await chatWithOptionalSearch({
-      model: { ...model, maxTokens: Math.min(model.maxTokens, 2048) }, signal, webSearch: true,
+      model: { ...model, maxTokens: Math.min(model.maxTokens, 2048) }, signal, webSearch: true, stream: false,
       messages: [{ role: 'user', content: '请实际调用网页搜索，查询 Vue 官方网站，返回官网链接和一句概述。不要只根据已有知识回答。' }],
     })
     const count = result.search?.sources.length || 0
     const formatNote = result.responseFormat === 'claude-sse' ? '已兼容读取中转站返回的 Claude 事件流。' : ''
+    const fallbackNote = result.fallback ? `${result.fallback}。` : ''
     if (result.search?.status === 'searched' && count > 0) {
-      return { status: 'verified', sourceCount: count, message: `${formatNote}本次测试收到搜索证据和 ${count} 个来源。` }
+      return { status: 'verified', sourceCount: count, message: `${formatNote}${fallbackNote}本次测试收到搜索证据和 ${count} 个来源。` }
     }
-    return { status: 'unverified', sourceCount: count, message: formatNote + (result.search?.status === 'searched'
+    return { status: 'unverified', sourceCount: count, message: formatNote + fallbackNote + (result.search?.status === 'searched'
       ? '接口报告搜索已执行，但未返回可引用来源，本次未完整验证。'
       : '接口有回复，但没有可验证的搜索证据。可能未调用搜索，或服务商忽略了搜索参数，不能据此判定联网成功。') }
   } catch (error) {

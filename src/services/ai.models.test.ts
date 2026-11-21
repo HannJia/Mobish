@@ -8,6 +8,10 @@ describe('OpenAI 兼容模型发现', () => {
     expect(openAiV1BaseUrl('https://example.test')).toBe('https://example.test/v1')
     expect(openAiV1BaseUrl('https://example.test/v1/')).toBe('https://example.test/v1')
     expect(openAiV1BaseUrl('')).toBe('')
+    expect(openAiV1BaseUrl('https://open.bigmodel.cn/api/paas/v4')).toBe('https://open.bigmodel.cn/api/paas/v4')
+    expect(openAiV1BaseUrl('https://ark.cn-beijing.volces.com/api/v3/')).toBe('https://ark.cn-beijing.volces.com/api/v3')
+    expect(openAiV1BaseUrl('https://generativelanguage.googleapis.com/v1beta/openai')).toBe('https://generativelanguage.googleapis.com/v1beta/openai')
+    expect(openAiV1BaseUrl('https://relay.example.test/api')).toBe('https://relay.example.test/api/v1')
   })
 
   it('从 /models 响应提取、去重并排序模型', async () => {

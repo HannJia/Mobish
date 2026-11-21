@@ -7,6 +7,7 @@ import { useNovelStore } from '@/stores/novel'
 import { useConfigStore } from '@/stores/config'
 import { applySkillInstructions, type ChatMessage } from '@/services/ai'
 import { chatWithOptionalSearch } from '@/services/chatSearch'
+import { useMessage } from '@/v3/feedback'
 import { buildChatKnowledgeContext, buildSoftwareAssistantContext } from '@/services/softwareAssistantContext'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import type { Novel } from '@/types/novel'
@@ -110,6 +111,7 @@ export function useAssistantChat(novelId: () => string, chapterId: () => string 
       })
       if (!isCurrent()) return
       if (!result.content.trim()) throw new Error('AI 没有返回内容，请重试。')
+      if (result.fallback) useMessage().info(result.fallback)
       store.addChatMessage(id, {
         id: crypto.randomUUID(), role: 'assistant', content: result.content,
         timestamp: new Date().toISOString(), search: result.search,

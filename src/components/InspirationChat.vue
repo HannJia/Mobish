@@ -118,6 +118,7 @@
 
 <script setup lang="ts">
 import { errorText } from '@/services/userFacingError'
+import { useMessage } from '@/v3/feedback'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import V3Icon from '@/v3/components/V3Icon.vue'
 import V3Input from '@/v3/components/form/V3Input.vue'
@@ -526,7 +527,10 @@ async function respond() {
       }
     }, requestWebSearch.value, [...knowledgeIds.value], conversationContext.value, JSON.parse(JSON.stringify(discussionSettings.value)))
     if (controller === request && !request.signal.aborted && props.active) {
-      history.value.push({ role: 'assistant', ...result })
+      // 改用搜索服务的说明只提示一次，不写入对话记录。
+      const { fallback, ...reply } = result
+      if (fallback) useMessage().info(fallback)
+      history.value.push({ role: 'assistant', ...reply })
       persistCurrentHistory()
       streamText.value = ''
       await scrollToReplyStart(request, replyIndex)

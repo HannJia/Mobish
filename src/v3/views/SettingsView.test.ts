@@ -94,8 +94,9 @@ afterEach(async () => {
 
 describe('模型原始名称与配置备注', () => {
   it.each([
-    { section: 'cloud', label: '云同步与历史', selector: '.cloud-settings-section' },
+    { section: 'cloud', label: '项目历史', selector: '.cloud-settings-section' },
     { section: 'about', label: '关于', selector: '.about-section' },
+    { section: 'websearch', label: '联网搜索', selector: 'web-search-service-panel-stub' },
   ])('opens the requested $section settings section from the shell deep link', async ({ section, label, selector }) => {
     await router.replace({ query: { section } })
     const wrapper = mountSettings()
@@ -107,7 +108,7 @@ describe('模型原始名称与配置备注', () => {
   it('combines about and updates, and highlights the real workflow limits', async () => {
     const wrapper = mountSettings()
     const tabs = wrapper.findAll('.settings-nav-item')
-    expect(tabs.map(tab => tab.text())).toEqual(['模型配置', '任务分配', 'AI 工作流', '外观', '语义检索', '写作技能', '云同步与历史', '关于'])
+    expect(tabs.map(tab => tab.text())).toEqual(['模型配置', '联网搜索', 'AI 工作流', '外观', '语义检索', '写作技能', '项目历史', '关于'])
     expect(tabs[0].attributes('aria-selected')).toBe('true')
     await tabs.find(tab => tab.text() === '关于')!.trigger('click')
     await flushPromises()
@@ -173,11 +174,13 @@ describe('模型原始名称与配置备注', () => {
     const store = useConfigStore()
     const wrapper = mountSettings()
     await wrapper.get('#add-model-btn').trigger('click')
-    const kind = wrapper.findAllComponents({ name: 'V3Select' }).find(item => item.attributes('aria-label') === '模型类型')!
-    kind.vm.$emit('update:value', 'embedding')
+    const embeddingKind = wrapper.findAll('.model-kind-option').find(button => button.text().includes('向量模型'))!
+    await embeddingKind.trigger('click')
     await flushPromises()
-    await wrapper.get('input[placeholder="如：https://api.deepseek.com"]').setValue('http://127.0.0.1:11434')
-    await wrapper.get(`input[placeholder="${modelPlaceholder}"]`).setValue('synthetic-vector')
+    expect(embeddingKind.attributes('aria-checked')).toBe('true')
+    expect(wrapper.get('[aria-label="常用向量服务商"]').text()).toContain('硅基流动')
+    await wrapper.get('input[placeholder="如：https://api.siliconflow.cn/v1；本地服务如 http://127.0.0.1:11434/v1"]').setValue('http://127.0.0.1:11434')
+    await wrapper.get('input[placeholder="如：text-embedding-v4 / bge-m3"]').setValue('synthetic-vector')
     expect(wrapper.findComponent(ModelSearchTest).exists()).toBe(false)
     expect(wrapper.find('.model-advanced').exists()).toBe(false)
     const add = wrapper.findAll('button').find(button => button.text() === '添加')!
@@ -218,7 +221,7 @@ describe('模型原始名称与配置备注', () => {
   it('keeps the saved key for the editor search test when the edit field is blank', async () => {
     const model = addLegacyModel()
     const wrapper = mountSettings()
-    expect(wrapper.findAll('button').some(button => button.text() === '测试对话')).toBe(true)
+    expect(wrapper.findAll('button').some(button => button.text() === '编辑')).toBe(true)
     await wrapper.findAll('button').find(button => button.text() === '编辑')!.trigger('click')
     const input = wrapper.get('input[placeholder="留空则保留当前 API 密钥"]')
     await input.setValue('')
@@ -232,21 +235,26 @@ describe('模型原始名称与配置备注', () => {
     const model = addLegacyModel()
     const before = JSON.stringify(useConfigStore().models)
     vi.mocked(testChatSearch).mockResolvedValue({ status: 'failed', message: '[HTTP_404] 接口不支持此搜索协议。', sourceCount: 0 })
+    vi.mocked(testConnection).mockResolvedValue({ ok: true, message: 'synthetic connection success' })
     const wrapper = mountSettings(true)
     await wrapper.findAll('.settings-nav-item')[0].trigger('click')
     const card = wrapper.get('.model-card')
-    await card.findAll('button').find(button => button.text() === '测试联网')!.trigger('click')
+    expect(card.findAll('button').some(button => button.text() === '测试联网' || button.text() === '测试对话')).toBe(false)
+    await card.findAll('button').find(button => button.text() === '测试')!.trigger('click')
     expect(wrapper.find('.model-editor').exists()).toBe(false)
     expect(testChatSearch).not.toHaveBeenCalled()
     dialog.warning.mock.calls[0][0].onPositiveClick()
+    await vi.waitFor(() => expect(testChatSearch).toHaveBeenCalledTimes(1))
     await flushPromises()
-    expect(testChatSearch).toHaveBeenCalledTimes(1)
     expect(testChatSearch).toHaveBeenCalledWith(expect.objectContaining({ id: model.id, apiKey: model.apiKey }), expect.any(AbortSignal))
-    expect(card.text()).toContain('搜索测试失败')
+    expect(testConnection).toHaveBeenCalledTimes(1)
+    expect(card.text()).toContain('对话正常，联网测试失败')
+    expect(card.text()).toContain('对话：synthetic connection success')
     expect(card.text()).toContain('HTTP_404')
     expect(card.findAll('button').some(button => button.text() === '复制诊断')).toBe(true)
     expect(wrapper.find('.model-editor').exists()).toBe(false)
-    expect(JSON.stringify(useConfigStore().models)).toBe(before)
+    // 只多了这次对话测试的结果记录，模型配置本身不变。
+    expect(JSON.stringify(useConfigStore().models.map(({ connectionTest: _test, ...rest }) => rest))).toBe(before)
     expect(card.text()).not.toContain(model.apiKey)
   })
 
@@ -257,12 +265,13 @@ describe('模型原始名称与配置备注', () => {
     await wrapper.findAll('.settings-nav-item')[0].trigger('click')
     await wrapper.get('.model-select').trigger('click')
     await wrapper.get(`input[placeholder="${modelPlaceholder}"]`).setValue('unsaved-model')
-    await wrapper.get('.model-card').findAll('button').find(button => button.text() === '测试联网')!.trigger('click')
+    vi.mocked(testConnection).mockResolvedValue({ ok: true, message: 'synthetic connection success' })
+    await wrapper.get('.model-card').findAll('button').find(button => button.text() === '测试')!.trigger('click')
     dialog.warning.mock.calls[0][0].onPositiveClick()
     await flushPromises()
     expect(testChatSearch).toHaveBeenCalledWith(expect.objectContaining({ modelName: model.modelName }), expect.any(AbortSignal))
     expect(wrapper.get(`input[placeholder="${modelPlaceholder}"]`).element).toHaveProperty('value', 'unsaved-model')
-    expect(wrapper.get('.model-card').text()).toContain('搜索尚未验证')
+    expect(wrapper.get('.model-card').text()).toContain('对话正常，联网尚未验证')
     expect(useConfigStore().models[0].modelName).toBe(model.modelName)
   })
 
@@ -469,14 +478,15 @@ describe('设置分区与路由同步', () => {
     await wrapper.findAll('button').find(button => button.text() === '前往任务分配')!.trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.query).toEqual({ section: 'assign', returnTo: '/outside' })
-    expect(wrapper.findAll('.settings-nav-item')[1].attributes('aria-selected')).toBe('true')
+    // 任务分配不单列导航，定位时高亮所在的“模型配置”。
+    expect(wrapper.findAll('.settings-nav-item')[0].attributes('aria-selected')).toBe('true')
     expect(scroll).toHaveBeenCalledWith({ block: 'start', behavior: 'auto' })
     expect(focus).toHaveBeenCalledWith({ preventScroll: true })
     wrapper.unmount()
     await router.push({ path: '/settings', query: { section: 'assign', returnTo: '/outside' } })
     const reopened = mountSettings()
     await flushPromises()
-    expect(reopened.findAll('.settings-nav-item')[1].attributes('aria-selected')).toBe('true')
+    expect(reopened.findAll('.settings-nav-item')[0].attributes('aria-selected')).toBe('true')
     expect(reopened.get('#model-task-assignments').isVisible()).toBe(true)
   })
 
@@ -746,14 +756,40 @@ describe('设置草稿保护', () => {
   })
 })
 
+// 直接调用卡片合并测试的第一步（对话连接测试），检查结果记录的保存与先后顺序。
+function runCardConnectionTest(wrapper: ReturnType<typeof mountSettings>) {
+  const test = wrapper.get('.model-card').findComponent(ModelSearchTest)
+  void test.props('connection')!(test.props('model'))
+}
+
+describe('模型卡片的用途标签', () => {
+  it('shows the type as text and only tags tasks that really use the model', async () => {
+    const store = useConfigStore()
+    const official = store.addModel({ name: '', baseUrl: 'https://api.deepseek.com', apiKey: 'k1', modelName: 'deepseek-flash', maxTokens: 4096, temperature: 0.7, topP: 0.9 })
+    const relay = store.addModel({ name: '中转', baseUrl: 'https://relay.example/v1', apiKey: 'k2', modelName: 'deepseek-v4.1-flash', maxTokens: 4096, temperature: 0.7, topP: 0.9 })
+    Object.assign(store.assignments, { outline: relay.id, writing: relay.id, review: relay.id, chat: '' })
+    const wrapper = mountSettings()
+    const cards = wrapper.findAll('.model-card')
+    const badges = (index: number) => cards[index].findAll('.model-badges .badge').map(node => node.text())
+    expect(cards[0].get('.model-badges').text()).toContain('写作／对话模型')
+    expect(cards[0].get('.model-badges').text()).toContain('未分配任务')
+    expect(badges(0)).toEqual([])
+    expect(badges(1)).toEqual(['大纲', '写作', '审查', '对话'])
+    expect(cards[1].findAll('.badge').slice(-1)[0].attributes('title')).toBe('对话跟随大纲模型')
+    expect(official.id).not.toBe(relay.id)
+  })
+})
+
 describe('模型连接测试结果持久化', () => {
   it('saves a testing record when the mock request starts and an ok record when it succeeds', async () => {
     const model = addLegacyModel()
     let resolveTest!: (result: { ok: boolean; message: string }) => void
     vi.mocked(testConnection).mockImplementation(() => new Promise(resolve => { resolveTest = resolve }))
-    const wrapper = mountSettings()
+    vi.mocked(testChatSearch).mockResolvedValue({ status: 'verified', message: 'synthetic search ok', sourceCount: 1 })
+    const wrapper = mountSettings(true)
 
-    await wrapper.get('.model-card').findAll('button').find(button => button.text() === '测试对话')!.trigger('click')
+    await wrapper.get('.model-card').findAll('button').find(button => button.text() === '测试')!.trigger('click')
+    dialog.warning.mock.calls[dialog.warning.mock.calls.length - 1][0].onPositiveClick()
     await vi.waitFor(() => expect(testConnection).toHaveBeenCalledTimes(1))
     await vi.waitFor(() => {
       const saved = JSON.parse(localStorage.getItem('mojian-v3-config')!)
@@ -781,11 +817,15 @@ describe('模型连接测试结果持久化', () => {
   it('saves failures, accepts legacy models without records, and invalidates the record on connection changes', async () => {
     const model = addLegacyModel()
     vi.mocked(testConnection).mockResolvedValue({ ok: false, message: 'synthetic connection failure' })
-    const wrapper = mountSettings()
+    const wrapper = mountSettings(true)
 
     expect(wrapper.get('.model-card').find('.model-status').exists()).toBe(false)
-    await wrapper.get('.model-card').findAll('button').find(button => button.text() === '测试对话')!.trigger('click')
+    await wrapper.get('.model-card').findAll('button').find(button => button.text() === '测试')!.trigger('click')
+    dialog.warning.mock.calls[dialog.warning.mock.calls.length - 1][0].onPositiveClick()
     await flushPromises()
+    // 对话不通时不再测联网，并标明是对话出错。
+    expect(testChatSearch).not.toHaveBeenCalled()
+    expect(wrapper.get('.model-card').text()).toContain('对话测试失败')
     await vi.waitFor(() => {
       const saved = JSON.parse(localStorage.getItem('mojian-v3-config')!)
       expect(saved.models.find((item: { id: string }) => item.id === model.id).connectionTest).toMatchObject({
@@ -808,7 +848,7 @@ describe('模型连接测试结果持久化', () => {
     vi.mocked(testConnection).mockReturnValue(pending.promise)
     const wrapper = mountSettings()
 
-    await wrapper.get('.model-card').find('.model-actions').findAll('button')[0].trigger('click')
+    runCardConnectionTest(wrapper)
     await vi.waitFor(() => expect(testConnection).toHaveBeenCalledTimes(1))
     const store = useConfigStore()
     store.updateModel(model.id, { baseUrl: 'https://changed.example.test' })
@@ -828,11 +868,10 @@ describe('模型连接测试结果持久化', () => {
     const second = deferred<{ ok: boolean; message: string }>()
     vi.mocked(testConnection).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
     const wrapper = mountSettings()
-    const testButton = () => wrapper.get('.model-card').find('.model-actions').findAll('button')[0]
 
-    await testButton().trigger('click')
+    runCardConnectionTest(wrapper)
     await vi.waitFor(() => expect(testConnection).toHaveBeenCalledTimes(1))
-    await testButton().trigger('click')
+    runCardConnectionTest(wrapper)
     await vi.waitFor(() => expect(testConnection).toHaveBeenCalledTimes(2))
 
     second.resolve({ ok: true, message: 'new synthetic success' })
@@ -878,7 +917,7 @@ describe('模型连接测试结果持久化', () => {
     addLegacyModel()
     vi.mocked(testConnection).mockResolvedValue({ ok: true, message: 'reopen synthetic success' })
     const firstWrapper = mountSettings()
-    await firstWrapper.get('.model-card').find('.model-actions').findAll('button')[0].trigger('click')
+    runCardConnectionTest(firstWrapper)
     await vi.waitFor(() => expect(useConfigStore().models[0].connectionTest?.status).toBe('ok'))
     const testedAt = useConfigStore().models[0].connectionTest!.testedAt
     firstWrapper.unmount()

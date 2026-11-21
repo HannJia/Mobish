@@ -87,7 +87,8 @@ const RETRY_BASE_DELAY = 1000       // 首次重试延迟 1 秒
 export function openAiV1BaseUrl(baseUrl: string): string {
   const normalized = String(baseUrl || '').trim().replace(/\/+$/, '')
   if (!normalized) return ''
-  return /\/v1$/i.test(normalized) ? normalized : `${normalized}/v1`
+  // 官方接口地址可能以其他版本号结尾（智谱 /api/paas/v4、火山方舟 /api/v3、Gemini /v1beta/openai），这类地址原样使用。
+  return /\/v\d+(?:beta|alpha)?$/i.test(normalized) || /\/openai$/i.test(normalized) ? normalized : `${normalized}/v1`
 }
 
 function isRetryableError(err: unknown): boolean {

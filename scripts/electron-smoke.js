@@ -183,6 +183,18 @@ async function main() {
   if (!fs.existsSync(electronPath)) throw new Error(`找不到 Electron 可执行文件：${electronPath}`)
   let output = ''
   let creationIdentity = null
+  // 本机模拟的 SearXNG：桌面搜索代理经主进程 net.fetch 转发，不访问外部网络。
+  const searchServer = http.createServer((request, response) => {
+    const url = new URL(request.url, 'http://127.0.0.1')
+    if (request.method !== 'GET' || url.pathname !== '/search' || url.searchParams.get('format') !== 'json') {
+      response.writeHead(404).end()
+      return
+    }
+    response.writeHead(200, { 'Content-Type': 'application/json' })
+    response.end(JSON.stringify({ results: [{ title: 'MOJIAN-SMOKE-SEARCH', url: 'https://example.invalid/', content: url.searchParams.get('q') }] }))
+  })
+  await new Promise((resolve, reject) => { searchServer.once('error', reject); searchServer.listen(0, '127.0.0.1', resolve) })
+  const searchUrl = `http://127.0.0.1:${searchServer.address().port}`
   try {
     const env = { ...process.env }
     delete env.ELECTRON_RUN_AS_NODE
@@ -200,6 +212,7 @@ async function main() {
           AI_NOVEL_WRITER_SMOKE_VITE_URL: smokeViteUrl,
           AI_NOVEL_WRITER_SMOKE_CLIPBOARD: clipboard ? '1' : '0',
           AI_NOVEL_WRITER_SMOKE_CLIPBOARD_SCENARIO: clipboardScenario,
+          AI_NOVEL_WRITER_SMOKE_SEARXNG_URL: searchUrl,
           ...(phase ? { AI_NOVEL_WRITER_SMOKE_WORKFLOW: phase, AI_NOVEL_WRITER_SMOKE_WORKFLOW_KIND: workflowKind } : {}),
           ELECTRON_DISABLE_SECURITY_WARNINGS: 'false',
         },
@@ -240,6 +253,9 @@ async function main() {
       }
       if (result.update?.currentVersion !== expectedVersion || result.update?.supported !== false) {
         throw new Error('更新桥接或冒烟测试的安装隔离未通过')
+      }
+      if (result.webSearch !== true) {
+        throw new Error(`桌面联网搜索代理检查未通过：${JSON.stringify(result.webSearchDetail ?? result.webSearch)}`)
       }
       if (process.env.AI_NOVEL_WRITER_SMOKE_CLOUD === '1' && result.cloudHealth !== true) {
         throw new Error('安装版 HTTPS 云同步连接检查未通过')
@@ -409,6 +425,7 @@ async function main() {
       console.log(`Electron smoke passed: ${JSON.stringify(result)}`)
     }
   } finally {
+    await new Promise(resolve => searchServer.close(resolve))
     if (viteProcess) {
       viteProcess.kill()
       await waitForProcessExit(viteProcess)

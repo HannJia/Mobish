@@ -7,11 +7,11 @@
       </div>
       <div class="update-col update-col-status">
         <p class="update-status" role="status">{{ statusText }}</p>
-        <div v-if="state.phase === 'downloading'" class="update-progress">
+        <div v-if="state.phase === 'downloading'" class="update-download">
           <div class="update-progress" role="progressbar" aria-label="下载进度" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="Math.round(state.percent)">
             <span :style="{ width: Math.round(state.percent) + '%' }" />
           </div>
-          <span>{{ megabytes(state.transferred) }} / {{ megabytes(state.total) }} MB</span>
+          <span class="update-download-size">{{ Math.round(state.percent) }}% · {{ megabytes(state.transferred) }} / {{ megabytes(state.total) }} MB</span>
         </div>
         <p v-if="state.error" class="update-error" role="alert">{{ state.error }}</p>
         <p class="update-release-version" v-if="state.release">最新版本 {{ state.release.version }}</p>
@@ -47,7 +47,7 @@
     </div>
     <details v-if="state.release" class="update-notes" open>
       <summary>更新内容<span v-if="state.release.publishedAt"> · {{ formatDate(state.release.publishedAt) }}</span></summary>
-      <pre>{{ state.release.notes || '此版本未提供更新说明。' }}</pre>
+      <ReleaseNotes class="update-notes-body" :notes="state.release.notes" />
     </details>
   </div>
 </template>
@@ -56,6 +56,7 @@
 import { computed, onMounted, useId } from 'vue'
 import V3Icon from '@/v3/components/V3Icon.vue'
 import V3Switch from '@/v3/components/form/V3Switch.vue'
+import ReleaseNotes from './ReleaseNotes.vue'
 import { useAppUpdateStore } from '@/stores/appUpdate'
 import { useUpdateInstall } from '@/composables/useUpdateInstall'
 
@@ -87,32 +88,35 @@ onMounted(() => { void store.init() })
 <style scoped>
 .update-progress { height: 6px; border-radius: 6px; background: var(--panel-2); overflow: hidden; }
 .update-progress > span { display: block; height: 100%; background: var(--zhu); transition: width var(--motion-fast); }
-.app-update-panel { display: grid; gap: 14px; min-width: 0; font-size: 14px; }
+.app-update-panel { display: grid; gap: 14px; min-width: 0; font-size: 14px; container-type: inline-size; }
 .update-overview { display: grid; gap: 16px; grid-template-columns: 1fr; min-width: 0; }
 .update-col { display: grid; gap: 8px; align-content: start; min-width: 0; }
 .update-col-current strong { font-size: 18px; line-height: 1.35; overflow-wrap: anywhere; }
 .update-description { margin:0; font-size:12px; color:var(--ink-2); line-height:1.6; }
 .update-preference { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-.update-release-version, .update-date, .update-progress > span { color: var(--ink-2); font-size: 12px; margin: 0; }
+.update-download { display: grid; gap: 6px; }
+.update-release-version, .update-date, .update-download-size { color: var(--ink-2); font-size: 12px; margin: 0; }
 .update-status, .update-error { margin: 0; overflow-wrap: anywhere; line-height: 1.6; }
 .update-error { color: var(--zhu); }
 .update-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .update-notes { border-top: 1px solid var(--line); padding-top: 12px; min-width: 0; }
 .update-notes summary { cursor: pointer; line-height: 1.6; overflow-wrap: anywhere; }
 .update-notes summary span { color: var(--ink-2); font-size: 12px; }
-.update-notes pre { max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.7; margin: 10px 0 0; }
+.update-notes-body { max-height: 300px; overflow: auto; margin-top: 12px; padding-right: 6px; }
 .update-release-link { color: var(--dai); }
-@media (min-width: 900px) {
-  .update-overview { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1.6fr); align-items: start; }
+/* 按面板自身宽度分栏：设置页较宽时三栏，弹窗较窄时上下排列。 */
+@container (min-width: 760px) {
+  .update-overview { grid-template-columns: minmax(150px, 1fr) minmax(0, 1.4fr) minmax(0, 1.6fr); align-items: start; }
 }
 .update-overview { padding: 24px; border: 1px solid var(--line); border-radius: var(--r-l); gap: 24px; }
 .update-version-label { font-size: 16px; font-weight: 600; }
-.update-col-current .update-version-number { font: 600 48px/1.3 var(--f-serif); }
-.update-col-status .update-status { font: 600 21px/1.6 var(--f-serif); }
+.update-col-current .update-version-number { font: 600 40px/1.2 var(--f-serif); white-space: nowrap; overflow-wrap: normal; }
+.update-col-status .update-status { font: 600 18px/1.6 var(--f-serif); }
 .update-release-version { color: var(--zhu); font-size: 16px; }
 .update-col-actions .update-preference label { font-weight: 600; font-size: 16px; }
 .update-notes { padding: 24px; border: 1px solid var(--line); border-radius: var(--r-l); }
-.update-notes summary { font: 600 24px var(--f-serif); }
-@media (min-width: 900px) { .update-col + .update-col { border-left: 1px solid var(--line); padding-left: 24px; } }
-@media (max-width: 650px) { .update-overview, .update-notes { padding: 16px; } }
+.update-notes summary { font: 600 20px var(--f-serif); }
+.update-col + .update-col { border-top: 1px solid var(--line); padding-top: 16px; }
+@container (min-width: 760px) { .update-col + .update-col { border-top: 0; padding-top: 0; border-left: 1px solid var(--line); padding-left: 24px; } }
+@container (max-width: 520px) { .update-overview, .update-notes { padding: 16px; } .update-col-current .update-version-number { font-size: 32px; } }
 </style>

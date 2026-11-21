@@ -3,7 +3,7 @@
     <nav class="rail" aria-label="主导航">
       <router-link to="/" class="rail-seal" title="墨笔生花 · 回到书架" aria-label="墨笔生花，回到书架"><img :src="mojianIcon" alt="墨笔生花" /></router-link>
       <router-link to="/" class="rail-btn" :class="{ on: area === 'shelf' }"><V3Icon name="shelf" size="l" /><span>书架</span></router-link>
-      <router-link :to="{ path: '/settings', query: { section: 'cloud' } }" class="rail-btn"
+      <router-link v-if="CLOUD_SYNC_AVAILABLE" :to="{ path: '/settings', query: { section: 'cloud' } }" class="rail-btn"
         :class="{ on: route.path === '/settings' && route.query.section === 'cloud' }" title="云同步设置">
         <V3Icon name="cloud" size="l" /><span>云同步</span>
       </router-link>
@@ -56,7 +56,7 @@
         <i class="busy" />AI 任务 {{ running.length }}
       </button>
       <span class="status-it" :title="saveErrorText || ''"><i :class="saveErrorText ? 'warn' : saving ? 'busy' : 'ok'" />{{ saveErrorText ? '保存失败' : saving ? '正在保存' : '已保存' }}</span>
-      <button type="button" class="status-it" :title="cloud.statusText" @click="openCloudSettings">
+      <button v-if="CLOUD_SYNC_AVAILABLE" type="button" class="status-it" :title="cloud.statusText" @click="openCloudSettings">
         <V3Icon name="cloud" size="s" />{{ cloud.session ? cloud.statusText : '云同步未开启' }}
       </button>
     </footer>
@@ -90,6 +90,7 @@ import { useInspirationSessionsStore } from '@/stores/inspirationSessions'
 import { useConfigStore } from '@/stores/config'
 import { useThemeStore } from '@/stores/theme'
 import { useCloudSyncStore } from '@/stores/cloudSync'
+import { CLOUD_SYNC_AVAILABLE } from '@/services/features'
 import { useAppUpdateStore } from '@/stores/appUpdate'
 import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspace'
 import { openAiActivity, useAiActivities } from '@/services/aiActivity'

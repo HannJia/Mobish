@@ -105,7 +105,7 @@ export function validatePublicSettings(value: unknown): PublicSettings {
   return { schema: 1, models, assignments, embedding, skills, aiWorkflowMode: data.aiWorkflowMode, pdfVisionEnabled: bool(data.pdfVisionEnabled), theme: data.theme }
 }
 export function splitConfig(config: PortableConfig, theme: PublicSettings['theme']): { settings: PublicSettings; secrets: VaultSecrets } {
-  const models = config.models.map(({ apiKey: _secret, connectionTest: _localTest, ...model }) => {
+  const models = config.models.map(({ apiKey: _secret, connectionTest: _localTest, searchAdapter: _localSearch, ...model }) => {
     // Omitted kind already means chat; retain the old wire shape when possible.
     if (model.kind === 'chat') delete model.kind
     return model

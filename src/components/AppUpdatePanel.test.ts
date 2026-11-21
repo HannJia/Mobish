@@ -19,7 +19,7 @@ const base: AppUpdateState = {
 }
 const mounted: ReturnType<typeof shallowMount>[] = []
 function mount(component: Component = AppUpdatePanel) {
-  const wrapper = shallowMount(component, { global: { renderStubDefaultSlot: true, stubs: {
+  const wrapper = shallowMount(component, { global: { renderStubDefaultSlot: true, stubs: { ReleaseNotes: false,
   } } })
   mounted.push(wrapper)
   return wrapper
@@ -128,8 +128,8 @@ describe('update settings and notifications', () => {
     const wrapper = mount()
     await flushPromises()
     expect(wrapper.text()).toContain('最新版本 1.0.3')
-    expect(wrapper.find('pre script').exists()).toBe(false)
-    expect(wrapper.get('pre').text()).toContain('<script>')
+    expect(wrapper.find('.update-notes-body script').exists()).toBe(false)
+    expect(wrapper.get('.update-notes-body').text()).toContain('<script>')
     expect(bridge.updateDownload).not.toHaveBeenCalled()
     await wrapper.findAll('button').find(button => button.text() === '下载更新')!.trigger('click')
     await flushPromises()

@@ -10,6 +10,7 @@ import { showRecoveryScreen } from './services/recoveryScreen'
 import { cloudApplyBusy, projectTransferBusy, flushEditorDrafts } from './services/appLifecycle'
 import { useReconstructionWorkspaceStore } from './stores/reconstructionWorkspace'
 import { prepareUpdateInstall } from './services/updateSafety'
+import { CLOUD_SYNC_AVAILABLE } from '@/services/features'
 import { useCloudSyncStore } from './stores/cloudSync'
 import { useCloudPreferencesStore } from './stores/cloudPreferences'
 import { useInspirationSessionsStore } from './stores/inspirationSessions'
@@ -59,7 +60,7 @@ async function bootstrap() {
         useReconstructionWorkspaceStore().flushPendingSaves(novelStore.novels.map(novel => novel.id)),
         configStore.saveConfig(),
       ])
-      await useCloudSyncStore().flushBeforeClose()
+      if (CLOUD_SYNC_AVAILABLE) await useCloudSyncStore().flushBeforeClose()
     })
     window.electronAPI?.onBeforeUpdate?.(prepareUpdateInstall)
   } catch (err) {
@@ -73,8 +74,10 @@ async function bootstrap() {
 
   app.mount('#app')
   startWritingLog()
-  void useCloudSyncStore().initialize().then(() => useCloudPreferencesStore().initialize())
-  router.afterEach(() => useCloudSyncStore().schedule())
+  if (CLOUD_SYNC_AVAILABLE) {
+    void useCloudSyncStore().initialize().then(() => useCloudPreferencesStore().initialize())
+    router.afterEach(() => useCloudSyncStore().schedule())
+  }
 }
 
 bootstrap()

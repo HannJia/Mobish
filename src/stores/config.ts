@@ -1,9 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref, reactive } from 'vue'
 import type { WritingSkill, WritingSkillTask } from '@/types/skill'
-import { createBuiltInSkills } from '@/data/skills'
+import { createBuiltInSkills, upgradeSavedBuiltInSkill } from '@/data/skills'
 import { normalizeAiWorkflowMode, type AiWorkflowMode } from '@/services/aiWorkflow'
 import type { ChatSearchProtocol } from '@/types/chat'
+import type { ChatSearchAdapter } from '@/services/modelProviders'
+import { DEFAULT_WEB_SEARCH_SERVICE, WEB_SEARCH_PROVIDERS, type WebSearchServiceConfig } from '@/services/webSearchService'
 
 // API 模型配置
 export interface ModelConfig {
@@ -17,6 +19,8 @@ export interface ModelConfig {
   topP: number
   contextWindow?: number // 模型上下文窗口大小（token 数），用于动态分配上下文
   chatSearchProtocol?: ChatSearchProtocol // 仅影响书内/灵感对话的联网请求
+  /** 本机选择的联网方式（通义、智谱、Gemini 或独立搜索服务）；不参与云端配置同步，其他设备按接口地址自动识别。 */
+  searchAdapter?: ChatSearchAdapter
   kind?: 'chat' | 'embedding' // 模型用途类型；省略时默认为 chat
   connectionTest?: ModelConnectionTestRecord // 仅本机连接测试记录，不参与云端配置同步
 }
@@ -61,11 +65,14 @@ export interface ConfigData {
   skills?: WritingSkill[]
   aiWorkflowMode?: AiWorkflowMode
   pdfVisionEnabled?: boolean
+  /** 独立联网搜索服务，只保存在本机，不参与云端配置同步。 */
+  webSearchService?: WebSearchServiceConfig
 }
 
 interface SessionSecrets {
   models: Record<string, string>
   embedding: string
+  webSearch?: string
 }
 
 export interface ConfigSecurityStatus {
@@ -102,6 +109,7 @@ function readSessionSecrets(): SessionSecrets {
     return {
       models: parsed.models && typeof parsed.models === 'object' ? parsed.models : {},
       embedding: typeof parsed.embedding === 'string' ? parsed.embedding : '',
+      webSearch: typeof parsed.webSearch === 'string' ? parsed.webSearch : '',
     }
   } catch {
     return emptySessionSecrets()
@@ -115,6 +123,7 @@ function writeSessionSecrets(data: ConfigData) {
       .filter(model => model.apiKey && !model.apiKey.startsWith('enc:'))
       .map(model => [model.id, model.apiKey])),
     embedding: data.embedding?.apiKey && !data.embedding.apiKey.startsWith('enc:') ? data.embedding.apiKey : '',
+    webSearch: data.webSearchService?.apiKey && !data.webSearchService.apiKey.startsWith('enc:') ? data.webSearchService.apiKey : '',
   }
   sessionStorage.setItem(SESSION_SECRET_KEY, JSON.stringify(secrets))
 }
@@ -124,6 +133,7 @@ function redactConfigSecrets(data: ConfigData): ConfigData {
     ...data,
     models: data.models.map(model => ({ ...model, apiKey: '' })),
     embedding: data.embedding ? { ...data.embedding, apiKey: '' } : undefined,
+    webSearchService: data.webSearchService ? { ...data.webSearchService, apiKey: '' } : undefined,
   }
 }
 
@@ -133,11 +143,12 @@ function mergeSessionSecrets(data: ConfigData): ConfigData {
     ...data,
     models: data.models.map(model => ({ ...model, apiKey: secrets.models[model.id] || model.apiKey || '' })),
     embedding: data.embedding ? { ...data.embedding, apiKey: secrets.embedding || data.embedding.apiKey || '' } : undefined,
+    webSearchService: data.webSearchService ? { ...data.webSearchService, apiKey: secrets.webSearch || data.webSearchService.apiKey || '' } : undefined,
   }
 }
 
 function containsPersistedSecrets(data: ConfigData): boolean {
-  return data.models.some(model => Boolean(model.apiKey)) || Boolean(data.embedding?.apiKey)
+  return data.models.some(model => Boolean(model.apiKey)) || Boolean(data.embedding?.apiKey) || Boolean(data.webSearchService?.apiKey)
 }
 
 async function encryptConfig(data: ConfigData): Promise<ConfigData> {
@@ -151,6 +162,10 @@ async function encryptConfig(data: ConfigData): Promise<ConfigData> {
     embedding: data.embedding ? {
       ...data.embedding,
       apiKey: await window.electronAPI!.configEncrypt(data.embedding.apiKey || ''),
+    } : undefined,
+    webSearchService: data.webSearchService ? {
+      ...data.webSearchService,
+      apiKey: await window.electronAPI!.configEncrypt(data.webSearchService.apiKey || ''),
     } : undefined,
   }
 }
@@ -167,6 +182,10 @@ async function decryptConfig(data: ConfigData | null): Promise<ConfigData | null
       ...data.embedding,
       apiKey: await window.electronAPI!.configDecrypt(data.embedding.apiKey || ''),
     } : undefined,
+    webSearchService: data.webSearchService ? {
+      ...data.webSearchService,
+      apiKey: await window.electronAPI!.configDecrypt(data.webSearchService.apiKey || ''),
+    } : undefined,
   }
 }
 
@@ -179,10 +198,20 @@ const DEFAULT_EMBEDDING_CONFIG: EmbeddingConfig = {
 }
 
 
+function normalizeWebSearchService(value: Partial<WebSearchServiceConfig> | undefined): WebSearchServiceConfig {
+  const provider = value?.provider && Object.prototype.hasOwnProperty.call(WEB_SEARCH_PROVIDERS, value.provider) ? value.provider : DEFAULT_WEB_SEARCH_SERVICE.provider
+  const count = typeof value?.count === 'number' && Number.isFinite(value.count) ? Math.max(1, Math.min(10, Math.round(value.count))) : DEFAULT_WEB_SEARCH_SERVICE.count
+  const freeFallback = typeof value?.freeFallback === 'boolean' ? value.freeFallback : DEFAULT_WEB_SEARCH_SERVICE.freeFallback
+  return { provider, apiKey: typeof value?.apiKey === 'string' ? value.apiKey : '', baseUrl: typeof value?.baseUrl === 'string' ? value.baseUrl : '', count, freeFallback }
+}
+
 function mergeSkills(saved: WritingSkill[] | undefined): WritingSkill[] {
   const builtIns = createBuiltInSkills()
   const savedById = new Map((saved || []).map(skill => [skill.id, skill]))
-  const mergedBuiltIns = builtIns.map(skill => ({ ...skill, ...savedById.get(skill.id), builtIn: true }))
+  const mergedBuiltIns = builtIns.map(skill => {
+    const stored = savedById.get(skill.id)
+    return { ...skill, ...(stored ? upgradeSavedBuiltInSkill(stored) : {}), builtIn: true }
+  })
   const custom = (saved || []).filter(skill => !skill.builtIn && !builtIns.some(item => item.id === skill.id))
   return [...mergedBuiltIns, ...custom]
 }
@@ -203,6 +232,7 @@ export const useConfigStore = defineStore('config', () => {
   const skills = ref<WritingSkill[]>(createBuiltInSkills())
   const aiWorkflowMode = ref<AiWorkflowMode>('balanced')
   const pdfVisionEnabled = ref(false)
+  const webSearchService = reactive<WebSearchServiceConfig>({ ...DEFAULT_WEB_SEARCH_SERVICE })
   const securityStatus = reactive<ConfigSecurityStatus>({
     environment: 'browser',
     storage: isLocalDevelopment() ? 'local-development' : 'session-only',
@@ -272,6 +302,7 @@ export const useConfigStore = defineStore('config', () => {
     skills.value = mergeSkills(data?.skills)
     aiWorkflowMode.value = normalizeAiWorkflowMode(data?.aiWorkflowMode)
     pdfVisionEnabled.value = data?.pdfVisionEnabled === true
+    Object.assign(webSearchService, normalizeWebSearchService(data?.webSearchService))
     isConfigured.value = models.value.some(m => m.kind !== 'embedding')
   }
 
@@ -306,7 +337,8 @@ export const useConfigStore = defineStore('config', () => {
         const persisted = saved ? JSON.parse(saved) as ConfigData : null
         if (persisted && status.encryptionAvailable) {
           if (persisted.models.some(model => model.apiKey && !model.apiKey.startsWith('enc:'))
-            || persisted.embedding?.apiKey && !persisted.embedding.apiKey.startsWith('enc:')) throw new Error('API 密钥必须加密保存。')
+            || persisted.embedding?.apiKey && !persisted.embedding.apiKey.startsWith('enc:')
+            || persisted.webSearchService?.apiKey && !persisted.webSearchService.apiKey.startsWith('enc:')) throw new Error('API 密钥必须加密保存。')
           data = await decryptConfig(persisted)
         } else if (persisted) {
           data = mergeSessionSecrets(redactConfigSecrets(persisted))
@@ -336,6 +368,7 @@ export const useConfigStore = defineStore('config', () => {
       skills: JSON.parse(JSON.stringify(skills.value)),
       aiWorkflowMode: aiWorkflowMode.value,
       pdfVisionEnabled: pdfVisionEnabled.value,
+      webSearchService: { ...webSearchService },
     }
   }
 
@@ -369,6 +402,8 @@ export const useConfigStore = defineStore('config', () => {
   // operations and imports share one queue, so a pending save cannot undo import.
   async function importConfig(data: ConfigData, stillCurrent: () => boolean) {
     const candidate = JSON.parse(JSON.stringify(data)) as ConfigData
+    // 云端配置不含独立搜索服务，恢复时保留本机设置。
+    if (candidate.webSearchService === undefined) candidate.webSearchService = { ...webSearchService }
     const before = JSON.stringify(exportConfig())
     const write = async () => {
       if (!stillCurrent() || JSON.stringify(exportConfig()) !== before) throw new Error('本机配置已变化，请重新比较后恢复。')
@@ -388,6 +423,11 @@ export const useConfigStore = defineStore('config', () => {
     const next = saveQueue.then(write, write)
     saveQueue = next.catch(() => undefined)
     await next
+  }
+
+  async function setWebSearchService(next: WebSearchServiceConfig) {
+    Object.assign(webSearchService, normalizeWebSearchService(next))
+    await saveConfig()
   }
 
   // 添加模型配置
@@ -610,6 +650,8 @@ export const useConfigStore = defineStore('config', () => {
     skills,
     aiWorkflowMode,
     pdfVisionEnabled,
+    webSearchService,
+    setWebSearchService,
     securityStatus,
     isConfigured,
     isInitialized,

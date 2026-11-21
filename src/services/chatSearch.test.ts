@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import { chatWithOptionalSearch, parseSearchResponse, resolveChatSearchProtocol, safeSourceUrl, testChatSearch, searchProtocolDescription } from './chatSearch'
-import type { ModelConfig } from '@/stores/config'
+import { useConfigStore, type ModelConfig } from '@/stores/config'
 import { activeAiCount } from './aiActivity'
 import { appUpdateInstalling } from './appLifecycle'
 
@@ -18,6 +19,11 @@ const responsePayload = {
   }],
 }
 const messages = [{ role: 'user' as const, content: '请查证一个历史年份' }]
+// 这里测内置搜索本身：关闭出错时改用搜索服务，退回流程见 chatSearchProviders.test.ts。
+beforeEach(() => {
+  setActivePinia(createPinia())
+  useConfigStore().webSearchService.freeFallback = false
+})
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()

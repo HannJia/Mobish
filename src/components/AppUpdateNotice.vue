@@ -2,7 +2,7 @@
   <div v-if="store.showNotice && store.state.phase === 'downloaded'" class="update-ready-card" role="status" aria-live="polite">
     <strong>更新已准备好</strong>
     <p>v{{ store.state.release?.version }} 已下载，点击“安装并重启”应用新版。</p>
-    <pre v-if="store.state.release?.notes" class="ready-notes">{{ store.state.release.notes }}</pre>
+    <ReleaseNotes v-if="store.state.release?.notes" class="ready-notes" :notes="store.state.release.notes" />
     <p v-if="store.state.error" class="ready-error" role="alert">{{ store.state.error }}</p>
     <div class="notice-actions">
       <button type="button" class="m-btn pri sm" @click="confirmInstall">安装并重启</button>
@@ -28,6 +28,7 @@ import { onMounted } from 'vue'
 import V3Modal from '@/v3/components/V3Modal.vue'
 import V3Icon from '@/v3/components/V3Icon.vue'
 import AppUpdatePanel from './AppUpdatePanel.vue'
+import ReleaseNotes from './ReleaseNotes.vue'
 import { useAppUpdateStore } from '@/stores/appUpdate'
 import { useUpdateInstall } from '@/composables/useUpdateInstall'
 const store = useAppUpdateStore()
@@ -41,7 +42,7 @@ onMounted(() => { void store.init() })
 .notice-actions { display: flex; align-items: center; gap: 8px; }
 .update-ready-card { position:fixed; left:84px; bottom:44px; z-index:1100; width:min(380px,calc(100vw - 104px)); box-sizing:border-box; padding:16px; display:grid; gap:12px; border:1px solid var(--line-2); border-radius:12px; background:var(--paper); color:var(--ink); box-shadow:0 6px 24px rgba(0,0,0,.12); font-size:13px; }
 .update-ready-card p { margin:0; line-height:1.6; overflow-wrap:anywhere; }
-.ready-notes { margin:0; padding:10px; max-height:140px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; line-height:1.6; background:var(--desk); border-radius:6px; }
+.ready-notes { margin:0; padding:10px; max-height:140px; overflow:auto; line-height:1.6; background:var(--desk); border-radius:6px; gap:4px; }
 .ready-error { color:var(--zhu); }
 @media (max-width: 600px) { .update-ready-card { left:76px; bottom:40px; width:calc(100vw - 88px); padding:12px; } }
 </style>
