@@ -4,7 +4,7 @@ import { useKnowledgeStore } from '@/stores/knowledge'
 import { characterStateFixture } from '@/test/characterStateFixture'
 import { createEntrySummarySource, createBaseSummarySource } from './knowledgeSources'
 import { testKnowledgeCoverage } from '@/test/knowledgeCoverageFixture'
-import { buildBoundKnowledgeContext, buildBoundKnowledgeSignature } from './knowledgeContext'
+import { buildBoundKnowledgeContext, buildBoundKnowledgeSignature , knowledgeEntryExcerpt } from './knowledgeContext'
 import { buildChatKnowledgeContext } from './softwareAssistantContext'
 import { buildWritingContext } from './context'
 import { buildSemanticRecords, retrieveSemanticEvidence, formatEvidence } from './semanticIndex'
@@ -71,5 +71,21 @@ describe('knowledge derived-source consumers', () => {
     expect(formatEvidence(results, 2000, '白鹿镇初七停航')).toContain(fact)
     novel.knowledgeBaseIds = []
     expect(buildSemanticRecords(novel, [base]).some(record => record.sourceType === 'knowledge')).toBe(false)
+  })
+})
+
+describe('knowledge entry excerpt for whole documents', () => {
+  const content = '开头导语。'.repeat(200) + '1998年房改23号文停止福利分房，住房分配货币化。' + '后文。'.repeat(200)
+  it('takes the passage around the keywords inside a long entry', () => {
+    const excerpt = knowledgeEntryExcerpt({ content, summary: '' }, ['福利分房', '货币化'], 120)
+    expect(excerpt).toContain('停止福利分房')
+    expect(excerpt).toContain('货币化')
+    expect(excerpt.startsWith('…')).toBe(true)
+    expect(excerpt.length).toBeLessThanOrEqual(122)
+  })
+  it('falls back to the summary or the opening when nothing matches', () => {
+    expect(knowledgeEntryExcerpt({ content, summary: '摘要文字' }, ['不存在的词'], 120)).toBe('摘要文字')
+    expect(knowledgeEntryExcerpt({ content, summary: '' }, [], 10)).toBe(content.slice(0, 10))
+    expect(knowledgeEntryExcerpt({ content: '短内容', summary: '摘要' }, ['短内容'], 120)).toBe('摘要')
   })
 })

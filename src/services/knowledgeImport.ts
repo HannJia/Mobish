@@ -1,5 +1,6 @@
 import type JSZip from 'jszip'
 import { readKnowledgePdf, type PdfReadOptions } from './knowledgePdf'
+import { decodeHtmlBytes, htmlToKnowledgeText } from './knowledgeHtml'
 
 export const KNOWLEDGE_IMPORT_LIMITS = {
   fileBytes: 100 * 1024 * 1024, archiveEntries: 2000, entryBytes: 128 * 1024 * 1024,
@@ -113,7 +114,8 @@ function sanitizeDocxStyles(data: Uint8Array): Uint8Array {
 function htmlText(html: string): string {
   return html.replace(/<(script|style|title)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
     .replace(/<br\s*\/?>/gi, '\n').replace(/<\/(?:p|div|h[1-6])>/gi, '\n\n')
-    .replace(/<h[1-6]\b[^>]*>/gi, '## ').replace(/<[^>]+>/g, '')
+    // 保留标题层级（Word 的“标题 1/2/3”样式会转成 h1/h2/h3），便于按标题拆分和检索
+    .replace(/<h([1-6])\b[^>]*>/gi, (_tag, level: string) => '#'.repeat(Number(level)) + ' ').replace(/<[^>]+>/g, '')
     .replace(/&(nbsp|lt|gt|quot|apos|amp|#\d+|#x[\da-f]+);/gi, (entity, name: string) => {
       const entities: Record<string, string> = { nbsp: ' ', lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' }
       if (entities[name.toLowerCase()]) return entities[name.toLowerCase()]
@@ -193,7 +195,8 @@ export async function readKnowledgeFile(file: File, options?: PdfReadOptions): P
   if (extension === 'docx' || extension === 'epub') result = await readArchive(await file.arrayBuffer(), extension)
   else if (extension === 'pdf') result = await readKnowledgePdf(file, options)
   else if (extension === 'txt' || extension === 'md' || extension === 'markdown') result = await file.text()
-  else throw new Error('只支持 TXT、Markdown、DOCX、EPUB 和 PDF')
+  else if (extension === 'html' || extension === 'htm') result = htmlToKnowledgeText(decodeHtmlBytes(await file.arrayBuffer()))
+  else throw new Error('只支持 TXT、Markdown、HTML、DOCX、EPUB 和 PDF')
   if (result.length > KNOWLEDGE_IMPORT_LIMITS.textCharacters) throw new Error('提取文本超过 500 万字符')
   return result
 }

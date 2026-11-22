@@ -1,12 +1,16 @@
 <template>
   <V3Modal :show="show" title="导入知识库内容" size="wide" class="knowledge-import-dialog" :closable="!importing && !reviewBusy"
-    description="上传文件或直接粘贴文字，核对预览后导入；导入前不会写入知识库。" @update:show="close">
-    <div class="import-fields">
-      <V3Field label="分类"><V3Select v-model:value="category" :options="kbCategories" :disabled="importing || reviewBusy || Boolean(pendingIds)" /></V3Field>
+    description="上传或拖入文件，也可以直接粘贴文字；核对预览后导入，导入前不会写入知识库。" @update:show="close">
+    <div class="import-fields" :class="{ 'drop-active': dragging }" @dragenter.prevent="dragging = true" @dragover.prevent="dragging = true"
+      @dragleave.self="dragging = false" @drop.prevent="onDrop">
+      <div class="import-mode-row">
+        <V3Field label="导入方式"><V3Select v-model:value="splitMode" :options="splitModeOptions" aria-label="导入方式" :disabled="importing || reviewBusy || Boolean(pendingIds)" /></V3Field>
+        <V3Field label="分类"><V3Select v-model:value="category" :options="kbCategories" :disabled="importing || reviewBusy || Boolean(pendingIds)" /></V3Field>
+      </div>
       <div class="m-field" role="group" aria-label="上传文件">
-        <span class="m-field-l">上传文件（最多 100 MB；支持 .txt / .md / .docx / .epub / .pdf）</span>
+        <span class="m-field-l">上传文件（可直接拖入此窗口；最多 100 MB；支持 .txt / .md / .html / .docx / .epub / .pdf）</span>
         <div class="file-row">
-          <input ref="fileInput" type="file" accept=".txt,.md,.markdown,.docx,.epub,.pdf" hidden @change="chooseFile" />
+          <input ref="fileInput" type="file" accept=".txt,.md,.markdown,.html,.htm,.docx,.epub,.pdf" hidden @change="chooseFile" />
           <button type="button" class="m-btn" :disabled="reading || importing || reviewBusy || Boolean(pendingIds)" @click="fileInput?.click()">
             <V3Icon name="file" size="s" />选择文件
           </button>
@@ -44,7 +48,11 @@
         placeholder="粘贴内容或上传文件..." @update:value="value => text = value" /></V3Field>
       <p v-if="progress" class="import-notice" role="status">有文字 {{ progress.textPages }} 页 · 空白结果 {{ progress.blankPages }} 页 · 无缓存 {{ progress.missingPages }} 页 · {{ progress.characters.toLocaleString('zh-CN') }} 字符</p>
       <p v-if="progress?.staleBlankPages" class="import-error" role="alert">有 {{ progress.staleBlankPages }} 页之前识别为空白，重新读取时会再识别一次。</p>
-      <p v-if="text" class="import-notice" role="status">预计导入 {{ entryCount }} 条 · {{ text.length.toLocaleString('zh-CN') }} 字符</p>
+      <p v-if="text" class="import-notice" role="status">预计导入 {{ entryCount }} 个条目 · {{ text.length.toLocaleString('zh-CN') }} 字符{{ splitMode === 'whole' ? ` · 标题：${sections[0]?.title || ''}` : '' }}</p>
+      <ol v-if="text && splitMode === 'sections'" class="split-preview" aria-label="拆分预览">
+        <li v-for="(section, index) in sections.slice(0, 30)" :key="index">{{ section.title }}<small>{{ section.content.length.toLocaleString('zh-CN') }} 字符</small></li>
+        <li v-if="sections.length > 30" class="split-more">…… 共 {{ sections.length }} 段</li>
+      </ol>
       <p v-if="suspiciousPdf" class="import-error" role="alert">PDF 未读完、缓存缺页或文字页异常偏少，请先核对预览，当前结果可能不完整。</p>
       <label v-if="suspiciousPdf" class="m-check"><input v-model="acceptIncomplete" type="checkbox" :disabled="importing">确认仅导入当前文字结果</label>
       <button v-if="text" type="button" class="m-btn sm ghost export-text" :disabled="reading" @click="exportText"><V3Icon name="export" size="s" />导出已读取文本</button>
@@ -52,7 +60,7 @@
         :model="config.models.find(model => model.id === modelId)" :disabled="reading || importing || Boolean(pendingIds)"
         @busy="value => reviewBusy = value" @changed="updateOcrPage" />
       <label v-if="ocrUnresolved" class="m-check"><input v-model="acceptUnresolved" type="checkbox" :disabled="reading || importing || reviewBusy">保留 {{ ocrUnresolved }} 项待核实标记并导入</label>
-      <label class="m-check"><input v-model="summarize" type="checkbox" :disabled="importing">导入后自动整理条目摘要</label>
+      <label v-if="featureFlags.knowledgeAiSummary" class="m-check"><input v-model="summarize" type="checkbox" :disabled="importing">导入后自动整理条目摘要</label>
     </div>
     <template #footer>
       <button type="button" class="m-btn" :disabled="importing || reviewBusy" @click="close(false)">{{ reading ? '暂停并关闭' : '取消' }}</button>
@@ -77,13 +85,14 @@ import { useConfigStore } from '@/stores/config'
 import { KNOWLEDGE_IMPORT_LIMITS, readKnowledgeFile } from '@/services/knowledgeImport'
 import type { PdfReadMode, PdfReadProgress } from '@/services/knowledgePdf'
 import { finishAiActivity, startAiActivity } from '@/services/aiActivity'
-import { splitKnowledgeText } from '@/services/knowledgeText'
+import { splitKnowledgeText, type KnowledgeSplitMode } from '@/services/knowledgeText'
+import { featureFlags } from '@/services/features'
 import OcrReviewPanel from './OcrReviewPanel.vue'
 import type { PdfPageText } from '@/services/knowledgePdfCache'
 import { unresolvedOcr } from '@/services/ocrQuality'
 import { localOcrPageText } from '@/services/localOcrPdf'
 
-const props = defineProps<{ show: boolean; kbId: string }>()
+const props = defineProps<{ show: boolean; kbId: string; initialFile?: File | null }>()
 const emit = defineEmits<{ 'update:show': [value: boolean]; imported: [result: { kbId: string; entryIds: string[]; summarize: boolean }] }>()
 const store = useKnowledgeStore()
 const config = useConfigStore()
@@ -91,6 +100,14 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const file = shallowRef<File | null>(null)
 const text = ref('')
 const category = ref('其他')
+const splitMode = ref<KnowledgeSplitMode>('whole')
+const splitModeOptions = [
+  { label: '整份导入为一个条目（推荐）', value: 'whole' },
+  { label: '按标题拆分为多个条目', value: 'sections' },
+]
+const dragging = ref(false)
+const fileTitle = computed(() => file.value?.name.replace(/\.[^.]+$/, '').trim() || '粘贴的资料')
+const sections = computed(() => splitKnowledgeText(text.value, { mode: splitMode.value, fallbackTitle: fileTitle.value }))
 const mode = ref<PdfReadMode>('auto')
 const pageStart = ref<number | null>(1)
 const pageEnd = ref<number | null>(15)
@@ -105,13 +122,13 @@ const importing = ref(false)
 const complete = ref(false)
 const attempted = ref(false)
 const paused = ref(false)
-const summarize = ref(true)
+const summarize = ref(false)
 const allowVision = ref(config.pdfVisionEnabled)
 const error = ref('')
 const progress = ref<PdfReadProgress | null>(null)
 const pendingIds = ref<string[] | null>(null)
 const acceptIncomplete = ref(false)
-const entryCount = computed(() => splitKnowledgeText(text.value).length)
+const entryCount = computed(() => sections.value.length)
 const suspiciousPdf = computed(() => Boolean(isPdf.value && progress.value && !reading.value
   && (progress.value.missingPages > 0 || progress.value.completed < progress.value.total
     || (progress.value.blankPages > 0 && progress.value.staleBlankPages > 0)
@@ -157,7 +174,23 @@ async function chooseFile(event: Event) {
   const input = event.target as HTMLInputElement
   const selected = input.files?.[0]
   input.value = ''
-  if (!selected || reading.value || importing.value) return
+  if (selected) await selectFile(selected)
+}
+
+async function onDrop(event: DragEvent) {
+  dragging.value = false
+  const selected = event.dataTransfer?.files?.[0]
+  if (!selected || reading.value || importing.value || reviewBusy.value || pendingIds.value) return
+  await selectFile(selected)
+}
+
+// 从知识库页面拖入文件时，打开对话框后直接读取。
+watch(() => [props.show, props.initialFile] as const, ([show, initial]) => {
+  if (show && initial && initial !== file.value && !reading.value && !importing.value) void selectFile(initial)
+}, { immediate: true })
+
+async function selectFile(selected: File) {
+  if (reading.value || importing.value) return
   resetPreview()
   file.value = null
   if (selected.size > KNOWLEDGE_IMPORT_LIMITS.fileBytes) { error.value = '文件超过 100 MB，请拆分后导入。'; return }
@@ -236,7 +269,7 @@ async function importText() {
       if (text.value.length > KNOWLEDGE_IMPORT_LIMITS.textCharacters) throw new Error('文本超过 500 万字符，请拆分后导入。')
       const existingIds = new Set(kb.entries.map(entry => entry.id))
       const expected = entryCount.value
-      const added = store.importFromText(kbId, text.value, category.value)
+      const added = store.importFromText(kbId, text.value, category.value, { mode: splitMode.value, fallbackTitle: fileTitle.value })
       pendingIds.value = kb.entries.filter(entry => !existingIds.has(entry.id)).map(entry => entry.id)
       if (!pendingIds.value.length) { pendingIds.value = null; throw new Error('没有可导入的正文，请检查文本内容。') }
       if (added !== expected || pendingIds.value.length !== expected) throw new Error('导入条目数量不一致，请保留文本并重试。')
@@ -256,7 +289,12 @@ async function importText() {
 </script>
 
 <style scoped>
-.import-fields { display: grid; grid-template-columns:minmax(0,1fr); gap: 8px; min-width: 0; }
+.import-fields { display: grid; grid-template-columns:minmax(0,1fr); gap: 8px; min-width: 0; border: 1px dashed transparent; border-radius: 10px; transition: border-color var(--motion-fast), background var(--motion-fast); }
+.import-fields.drop-active { border-color: var(--zhu); background: var(--zhu-soft); }
+.import-mode-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 4px 16px; }
+.split-preview { margin: 0; padding: 8px 8px 8px 28px; max-height: 180px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; line-height: 1.7; }
+.split-preview small { margin-left: 8px; color: var(--ink-3); }
+.split-more { list-style: none; color: var(--ink-3); }
 .import-fields > * { min-width:0; max-width:100%; }
 .import-fields .m-field { margin-bottom: 0; }
 .page-range { display: grid; grid-template-columns: repeat(2, minmax(0, 160px)); gap: 12px; }

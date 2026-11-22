@@ -45,3 +45,14 @@ describe('OpenAI 兼容模型发现', () => {
       .rejects.toThrow('获取模型失败（401）')
   })
 })
+
+describe('disable thinking for summary-style requests', () => {
+  it('adds the DeepSeek switch only on the official host and only when asked', async () => {
+    const { disableThinkingFields } = await import('./ai')
+    expect(disableThinkingFields({ baseUrl: 'https://api.deepseek.com' }, true)).toEqual({ thinking: { type: 'disabled' } })
+    expect(disableThinkingFields({ baseUrl: 'https://api.deepseek.com/v1' }, true)).toEqual({ thinking: { type: 'disabled' } })
+    expect(disableThinkingFields({ baseUrl: 'https://api.deepseek.com' }, false)).toEqual({})
+    expect(disableThinkingFields({ baseUrl: 'https://relay.example/v1' }, true)).toEqual({})
+    expect(disableThinkingFields({ baseUrl: 'not a url' }, true)).toEqual({})
+  })
+})

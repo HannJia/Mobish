@@ -46,8 +46,22 @@ export interface ChatCompletionOptions {
   redactErrors?: boolean
   noAutomaticRetry?: boolean
   structuredOutput?: StructuredOutputMode // 显式短 JSON 判断，不改变普通请求或输出预算
+  /** 整理、摘要这类不需要推理的任务：在已核实的官方接口上关闭思考，避免思考用光输出额度。 */
+  disableThinking?: boolean
   requestLifecycle?: AiRequestLifecycle
   shouldStop?: () => boolean
+}
+
+/**
+ * 关闭思考的请求字段。只用于已用真实请求核实过的官方接口（2026-11-22 核实 DeepSeek：
+ * 默认会先思考，带 thinking.type=disabled 时正常返回且无思考内容）；中转站和其他服务商不加，避免未知参数导致请求被拒。
+ */
+export function disableThinkingFields(model: Pick<ModelConfig, 'baseUrl'>, disable?: boolean): Record<string, unknown> {
+  if (!disable) return {}
+  try {
+    if (new URL(model.baseUrl).hostname.toLowerCase() === 'api.deepseek.com') return { thinking: { type: 'disabled' } }
+  } catch { /* 地址无效时由正常请求流程报错 */ }
+  return {}
 }
 
 export function applySkillInstructions(messages: ChatMessage[], instructions: string): ChatMessage[] {
@@ -166,6 +180,7 @@ async function chatCompletion(options: ChatCompletionOptions): Promise<ChatCompl
           top_p: model.topP,
           stream: false,
           ...structuredRequestFields(model, options.structuredOutput),
+          ...disableThinkingFields(model, options.disableThinking),
         }),
         signal: request.signal,
       })
@@ -213,6 +228,7 @@ async function chatCompletionStream(options: ChatCompletionOptions): Promise<Cha
         max_tokens: maxTokens || model.maxTokens, temperature: model.temperature,
         top_p: model.topP, stream: true,
         ...structuredRequestFields(model, options.structuredOutput),
+        ...disableThinkingFields(model, options.disableThinking),
       }),
       signal: request.signal,
     })

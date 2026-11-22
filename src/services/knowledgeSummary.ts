@@ -1,9 +1,9 @@
 import type { ModelConfig } from '@/stores/config'
 import type { KnowledgeBase, KnowledgeSummaryCoverage } from '@/types/knowledge'
-import { callAI, type ChatCompletionResult } from './ai'
+import { callAI, type ChatCompletionResult, type ChatMessage } from './ai'
 import { baseSourceVersion, entrySourceVersion } from './knowledgeSources'
 import { buildKnowledgeSummaryChunks, createKnowledgeSummaryCoverage, type KnowledgeSummaryChunk } from './knowledgeSummaryCoverage'
-import { buildStoryMemorySummaryGraph, summaryMessages as messagesFor, summaryLeafText as leafText, summaryMergeText as mergeText, summaryInputReservation as inputReservation, summaryRequestReservation } from './summaryGraph'
+import { buildStoryMemorySummaryGraph, DEFAULT_SUMMARY_CONTEXT_WINDOW, summaryMessages as messagesFor, summaryLeafText as leafText, summaryMergeText as mergeText, summaryInputReservation as inputReservation, summaryRequestReservation } from './summaryGraph'
 import { startAiActivity, finishAiActivity } from './aiActivity'
 
 const FAN_IN = 4
@@ -67,7 +67,8 @@ export function planKnowledgeSummary(kb: KnowledgeBase, entryId?: string, level:
 
 function outputReservation(model: ModelConfig, maxChars: number) {
   if (!Number.isSafeInteger(model.maxTokens) || model.maxTokens < 1) throw new Error('模型输出 Token 上限无效')
-  return Math.min(model.maxTokens, maxChars * 2)
+  // 中文按字数估算 Token 偏紧，带思考过程的模型还会占用输出额度，所以多留余量；不超过模型设置的上限。
+  return Math.min(model.maxTokens, maxChars * 3 + 1024)
 }
 function assertContextAllowance(model: ModelConfig, input: number, output: number) {
   if (model.contextWindow !== undefined && (!Number.isSafeInteger(model.contextWindow) || model.contextWindow < 1)) throw new Error('模型上下文窗口无效')
@@ -81,11 +82,21 @@ export function estimateKnowledgeSummaryTokens(plan: KnowledgeSummaryPlan, model
   return graph.estimatedTokens
 }
 
-function completeText(result: ChatCompletionResult, streamed: string, limit: number, label: string) {
+/** 摘要超长时的压缩请求。 */
+export function compressMessages(summary: string, limit: number): ChatMessage[] {
+  return [
+    { role: 'system', content: '你是资料摘要压缩助手。只删减和合并已有内容，不增加原文没有的信息，不加开场白或说明。' },
+    { role: 'user', content: '下面这段摘要现在约 ' + summary.length + ' 字，必须删减到 ' + Math.floor(limit * 0.8) + ' 字以内，也就是删掉约 '
+      + Math.max(10, Math.round((1 - limit * 0.8 / summary.length) * 100)) + '% 的文字。合并重复内容，删去次要细节和修饰，每个要点尽量一句话；保留关键事实、人物、时间和数字：\n\n' + summary },
+  ]
+}
+
+function completeText(result: ChatCompletionResult, streamed: string, label: string) {
+  const reasoning = result.usage?.completion_tokens_details?.reasoning_tokens
+  if (result.finishReason === 'length') throw new Error(label + '被截断（模型输出达到上限' + (reasoning ? '，其中思考用了 ' + reasoning + ' Token' : '') + '），未保存。请在模型的“高级参数”里调大“最大输出 Token 数”（如 8192）；使用带思考过程的模型时，思考也会占用输出额度，也可以换用不带思考的模型')
   if (result.finishReason !== 'stop') throw new Error(label + '未完整完成（' + result.finishReason + '），未保存')
   const text = (result.content || streamed).trim()
   if (!text) throw new Error(label + '为空，未保存')
-  if (text.length > limit) throw new Error(label + '超过 ' + limit + ' 字的合并容量，未截取保存，请调整模型后重试')
   return text
 }
 function reportedUsage(result: ChatCompletionResult) {
@@ -127,9 +138,9 @@ export async function generateKnowledgeSummary(plan: KnowledgeSummaryPlan, optio
     if (budget.inputTokens + budget.outputTokens + allowance > budget.maxTokens) throw new Error('完整整理的保守额度为 ' + allowance + ' Token，超过剩余预算；未开始新请求')
     activity = startAiActivity('知识资料分批摘要：' + plan.title)
     publish()
-    const request = async (text: string, limit: number, merge: boolean, label: string) => {
+    // 发送一次请求：预算预留、调用、按实际用量结算，返回完整的输出文字（不检查长度）。
+    const send = async (messages: ChatMessage[], limit: number, label: string) => {
       assertCurrent()
-      const messages = messagesFor(plan, text, limit, merge, instructions)
       const input = inputReservation(messages), output = outputReservation(model, limit)
       assertContextAllowance(model, input, output)
       summaryRequestReservation(model, messages, limit)
@@ -141,8 +152,11 @@ export async function generateKnowledgeSummary(plan: KnowledgeSummaryPlan, optio
       estimated = true; publish()
       let streamed = '', result: ChatCompletionResult
       try {
+        // 请求上限用模型设置的“最大输出 Token 数”（不超过窗口剩余空间）：带思考过程的模型要先思考再写摘要，
+        // 只给估算值容易被截断。费用按实际用量计算；上面的 output 仍只用于预算估算。
+        const ceiling = Math.max(output, Math.min(model.maxTokens, (model.contextWindow || DEFAULT_SUMMARY_CONTEXT_WINDOW) - input))
         result = await callAI({ model, messages, stream: true, onChunk: chunk => { streamed += chunk },
-          maxTokens: output, signal: options.signal, noAutomaticRetry: true, activityParentId: activity!.id, taskName: label })
+          maxTokens: ceiling, disableThinking: true, signal: options.signal, noAutomaticRetry: true, activityParentId: activity!.id, taskName: label })
       } catch (error) { budget.usageEstimated = true; throw error }
       const usage = reportedUsage(result)
       if (usage) {
@@ -153,7 +167,17 @@ export async function generateKnowledgeSummary(plan: KnowledgeSummaryPlan, optio
       progress.completedRequests++; publish()
       assertCurrent()
       if (budget.inputTokens + budget.outputTokens > budget.maxTokens) throw new Error('接口报告的实际用量超过预算，停止整理，结果未保存')
-      return completeText(result, streamed, limit, label)
+      return completeText(result, streamed, label)
+    }
+    const request = async (text: string, limit: number, merge: boolean, label: string) => {
+      const summary = await send(messagesFor(plan, text, limit, merge, instructions), limit, label)
+      // 适度超出（不超过 1.5 倍）直接接受：后续每次请求发送前都会检查窗口是否容纳得下。
+      const tolerance = Math.floor(limit * 1.5)
+      if (summary.length <= tolerance) return summary
+      // 模型常常不遵守字数要求：超长时自动请求一次压缩，只删减合并、不增加信息；仍超长才报错。
+      const compressed = await send(compressMessages(summary, limit), limit, label + '压缩')
+      if (compressed.length <= tolerance) return compressed
+      throw new Error(label + '写了 ' + summary.length + ' 字，自动压缩后仍有 ' + compressed.length + ' 字，超过本段最多 ' + tolerance + ' 字，未截取保存。可点“重新整理”再试，多次仍超长时可换用其他模型')
     }
     const outputs = new Map<string, string>()
     for (const node of graph.nodes) {

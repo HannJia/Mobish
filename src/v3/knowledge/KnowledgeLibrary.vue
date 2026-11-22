@@ -59,14 +59,15 @@
       <div class="kb-detail-header">
         <button type="button" class="m-btn sm ghost" @click="selectedKBId = ''"><V3Icon name="chevR" size="s" class="back-icon" />返回列表</button>
         <div class="detail-actions">
-          <button type="button" class="m-btn sm" @click="showImportModal = true">导入</button>
-          <button type="button" class="m-btn sm" :aria-busy="summarizingKB" :disabled="baseSummaryBusy" @click="summarizeSelectedKB">{{ summarizingKB ? '正在整理…' : '整理摘要' }}</button>
+          <button type="button" class="m-btn sm" @click="openImport()">导入资料</button>
+          <button v-if="featureFlags.knowledgeAiSummary" type="button" class="m-btn sm" :aria-busy="summarizingKB" :disabled="baseSummaryBusy" @click="summarizeSelectedKB">{{ summarizingKB ? '正在整理…' : '整理摘要' }}</button>
           <button type="button" class="m-btn sm pri" @click="openAddEntry"><V3Icon name="plus" size="s" />添加条目</button>
         </div>
       </div>
 
-      <section class="kb-summary-panel paper-panel">
-        <div class="summary-budget">
+      <details class="kb-summary-panel paper-panel" :open="baseSummaryOpen" @toggle="baseSummaryOpen = ($event.target as HTMLDetailsElement).open">
+        <summary class="kb-summary-toggle">知识库摘要<span class="summary-status" :class="`summary-status-${selectedKB ? getBaseSummaryStatus(selectedKB) : 'empty'}`">{{ selectedKB ? summaryStatusLabel(getBaseSummaryStatus(selectedKB)) : '空' }}</span><small>{{ featureFlags.knowledgeAiSummary ? '可选；挂载到小说后 AI 会先读摘要。点击展开' : '可选；手写这个知识库的简介，AI 会一并参考。点击展开' }}</small></summary>
+        <div v-if="featureFlags.knowledgeAiSummary" class="summary-budget">
           <label>本次请求上限<V3Number v-model:value="summaryBudget.requests" :min="1" :max="4096" :disabled="anySummaryRunning" aria-label="摘要请求上限" /></label>
           <label>本次 Token 额度<V3Number v-model:value="summaryBudget.tokens" :min="1" :max="50000000" :disabled="anySummaryRunning" aria-label="摘要 token 额度" /></label>
           <span>生成前检查完整处理额度；接口未报告用量时保守计入。导入批次共享此额度。</span>
@@ -104,7 +105,7 @@
         <p v-if="baseSummaryError" class="summary-error" role="alert">
           {{ baseSummaryError }}
           <button type="button" @click="reloadBaseSummaryDraft">重新载入当前来源</button>
-          <button v-if="baseSummaryErrorKind === 'ai'" type="button" @click="summarizeSelectedKB">重新整理</button>
+          <button v-if="baseSummaryErrorKind === 'ai' && featureFlags.knowledgeAiSummary" type="button" @click="summarizeSelectedKB">重新整理</button>
         </p>
         <div class="summary-actions">
           <button type="button" class="m-btn sm" :disabled="baseSummaryBusy || !baseSummaryDraft.trim()" @click="saveBaseSummaryDraft">{{ selectedKB?.summary ? '核对并沿用' : '保存并核对' }}</button>
@@ -117,78 +118,64 @@
             <p>{{ history.summary }}</p>
           </article>
         </div>
-      </section>
+      </details>
 
-      <div class="kb-browser">
-        <!-- 左侧分类列表（仅绑定现有 categoryFilter） -->
-        <nav class="kb-category-rail" aria-label="条目分类">
-          <button
-            type="button"
-            class="kb-category-item"
-            :class="{ active: !categoryFilter }"
-            @click="categoryFilter = null"
-          >
-            <span>全部</span>
-            <span class="kb-category-count">{{ selectedKB?.entries.length ?? 0 }}</span>
-          </button>
-          <button
-            v-for="cat in categoryOptions"
-            :key="cat.value"
-            type="button"
-            class="kb-category-item"
-            :class="{ active: categoryFilter === cat.value }"
-            @click="categoryFilter = cat.value"
-          >
-            <span>{{ cat.label }}</span>
-            <span class="kb-category-count">{{ countByCategory(cat.value) }}</span>
-          </button>
-        </nav>
-
-        <div class="kb-entries">
-          <!-- 筛选栏 -->
+      <div class="kb-browser" :class="{ 'drop-active': pageDragging }" @dragenter.prevent="pageDragging = true" @dragover.prevent="pageDragging = true"
+        @dragleave.self="pageDragging = false" @drop.prevent="onPageDrop">
+        <section ref="entryListPanel" class="kb-entries paper-panel" aria-label="条目列表">
           <div class="filter-bar">
             <V3Input v-model:value="searchQuery" class="entry-search" placeholder="搜索条目..." clearable aria-label="搜索条目" />
             <span class="entry-count">{{ filteredEntries.length }} 条</span>
           </div>
-
-          <!-- 条目列表 -->
+          <div v-if="usedCategories.length > 1" class="kb-category-chips" role="group" aria-label="条目分类">
+            <button type="button" class="kb-category-item" :class="{ active: !categoryFilter }" @click="categoryFilter = null">
+              全部<span class="kb-category-count">{{ selectedKB?.entries.length ?? 0 }}</span>
+            </button>
+            <button v-for="cat in usedCategories" :key="cat" type="button" class="kb-category-item" :class="{ active: categoryFilter === cat }" @click="categoryFilter = cat">
+              {{ categoryLabel(cat) }}<span class="kb-category-count">{{ countByCategory(cat) }}</span>
+            </button>
+          </div>
           <div class="entry-list">
-            <div v-if="filteredEntries.length === 0" class="empty-hint">暂无条目</div>
-            <div
-              v-for="entry in filteredEntries"
-              :key="entry.id"
-              class="entry-card paper-panel"
-              :class="{ 'entry-selected': selectedEntryId === entry.id }"
-            >
+            <div v-if="filteredEntries.length === 0" class="empty-hint">{{ selectedKB?.entries.length ? '没有匹配的条目' : '还没有条目。点“导入资料”，或把文件直接拖到这里。' }}</div>
+            <div v-for="entry in filteredEntries" :key="entry.id" class="entry-card" :class="{ 'entry-selected': selectedEntryId === entry.id }"
+              role="button" tabindex="0" :aria-pressed="selectedEntryId === entry.id" @click="selectEntry(entry.id)" @keydown.enter.self="selectEntry(entry.id)">
+              <!-- 一行：标题、简要信息、操作；下面一行简短说明 -->
               <div class="entry-header">
-                <h4>{{ entry.title }}</h4>
-                <span class="entry-cat">{{ categoryLabel(entry.category) }}</span>
-                <span class="summary-status entry-summary-status" :class="`summary-status-${getEntrySummaryStatus(selectedKBId, entry)}`">摘要：{{ summaryStatusLabel(getEntrySummaryStatus(selectedKBId, entry)) }}</span>
-              </div>
-              <p class="entry-preview">{{ entry.content.substring(0, 120) }}{{ entry.content.length > 120 ? '...' : '' }}</p>
-              <div class="entry-footer">
-                <div class="entry-tags" v-if="entry.tags.length">
-                  <span v-for="t in entry.tags" :key="t" class="tag-chip">{{ t }}</span>
-                </div>
-                <div class="entry-actions">
+                <h4 :title="entry.title">{{ entry.title }}</h4>
+                <span class="entry-meta">{{ categoryLabel(entry.category) }} · {{ entry.content.length.toLocaleString('zh-CN') }} 字 · 摘要{{ summaryStatusLabel(getEntrySummaryStatus(selectedKBId, entry)) }}</span>
+                <div class="entry-actions" @click.stop>
                   <button type="button" class="m-btn xs" :class="{ pri: selectedEntryId === entry.id }" :aria-pressed="selectedEntryId === entry.id" @click="selectEntry(entry.id)">查看</button>
                   <button type="button" class="m-btn xs" @click="editEntry(entry)">编辑</button>
                   <button type="button" class="m-btn xs ghost danger" @click="confirmRemoveEntry(entry)">删除</button>
                 </div>
               </div>
+              <p class="entry-preview">{{ entryPreview(entry) }}</p>
             </div>
           </div>
-        </div>
+          <p class="kb-drop-hint">可以把 .txt / .md / .html / .docx / .epub / .pdf 文件直接拖到这里导入</p>
+        </section>
 
-        <!-- 右侧详情面板 -->
-        <div v-if="selectedEntryId && selectedEntry" class="entry-detail-panel">
+        <!-- 下方：选中条目的内容 -->
+        <section v-if="selectedEntryId && selectedEntry" ref="detailPanel" class="entry-detail-panel paper-panel" aria-label="条目内容">
           <div class="entry-detail-header">
             <div class="entry-detail-title-group">
               <h3>{{ selectedEntry.title }}</h3>
               <span class="entry-detail-cat">{{ categoryLabel(selectedEntry.category) }}</span>
+              <span class="entry-size">{{ selectedEntry.content.length.toLocaleString('zh-CN') }} 字</span>
+            </div>
+            <div class="entry-detail-tools">
+              <button v-if="entryOutline.length > 1 && !outlineInView" type="button" class="m-btn sm" @click="scrollToOutline"><V3Icon name="layers" size="s" />目录</button>
+              <button v-if="!entryListInView" type="button" class="m-btn sm" @click="scrollToEntryList"><V3Icon name="chevR" size="s" class="back-up-icon" />返回条目列表</button>
+              <button type="button" class="m-btn sm" @click="editEntry(selectedEntry)">编辑</button>
             </div>
           </div>
-          <div class="entry-detail-content" v-html="renderMd(selectedEntry.content)"></div>
+          <details v-if="entryOutline.length > 1" ref="outlinePanel" class="entry-outline" open>
+            <summary>目录<small>{{ entryOutline.length }} 项 · 点击跳转</small></summary>
+            <nav ref="outlineList" class="entry-outline-list" aria-label="条目目录">
+              <button v-for="item in entryOutline" :key="item.index" type="button" class="entry-outline-item" :class="`outline-level-${item.level}`" @click="jumpToHeading(item.index)">{{ item.title }}</button>
+            </nav>
+          </details>
+          <div ref="detailContent" class="entry-detail-content" v-html="renderMd(selectedEntry.content)"></div>
           <section class="entry-summary-editor">
             <div class="entry-summary-heading">
               <h4>条目摘要</h4>
@@ -220,7 +207,7 @@
             </p>
             <div class="summary-actions">
               <button type="button" class="m-btn sm" :disabled="entrySummaryBusy(selectedEntry.id) || !entrySummaryDraft.trim()" @click="saveEntrySummaryDraft(selectedEntry.id)">{{ selectedEntry.summary ? '核对并沿用' : '保存并核对' }}</button>
-              <button type="button" class="m-btn sm ghost" :aria-busy="entrySummaryBusy(selectedEntry.id)" :disabled="entrySummaryBusy(selectedEntry.id)" @click="retryEntrySummary(selectedEntry.id)">重新整理摘要</button>
+              <button v-if="featureFlags.knowledgeAiSummary" type="button" class="m-btn sm ghost" :aria-busy="entrySummaryBusy(selectedEntry.id)" :disabled="entrySummaryBusy(selectedEntry.id)" @click="retryEntrySummary(selectedEntry.id)">重新整理摘要</button>
             </div>
             <div v-if="selectedEntry.summaryHistory?.length" class="summary-history">
               <strong>摘要历史（最近 {{ selectedEntry.summaryHistory.length }} 条）</strong>
@@ -239,7 +226,8 @@
               <span v-if="selectedEntry.updatedAt !== selectedEntry.createdAt">更新：{{ formatDateTime(selectedEntry.updatedAt) }}</span>
             </div>
           </div>
-        </div>
+        </section>
+        <p v-else-if="filteredEntries.length" class="entry-detail-empty">点击上方的条目，在这里查看完整内容。</p>
       </div>
     </div>
 
@@ -271,13 +259,13 @@
       </template>
     </V3Modal>
 
-    <KnowledgeImportDialog v-model:show="showImportModal" :kb-id="selectedKBId" @imported="afterImport" />
+    <KnowledgeImportDialog v-model:show="showImportModal" :kb-id="selectedKBId" :initial-file="droppedFile" @imported="afterImport" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { errorText } from '@/services/userFacingError'
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { ref, shallowRef, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDialog, useMessage } from '@/v3/feedback'
 import V3Icon from '@/v3/components/V3Icon.vue'
@@ -293,6 +281,8 @@ import { createKnowledgeSummaryBudget, planKnowledgeSummary, generateKnowledgeSu
 import type { KnowledgeSummarySource } from '@/types/knowledge'
 import KnowledgeImportDialog from '@/components/KnowledgeImportDialog.vue'
 import { renderMd } from '@/utils/markdown'
+import { knowledgeOutline } from '@/services/knowledgeText'
+import { featureFlags } from '@/services/features'
 import libraryArt from '@/assets/v3/empty/library.webp'
 import {
   baseSourceVersion,
@@ -344,6 +334,76 @@ const selectedEntry = computed(() => {
 const showCreateModal = ref(false)
 const showEntryModal = ref(false)
 const showImportModal = ref(false)
+const droppedFile = shallowRef<File | null>(null)
+const pageDragging = ref(false)
+const baseSummaryOpen = ref(false)
+const detailPanel = ref<HTMLElement | null>(null)
+const detailContent = ref<HTMLElement | null>(null)
+const outlinePanel = ref<HTMLDetailsElement | null>(null)
+const entryListPanel = ref<HTMLElement | null>(null)
+const outlineList = ref<HTMLElement | null>(null)
+function scrollToOutline() {
+  if (outlinePanel.value) outlinePanel.value.open = true
+  // 目录框内部也回到开头，再整体滚到标题栏下方
+  if (outlineList.value) outlineList.value.scrollTop = 0
+  outlinePanel.value?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+}
+
+// 目录框、条目列表还在画面里时，不显示对应的跳转按钮；滚出画面后再出现。
+const outlineInView = ref(true)
+const entryListInView = ref(true)
+let panelObserver: IntersectionObserver | null = null
+function observePanels() {
+  panelObserver?.disconnect()
+  if (typeof IntersectionObserver === 'undefined') return
+  const root = document.querySelector<HTMLElement>('.kb-page')
+  panelObserver = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (entry.target === outlinePanel.value) outlineInView.value = entry.isIntersecting
+      if (entry.target === entryListPanel.value) entryListInView.value = entry.isIntersecting
+    }
+  }, { root, rootMargin: '-140px 0px 0px 0px' })
+  if (outlinePanel.value) panelObserver.observe(outlinePanel.value)
+  else outlineInView.value = false
+  if (entryListPanel.value) panelObserver.observe(entryListPanel.value)
+}
+watch([outlinePanel, entryListPanel], () => { void nextTick(observePanels) })
+onBeforeUnmount(() => panelObserver?.disconnect())
+function scrollToEntryList() {
+  entryListPanel.value?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+}
+// 目录里不重复列出和条目名称相同的一级标题
+const entryOutline = computed(() => selectedEntry.value
+  ? knowledgeOutline(selectedEntry.value.content).filter(item => !(item.level === 1 && item.title === selectedEntry.value!.title.trim()))
+  : [])
+// 只列出当前知识库里实际用到的分类
+const usedCategories = computed(() => [...new Set(selectedKB.value?.entries.map(entry => entry.category) || [])])
+
+watch(showImportModal, open => { if (!open) droppedFile.value = null })
+function openImport(file: File | null = null) {
+  droppedFile.value = file
+  showImportModal.value = true
+}
+function onPageDrop(event: DragEvent) {
+  pageDragging.value = false
+  const file = event.dataTransfer?.files?.[0]
+  if (file) openImport(file)
+}
+/** 列表里的一行说明：有摘要用摘要，否则取正文开头（去掉与标题重复的部分和 Markdown 符号）。 */
+function entryPreview(entry: KBEntry) {
+  let text = (entry.summary?.trim() || entry.content)
+    .replace(/^#+\s*/gm, '')
+    .replace(/^\s*\|?[\s|:-]*-{3,}[\s|:-]*$/gm, '')
+    .replace(/^\s*(?:[-*]|>)\s+/gm, '')
+    .replace(/\|/g, ' ').replace(/[`*_]/g, '').replace(/\s+/g, ' ').trim()
+  const title = entry.title.trim()
+  if (title && text.startsWith(title)) text = text.slice(title.length).trim()
+  return text.length > 80 ? text.slice(0, 80) + '…' : text
+}
+function jumpToHeading(index: number) {
+  const heading = detailContent.value?.querySelectorAll('h2, h3, h4, h5')[index] as HTMLElement | undefined
+  heading?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+}
 const editingEntryId = ref('')
 
 // 标签里可能带 emoji 前缀，界面只显示文字
@@ -461,6 +521,8 @@ const filteredEntries = computed(() => {
 
 function selectEntry(id: string) {
   selectedEntryId.value = id
+  // 内容显示在条目列表下方，选中后滚动过去
+  void nextTick(() => detailPanel.value?.scrollIntoView?.({ block: 'start', behavior: 'smooth' }))
 }
 
 watch(() => [selectedKBId.value, selectedEntry.value?.id], () => {
@@ -995,6 +1057,8 @@ function toggleBind(kbId: string) {
 </script>
 
 <style scoped>
+/* 页面铺满内容区并自己滚动：外层 .main 不滚动且隐藏溢出，不限高度的话整页无法滚动，跳转后也滚不回来。 */
+.kb-page { position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; }
 .summary-budget { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 20px; }
 .summary-budget label { display: grid; gap: 6px; width: 180px; font-size: 12px; }
 .summary-budget > span { flex-basis: 100%; color: var(--ink-3); font-size: 12px; }
@@ -1093,29 +1157,21 @@ function toggleBind(kbId: string) {
 
 /* 左侧分类 + 中间列表 + 右侧详情 */
 .kb-browser {
-  display: grid;
-  grid-template-columns: 140px 280px minmax(0, 1fr);
-  gap: var(--space-lg);
-  align-items: start;
+  display: flex; flex-direction: column; gap: var(--space-lg);
+  border-radius: var(--r-l); outline: 2px dashed transparent; outline-offset: 4px;
+  transition: outline-color var(--motion-fast);
 }
-
-.kb-category-rail {
-  position: sticky; top: 0;
-  display: flex; flex-direction: column; gap: 2px;
-  padding: 8px;
-  background: var(--paper);
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-l);
-  box-shadow: var(--shadow-1);
-}
+.kb-browser.drop-active { outline-color: var(--zhu); }
+.kb-entries { scroll-margin-top: 12px; padding: 16px 18px; border: 1px solid var(--line-2); border-radius: var(--r-l); box-shadow: var(--shadow-1); }
+.kb-category-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 12px; }
 .kb-category-item {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 10px;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
   font: inherit; font-size: 13px; text-align: left;
   color: var(--ink-2);
   background: transparent;
-  border: none; border-left: 2px solid transparent;
-  border-radius: var(--r-s);
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
   cursor: pointer;
   transition: background var(--motion-fast), color var(--motion-fast);
 }
@@ -1123,13 +1179,14 @@ function toggleBind(kbId: string) {
 .kb-category-item.active {
   background: var(--zhu-soft);
   color: var(--zhu);
-  border-left-color: var(--zhu);
+  border-color: var(--zhu);
   font-weight: 600;
 }
 .kb-category-item:focus-visible { outline: 2px solid var(--zhu); outline-offset: 1px; }
 .kb-category-count { font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .kb-category-item.active .kb-category-count { color: var(--zhu); }
 .kb-entries { min-width: 0; }
+.kb-drop-hint { margin: 10px 0 0; font-size: 12px; color: var(--ink-3); }
 
 .filter-bar {
   display: flex; gap: 12px; margin-bottom: var(--space-md); align-items: center;
@@ -1138,21 +1195,27 @@ function toggleBind(kbId: string) {
 .kb-summary-panel .empty-hint { padding: 12px 0; }
 
 /* 条目列表 */
-.entry-list { display: flex; flex-direction: column; gap: 10px; }
+.entry-list { display: flex; flex-direction: column; gap: 8px; max-height: min(46vh, 520px); overflow-y: auto; padding-right: 4px; overscroll-behavior: contain; }
 
 .entry-card {
-  padding: 16px 20px;
+  flex-shrink: 0;
+  padding: 7px 12px;
   border: 1px solid var(--line-2);
-  border-radius: var(--r-l);
-  box-shadow: var(--shadow-1);
+  border-radius: var(--r-m);
+  background: var(--paper);
+  cursor: pointer;
   transition: border-color var(--motion-fast), background var(--motion-fast);
 }
+.entry-card:focus-visible { outline: 2px solid var(--zhu); outline-offset: 1px; }
 .entry-card:hover { border-color: var(--ink-3); }
 .entry-card.entry-selected {
   border-color: var(--zhu);
   background: var(--zhu-soft);
 }
-.entry-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.entry-header { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.entry-meta { flex-shrink: 0; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.entry-header .entry-actions { flex-shrink: 0; margin-left: auto; }
+.entry-size { flex-shrink: 0; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .entry-cat {
   flex-shrink: 0;
   font-size: 11px; padding: 1px 8px; border-radius: var(--r-s);
@@ -1160,10 +1223,13 @@ function toggleBind(kbId: string) {
 }
 .entry-summary-status { margin-left: auto; }
 .entry-header h4 {
-  font-family: var(--f-serif); font-size: 17px; font-weight: 700;
-  color: var(--ink); margin: 0; letter-spacing: 0.01em;
+  font-family: var(--f-serif); font-size: 15px; font-weight: 700;
+  color: var(--ink); margin: 0; letter-spacing: 0.01em; min-width: 0; flex: 0 1 auto;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.entry-preview { font-size: 13px; color: var(--ink-2); line-height: 1.7; margin: 0 0 8px; }
+.entry-preview { font-size: 12px; color: var(--ink-3); line-height: 1.5; margin: 2px 0 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 700px) { .entry-meta { display: none; } }
 
 .entry-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .entry-tags { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -1176,30 +1242,52 @@ function toggleBind(kbId: string) {
 .empty-hint { text-align: center; color: var(--ink-3); padding: 40px; font-size: 14px; }
 
 .kb-summary-panel {
-  margin-bottom: var(--space-lg); padding: 16px 18px;
+  margin-bottom: var(--space-lg); padding: 12px 18px;
   border: 1px solid var(--line-2);
   border-left: 3px solid var(--dai);
   border-radius: var(--r-l);
   box-shadow: var(--shadow-1);
 }
+.kb-summary-toggle { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; cursor: pointer; font-family: var(--f-serif); font-size: 16px; font-weight: 600; color: var(--ink); }
+.kb-summary-toggle small { font-family: var(--f-sans, inherit); font-size: 12px; font-weight: 400; color: var(--ink-3); }
+.kb-summary-panel[open] .kb-summary-toggle { margin-bottom: 12px; }
 .kb-summary-toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .kb-summary-toolbar h4 { margin: 0 0 4px; font-family: var(--f-serif); font-size: 16px; color: var(--ink); }
 
 /* Entry detail panel */
 .entry-detail-panel {
-  position: sticky;
-  top: 0;
   padding: 20px 24px;
   background: var(--paper);
   border: 1px solid var(--line-2);
   border-radius: var(--r-l);
   box-shadow: var(--shadow-1);
-  max-height: calc(100vh - 120px);
-  overflow-y: auto;
+  scroll-margin-top: 12px;
 }
+.entry-detail-empty { margin: 0; padding: 18px; text-align: center; color: var(--ink-3); font-size: 13px; border: 1px dashed var(--line-2); border-radius: var(--r-l); }
+.entry-outline { scroll-margin-top: 140px; margin: -6px 0 18px; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--panel-2); }
+.entry-outline > summary { display: flex; align-items: baseline; gap: 8px; padding: 8px 12px; cursor: pointer; font-weight: 600; color: var(--ink); }
+.entry-outline > summary small { font-weight: 400; font-size: 12px; color: var(--ink-3); }
+/* 一、二级标题各占一行并加分隔，三级标题缩进、两列排列 */
+.entry-outline-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 12px; max-height: 320px; overflow-y: auto; padding: 0 12px 10px; }
+.entry-outline-item { padding: 3px 8px; border: 0; border-radius: var(--r-s); background: transparent; color: var(--ink-2); font: inherit; font-size: 13px; line-height: 1.5; cursor: pointer; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entry-outline-item:hover { background: var(--hover); color: var(--zhu); }
+.entry-outline-item.outline-level-1, .entry-outline-item.outline-level-2 { grid-column: 1 / -1; margin-top: 6px; padding-top: 7px; border-top: 1px solid var(--line); border-radius: 0; font-weight: 700; color: var(--ink); }
+.entry-outline-item.outline-level-1:first-child, .entry-outline-item.outline-level-2:first-child { margin-top: 0; border-top: 0; }
+.entry-outline-item.outline-level-3 { padding-left: 22px; position: relative; }
+.entry-outline-item.outline-level-3::before { content: ''; position: absolute; left: 10px; top: 50%; width: 5px; height: 5px; border-radius: 50%; background: var(--line-2); transform: translateY(-50%); }
+/* 跳转时标题不被固定的标题栏挡住 */
+.entry-detail-content :deep(h2), .entry-detail-content :deep(h3), .entry-detail-content :deep(h4), .entry-detail-content :deep(h5) { scroll-margin-top: 160px; }
+.entry-detail-content :deep(blockquote) { margin: 8px 0; padding: 6px 12px; border-left: 3px solid var(--line-2); color: var(--ink-2); }
+.entry-detail-content :deep(code) { padding: 0 4px; border-radius: 4px; background: var(--panel-2); font-size: .92em; }
+@media (max-width: 700px) { .entry-outline-list { grid-template-columns: 1fr; } }
 
+.entry-detail-tools { display: flex; flex-wrap: wrap; gap: 6px; flex-shrink: 0; }
+.back-up-icon { transform: rotate(-90deg); }
+/* 阅读长资料时标题栏固定在顶部，随时可回到目录或条目列表 */
 .entry-detail-header {
-  margin-bottom: 20px;
+  position: sticky; top: calc(-1 * var(--space-xl)); z-index: 2; background: var(--paper);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: -20px -24px 20px; padding: 14px 24px;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--line-2);
 }
@@ -1379,38 +1467,9 @@ function toggleBind(kbId: string) {
   font-variant-numeric: tabular-nums;
 }
 
-@media (max-width: 1100px) {
-  .kb-browser {
-    grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1fr);
-  }
-  .kb-category-rail {
-    grid-row: 1;
-    grid-column: 1 / -1;
-    position: static;
-    flex-direction: row;
-    flex-wrap: wrap;
-  }
-  .kb-entries {
-    grid-row: 2;
-    grid-column: 1;
-  }
-  .entry-detail-panel {
-    grid-row: 2;
-    grid-column: 2;
-    position: static;
-    max-height: none;
-  }
-}
-
 @media (max-width: 700px) {
-  .kb-browser {
-    grid-template-columns: 1fr;
-  }
-  .kb-entries, .entry-detail-panel { grid-row: auto; grid-column: 1; }
-  .entry-list {
-    max-height: 320px;
-    overflow-y: auto;
-  }
+  .kb-entries, .entry-detail-panel { padding: 14px; }
+  .entry-summary-status { margin-left: 0; }
 }
 .kb-summary-toolbar p { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.6; }
 .kb-summary-content { margin: 14px 0 0; white-space: pre-wrap; color: var(--ink-2); line-height: 1.7; font-size: 13px; }

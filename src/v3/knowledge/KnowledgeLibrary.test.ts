@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { featureFlags } from '@/services/features'
 import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, shallowMount, enableAutoUnmount } from '@vue/test-utils'
 import KnowledgeBase from '@/v3/knowledge/KnowledgeLibrary.vue'
@@ -20,6 +21,8 @@ vi.mock('@/services/db/knowledge', () => ({
 }))
 enableAutoUnmount(afterEach)
 beforeEach(() => {
+  // 这些测试覆盖 AI 整理摘要流程，界面默认隐藏，这里临时打开
+  featureFlags.knowledgeAiSummary = true
   setActivePinia(createPinia())
   vi.clearAllMocks()
   vi.mocked(callAI).mockReset()
@@ -377,7 +380,7 @@ describe('knowledge full-content selection', () => {
     await w.findAll('.entry-summary-editor button').find(button => button.text().includes('重新整理摘要'))!.trigger('click')
     await flushPromises()
     expect(entry.summary).toBe('旧摘要')
-    expect(w.get('.summary-error').text()).toContain('未完整完成')
+    expect(w.get('.summary-error').text()).toContain('被截断')
 
     vi.mocked(callAI).mockResolvedValueOnce({ content: '', finishReason: 'stop' })
     await w.findAll('.entry-summary-editor button').find(button => button.text().includes('重新整理摘要'))!.trigger('click')
@@ -496,5 +499,21 @@ describe('knowledge deletion confirmations', () => {
     dialog.warning.mock.calls[0][0].onPositiveClick()
     await flushPromises()
     expect(remove).toHaveBeenCalledWith(kb.id)
+  })
+})
+
+describe('AI summary switched off by default', () => {
+  it('hides the AI summary buttons but keeps the hand-written summary field', async () => {
+    featureFlags.knowledgeAiSummary = false
+    const store = useKnowledgeStore(), kb = store.createKB('资料')
+    store.addEntry(kb.id, { title: '资料一', category: '其他', content: '## 一、甲\n内容。', summary: '', tags: [] })
+    const w = shallowMount(KnowledgeBase, { global: { stubs, renderStubDefaultSlot: true } })
+    await w.get('.kb-card').trigger('click')
+    expect(w.findAll('.detail-actions button').map(button => button.text())).not.toContain('整理摘要')
+    expect(w.find('.summary-budget').exists()).toBe(false)
+    expect(w.find('input[aria-label="知识库摘要"]').exists()).toBe(true)
+    await w.get('.entry-card').trigger('click')
+    expect(w.findAll('.entry-summary-editor button').map(button => button.text())).not.toContain('重新整理摘要')
+    expect(w.find('input[aria-label="条目摘要"]').exists()).toBe(true)
   })
 })

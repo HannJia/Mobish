@@ -1,4 +1,5 @@
 import { CLOUD_SYNC_AVAILABLE } from '@/services/features'
+import { retrieveKnowledgeSections, sectionExcerpt } from './knowledgeSections'
 import type { KnowledgeBase, KBEntry } from '@/stores/knowledge'
 import type { ChatSearchRecord } from '@/types/chat'
 import { getCurrentBaseSummary, getCurrentEntrySummary } from './knowledgeSources'
@@ -92,9 +93,13 @@ export function buildChatKnowledgeContext(bases: KnowledgeBase[], ids: string[],
   const snippets: object[] = []
   remaining = 8500
   for (const { base, entry, summary, position, summaryPosition } of ranked.slice(0, 8)) {
+    // 有命中时取按标题定位的小节原文，并给出标题路径
+    const hit = position >= 0 ? retrieveKnowledgeSections([{ source: entry, entry }], terms, { maxSections: 1, perEntry: 1 })[0] : undefined
     const item = { 知识库: base.name.slice(0, 100), 条目: entry.title.slice(0, 180), 分类: entry.category.slice(0, 40),
+      ...(hit && hit.section.path.length && hit.section.path.join() !== entry.title ? { 位置: hit.section.path.join(' › ').slice(0, 200) } : {}),
       摘要: summary ? excerpt(summary, Math.max(0, summaryPosition), 550) : '',
-      原文片段: !summary || position >= 0 ? excerpt(entry.content, Math.max(0, position), summary ? 550 : 1000) : '' }
+      原文片段: hit ? sectionExcerpt(hit.section.text, terms, summary ? 550 : 1000)
+        : !summary || position >= 0 ? excerpt(entry.content, Math.max(0, position), summary ? 550 : 1000) : '' }
     const length = JSON.stringify(item).length
     if (length > remaining) continue
     snippets.push(item)

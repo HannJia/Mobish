@@ -14,6 +14,8 @@ export function renderMd(text: string): string {
   t = t.replace(/^### (.+)$/gm, '<h4>$1</h4>')
   t = t.replace(/^## (.+)$/gm, '<h3>$1</h3>')
   t = t.replace(/^# (.+)$/gm, '<h2>$1</h2>')
+  t = t.replace(/^&gt; ?(.*)$/gm, '<blockquote>$1</blockquote>')
+  t = t.replace(/`([^`\n]+)`/g, '<code>$1</code>')
   t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
   t = t.replace(/\*(.+?)\*/g, '<em>$1</em>')
   t = t.replace(/^- (.+)$/gm, '<li>$1</li>')

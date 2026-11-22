@@ -205,6 +205,10 @@
           <V3Field label="最大输出 Token 数">
             <V3Number v-model:value="modelForm.maxTokens" :min="256" :max="128000" :step="256" />
           </V3Field>
+          <V3Field label="上下文窗口（选填）">
+            <V3Number v-model:value="modelForm.contextWindow" :min="1000" :max="10000000" :step="1000" placeholder="如 64000" aria-label="上下文窗口" />
+            <p class="model-discovery-hint">模型一次能读的 Token 数，见服务商的模型说明。不填时，整理长资料摘要按 32K 保守规划。</p>
+          </V3Field>
         </div>
         </details>
       </div>
@@ -706,6 +710,8 @@ const modelForm = reactive({
   temperature: 0.7,
   topP: 0.9,
   maxTokens: 4096,
+  /** 上下文窗口（Token）；不填时整理摘要按保守值规划。 */
+  contextWindow: null as number | null,
   chatSearchProtocol: 'auto' as ChatSearchProtocol | ChatSearchAdapter,
 })
 const providerPresetGroups = [
@@ -792,6 +798,7 @@ onBeforeUnmount(() => {
 
 const searchTestModel = computed<ModelConfig>(() => ({
   ...modelForm,
+  contextWindow: modelForm.contextWindow ?? undefined,
   ...splitSearchMode(modelForm.chatSearchProtocol),
   id: editingModel.value || 'search-test',
   apiKey: modelForm.apiKey.trim() || configStore.models.find(model => model.id === editingModel.value)?.apiKey || '',
@@ -855,6 +862,7 @@ function editModel(model?: ModelConfig) {
     temperature: model.temperature,
     topP: model.topP,
     maxTokens: model.maxTokens,
+    contextWindow: model.contextWindow ?? null,
     chatSearchProtocol: model.searchAdapter || model.chatSearchProtocol || 'auto',
   })
   availableModels.value = draft?.availableModels || []
@@ -955,7 +963,8 @@ function handleSaveModel() {
     : null
   const apiKey = modelForm.apiKey.trim() || existingModel?.apiKey || ''
   if (!apiKey && modelForm.kind !== 'embedding') return
-  const config = { ...modelForm, ...splitSearchMode(modelForm.chatSearchProtocol), apiKey, name: modelForm.name.trim() || modelName, modelName }
+  const config = { ...modelForm, ...splitSearchMode(modelForm.chatSearchProtocol), apiKey, name: modelForm.name.trim() || modelName, modelName,
+    contextWindow: modelForm.contextWindow && modelForm.contextWindow > 0 ? Math.round(modelForm.contextWindow) : undefined }
   if (editingModel.value) {
     configStore.updateModel(editingModel.value, config)
     message.success('模型配置已更新')
@@ -999,6 +1008,7 @@ function handleBatchSaveModels() {
       temperature: modelForm.temperature,
       topP: modelForm.topP,
       maxTokens: modelForm.maxTokens,
+      ...(modelForm.contextWindow && modelForm.contextWindow > 0 ? { contextWindow: Math.round(modelForm.contextWindow) } : {}),
       ...splitSearchMode(modelForm.chatSearchProtocol),
     })
     existing.add(key)
@@ -1151,6 +1161,7 @@ function resetForm() {
     temperature: 0.7,
     topP: 0.9,
     maxTokens: 4096,
+    contextWindow: null,
     chatSearchProtocol: 'auto',
   })
 }

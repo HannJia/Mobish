@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { loadAllKnowledgeBasesFromDb, saveKnowledgeBaseToDb, deleteKnowledgeBaseFromDb } from '@/services/db/knowledge'
 import { createRevisionPersistence } from './revisionPersistence'
-import { splitKnowledgeText } from '@/services/knowledgeText'
+import { splitKnowledgeText, type KnowledgeSplitOptions } from '@/services/knowledgeText'
 import { entrySourceVersion, baseSourceVersion, createEntrySummarySource, createBaseSummarySource } from '@/services/knowledgeSources'
 import { selectKnowledgeEntries } from '@/services/knowledgeSelection'
 import type { KBEntry, KnowledgeBase, KnowledgeSummarySource, KnowledgeSummaryHistory, KnowledgeSummaryCoverage } from '@/types/knowledge'
@@ -166,11 +166,11 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   }
 
   // 从文本批量导入
-  function importFromText(kbId: string, text: string, category: string): number {
+  function importFromText(kbId: string, text: string, category: string, options: KnowledgeSplitOptions = {}): number {
     const kb = getKB(kbId)
     if (!kb) return 0
-    // 按 ## 或 --- 分割为条目
-    const sections = splitKnowledgeText(text)
+    // whole：一份文件一个条目；默认按标题拆分（与旧调用一致）
+    const sections = splitKnowledgeText(text, options)
     let count = 0
     for (const { title, content } of sections) {
         addEntry(kbId, { title, content, category, tags: [], summary: '' })

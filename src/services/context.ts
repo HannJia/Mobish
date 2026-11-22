@@ -11,6 +11,7 @@ import type { EmbeddingConfig } from '@/stores/config'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import type { KnowledgeBase } from '@/types/knowledge'
 import { orderKnowledgeSources, selectKnowledgeEntries } from './knowledgeSelection'
+import { formatSectionHit, retrieveKnowledgeSections } from './knowledgeSections'
 import { buildSemanticRecords, formatEvidence, queryPersistedSemanticEvidence, retrieveSemanticEvidence, SemanticSourceChangedError } from '@/services/semanticIndex'
 import { isRemoteEmbeddingEnabled } from '@/services/embeddings'
 import { formatChapterPlanContext } from '@/services/storyPlanning'
@@ -356,10 +357,14 @@ export function buildWritingContext(
   if (novel.knowledgeBaseIds && novel.knowledgeBaseIds.length > 0) {
     const keywords = splitKeywords([relevanceSource, ...relevantChars.map(c => c.name)].join('\n')).slice(0, 30)
     const relevantEntries = selectKnowledgeEntries(knowledge, novel.knowledgeBaseIds, keywords, 8)
-    const entries = relevantEntries.map(entry => {
-      const text = entry.summary || entry.content.substring(0, budget.knowledgeEntry)
-      return `• [${entry.category}] ${entry.title}：${text}`
-    })
+    // 按标题分段检索：命中的小节给原文片段；没有命中时沿用摘要或开头
+    const hits = retrieveKnowledgeSections(relevantEntries.map(entry => ({ source: entry, entry })), keywords, { maxSections: 5, perEntry: 2 })
+    const entries = hits.length
+      ? hits.map(hit => '• ' + formatSectionHit(hit.entry, hit.section, keywords, budget.knowledgeEntry * 2))
+      : relevantEntries.map(entry => {
+        const text = entry.summary || entry.content.substring(0, budget.knowledgeEntry)
+        return `• [${entry.category}] ${entry.title}：${text}`
+      })
     if (entries.length > 0) {
       knowledgeContext = `\n\n【知识库（已按本章相关性筛选，请确保内容一致）】\n${entries.join('\n')}`
     }

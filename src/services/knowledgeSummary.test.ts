@@ -67,7 +67,7 @@ describe('full-source hierarchical knowledge summaries', () => {
     const result = await generateKnowledgeSummary(plan, { model, budget: shared })
     expect(result.coverage.usageEstimated).toBe(true)
     expect(shared.usageEstimated).toBe(true)
-    expect(shared.outputTokens).toBe(8000)
+    expect(shared.outputTokens).toBe(12000)
     await expect(generateKnowledgeSummary(plan, { model, budget: shared })).rejects.toThrow('请求预算')
     expect(callAI).toHaveBeenCalledTimes(2)
   })
@@ -75,6 +75,29 @@ describe('full-source hierarchical knowledge summaries', () => {
   it('rejects a declared context window that cannot hold a full request before spending', async () => {
     await expect(generateKnowledgeSummary(planKnowledgeSummary(base(['长'.repeat(7000)])), { model: { ...model, contextWindow: 4000 }, budget: budget() })).rejects.toThrow('模型上下文窗口')
     expect(callAI).not.toHaveBeenCalled()
+  })
+
+  it('plans with a conservative window when the model has none configured', async () => {
+    vi.mocked(callAI).mockResolvedValue({ content: '资料摘要', finishReason: 'stop' })
+    const { contextWindow: _unset, ...unconfigured } = model
+    const plan = planKnowledgeSummary(base(['长'.repeat(70000)]))
+    expect(estimateKnowledgeSummaryTokens(plan, unconfigured as ModelConfig)).toBeGreaterThan(0)
+    expect(plan.plannedRequests).toBeGreaterThan(1)
+    const result = await generateKnowledgeSummary(plan, { model: unconfigured as ModelConfig, budget: budget() })
+    expect(result.coverage.requestCount).toBe(plan.plannedRequests)
+  })
+
+  it('compresses an over-long summary once instead of failing, and fails clearly if still too long', async () => {
+    const plan = planKnowledgeSummary(base())
+    vi.mocked(callAI).mockResolvedValue({ content: '资料摘要', finishReason: 'stop' })
+    vi.mocked(callAI).mockResolvedValueOnce({ content: '长'.repeat(5000), finishReason: 'stop' }).mockResolvedValueOnce({ content: '压缩后的资料摘要', finishReason: 'stop' })
+    const result = await generateKnowledgeSummary(plan, { model, budget: budget() })
+    // 第一段超长后自动压缩，之后的合并照常完成
+    expect(result.summary).toBe('资料摘要')
+    expect(vi.mocked(callAI).mock.calls[1][0].messages[1].content).toContain('删减到')
+    vi.mocked(callAI).mockReset()
+    vi.mocked(callAI).mockResolvedValue({ content: '长'.repeat(5000), finishReason: 'stop' })
+    await expect(generateKnowledgeSummary(planKnowledgeSummary(base()), { model, budget: budget() })).rejects.toThrow('自动压缩后仍有')
   })
 
   it.each(['cancel', 'source'] as const)('rejects a late reply after %s and retains its usage', async mode => {
@@ -98,10 +121,11 @@ describe('full-source hierarchical knowledge summaries', () => {
     const plan = planKnowledgeSummary(base(['原'.repeat(7000)])), shared = budget()
     if (fault === 'empty-merge') vi.mocked(callAI).mockResolvedValueOnce({ content: '第一段', finishReason: 'stop' }).mockResolvedValueOnce({ content: '第二段', finishReason: 'stop' }).mockResolvedValueOnce({ content: '', finishReason: 'stop' })
     if (fault === 'truncated') vi.mocked(callAI).mockResolvedValue({ content: '半段', finishReason: 'length' })
-    if (fault === 'oversized') vi.mocked(callAI).mockResolvedValue({ content: '长'.repeat(1501), finishReason: 'stop' })
+    if (fault === 'oversized') vi.mocked(callAI).mockResolvedValue({ content: '长'.repeat(6000), finishReason: 'stop' })
     if (fault === 'network') vi.mocked(callAI).mockRejectedValue(new Error('网络失败'))
     await expect(generateKnowledgeSummary(plan, { model, budget: shared })).rejects.toThrow()
-    expect(shared.requests).toBe(fault === 'empty-merge' ? 3 : 1)
+    // 超长时会自动请求一次压缩，所以多一次请求
+    expect(shared.requests).toBe(fault === 'empty-merge' ? 3 : fault === 'oversized' ? 2 : 1)
     expect(shared.inputTokens + shared.outputTokens).toBeGreaterThan(0)
     expect(shared.usageEstimated).toBe(true)
   })

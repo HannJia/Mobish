@@ -12,4 +12,11 @@ describe('markdown 工具', () => {
     expect(html).toContain('&lt;script&gt;')
     expect(html).not.toContain('<script>')
   })
+
+  it('渲染引用和行内代码，内容仍已转义', () => {
+    const html = renderMd('> 引用<b>文字</b>\n标题 `[制度]` 与 `<i>`')
+    expect(html).toContain('<blockquote>引用&lt;b&gt;文字&lt;/b&gt;</blockquote>')
+    expect(html).toContain('<code>[制度]</code>')
+    expect(html).toContain('<code>&lt;i&gt;</code>')
+  })
 })
