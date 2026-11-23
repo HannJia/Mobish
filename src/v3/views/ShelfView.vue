@@ -12,6 +12,12 @@
         </div>
       </div>
 
+      <aside v-if="starPrompt" class="star-prompt" role="note">
+        <span>墨笔生花陪你写了 {{ totalChapters }} 章。如果它对你有帮助，欢迎到 GitHub 点个 Star，让更多写作者看到它。</span>
+        <a class="m-btn sm pri" :href="GITHUB_REPO_URL" target="_blank" rel="noopener noreferrer" @click="closeStarPrompt">去看看</a>
+        <button type="button" class="m-btn sm ghost" @click="closeStarPrompt">不再提示</button>
+      </aside>
+
       <div class="grid">
         <div class="col-main">
           <section v-if="resume" class="hero">
@@ -157,6 +163,7 @@ import { COVER_CHOICES, coverIdOf, coverUrl, coverUrlById } from '../covers'
 import { greeting, openBlockers, pendingItems, relativeTime, resumeTarget } from '../selectors/shelf'
 import { areaPath, toast, toastError } from '../shell'
 import { weekTotal, writingLog } from '../writingLog'
+import { finishStarPrompt, GITHUB_REPO_URL, shouldShowStarPrompt } from '@/services/githubStar'
 import dawn from '@/assets/v3/hero/dawn.webp'
 import noon from '@/assets/v3/hero/noon.webp'
 import dusk from '@/assets/v3/hero/dusk.webp'
@@ -306,8 +313,16 @@ function onKey(e: KeyboardEvent) {
   else if (renameFor.value) renameFor.value = null
   else menuFor.value = null
 }
+// 一次性的 Star 提示：用满 7 天且写了 10 章以上，只出现一次
+const totalChapters = computed(() => novels.activeNovels.reduce((sum, novel) => sum + novel.chapters.filter(chapter => chapter.content?.trim()).length, 0))
+const starPrompt = ref(false)
+function closeStarPrompt() {
+  finishStarPrompt()
+  starPrompt.value = false
+}
 let timer: ReturnType<typeof setInterval> | undefined
 onMounted(async () => {
+  starPrompt.value = shouldShowStarPrompt(totalChapters.value)
   document.addEventListener('click', closeMenu)
   window.addEventListener('keydown', onKey)
   timer = setInterval(() => {
@@ -324,6 +339,8 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeMenu); window
 </script>
 
 <style scoped>
+.star-prompt { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 16px; padding: 10px 14px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--paper); color: var(--ink-2); font-size: 13px; }
+.star-prompt span { flex: 1 1 280px; }
 .page { position: absolute; inset: 0; overflow: auto; }
 .page-in { max-width: 1240px; margin: 0 auto; padding: 26px 40px 60px; }
 .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }

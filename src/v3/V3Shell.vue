@@ -15,6 +15,7 @@
       </router-link>
       <div class="rail-sp" />
       <button type="button" class="rail-btn" @click="guideOpen = true"><V3Icon name="info" size="l" /><span>说明</span></button>
+      <button type="button" class="rail-btn" title="支持作者（打赏 · GitHub Star）" @click="donateOpen = true"><V3Icon name="heart" size="l" /><span>打赏</span></button>
       <button type="button" class="rail-btn" :title="`切换主题（当前：${THEME_LABEL[theme.currentTheme]}）· Alt+T`" @click="cycleTheme">
         <V3Icon :name="themeIcon" size="l" /><span>{{ THEME_LABEL[theme.currentTheme] }}</span>
       </button>
@@ -70,6 +71,7 @@
     <V3DialogHost />
     <V3Palette v-if="paletteOpen" :book="book" @close="paletteOpen = false" @guide="guideOpen = true" />
     <V3Guide v-if="guideOpen" @close="closeGuide" />
+    <V3Donate v-model:show="donateOpen" />
   </div>
 </template>
 
@@ -79,6 +81,7 @@ import { useRoute, useRouter } from 'vue-router'
 import V3Icon from './components/V3Icon.vue'
 import V3Palette from './components/V3Palette.vue'
 import V3Guide from './components/V3Guide.vue'
+import V3Donate from './components/V3Donate.vue'
 import V3DialogHost from './components/V3DialogHost.vue'
 import AppUpdateNotice from '@/components/AppUpdateNotice.vue'
 import type { IconName } from './icons'
@@ -161,6 +164,7 @@ function cycleTheme() {
 }
 
 const guideOpen = ref(false)
+const donateOpen = ref(false)
 function closeGuide() {
   guideOpen.value = false
   try { localStorage.setItem(GUIDE_KEY, '1') } catch { /* 下次仍会提示 */ }

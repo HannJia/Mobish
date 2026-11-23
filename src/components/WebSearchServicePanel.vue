@@ -1,7 +1,8 @@
 <template>
   <section id="web-search-service" tabindex="-1" class="settings-section paper-panel web-search-panel" aria-labelledby="web-search-service-title">
     <h2 id="web-search-service-title" class="web-search-title">联网搜索</h2>
-    <p class="section-desc">没有内置联网搜索的模型（如 DeepSeek、Kimi）开启“联网”时，先用这里的服务搜索网页，再把结果交给模型回答。也可以在模型的“对话联网方式”里让任何模型改用它。默认使用无需密钥的 Firecrawl 免费搜索。</p>
+    <p class="section-desc">没有内置联网搜索的模型（如 DeepSeek、Kimi）开启“联网”时，先用这里的服务搜索网页，再把结果交给模型回答。也可以在模型的“对话联网方式”里让任何模型改用它。</p>
+    <p class="section-desc web-search-tip">通义、智谱、豆包模型可以直接用自带的搜索，不必配置这里。已有智谱 API 密钥的，可以选“智谱网络搜索”并填同一个密钥。</p>
     <div class="web-search-form">
       <V3Field label="搜索服务">
         <V3Select :value="form.provider" :options="providerOptions" aria-label="搜索服务" @update:value="changeProvider" />
@@ -20,13 +21,9 @@
         <V3Number v-model:value="form.count" :min="1" :max="10" :step="1" aria-label="每次结果条数" />
       </V3Field>
     </div>
-    <div v-if="form.provider !== 'firecrawl'" class="web-search-fallback">
-      <V3Switch :id="fallbackId" :value="form.freeFallback" aria-label="出错时自动改用其他搜索" @update:value="value => form.freeFallback = value" />
-      <label :for="fallbackId">出错时自动改用：模型内置搜索失败时改用这里的服务；这里的服务未填密钥、额度用完或出错时改用 Firecrawl 免费搜索</label>
-    </div>
-    <div v-else class="web-search-fallback">
-      <V3Switch :id="fallbackId" :value="form.freeFallback" aria-label="模型内置搜索失败时改用免费搜索" @update:value="value => form.freeFallback = value" />
-      <label :for="fallbackId">模型内置搜索出错或没有搜到时，改用 Firecrawl 免费搜索</label>
+    <div class="web-search-fallback">
+      <V3Switch :id="fallbackId" :value="form.freeFallback" aria-label="模型自带搜索失败时改用这里的服务" @update:value="value => form.freeFallback = value" />
+      <label :for="fallbackId">模型自带的搜索出错或没有搜到时，改用这里的搜索服务</label>
     </div>
     <div class="web-search-actions">
       <button type="button" class="m-btn sm pri" :disabled="saving || !dirty || Boolean(addressError)" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
@@ -130,7 +127,9 @@ onBeforeUnmount(() => controller?.abort())
 .model-discovery-hint { color: var(--ink-3); }
 .model-discovery-success { color: var(--qing); }
 .model-discovery-error { margin: 0; color: var(--zhu); }
-.web-search-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 4px 16px; }
+/* 字段顶部对齐：说明文字长短不一时，输入框仍在同一条线上 */
+.web-search-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 4px 16px; align-items: start; }
+.web-search-tip { margin-top: -8px; }
 .web-search-fallback { display: flex; align-items: center; gap: 10px; margin: 4px 0 6px; font-size: 13px; color: var(--ink-2); }
 .web-search-fallback label { cursor: pointer; line-height: 1.5; }
 .web-search-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 6px 0 8px; }

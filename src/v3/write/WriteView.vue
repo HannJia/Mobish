@@ -37,6 +37,8 @@
     <button type="button" class="m-ibtn" :class="{ 'view-on': focused }" title="专注（Esc 退出）" aria-label="切换专注模式" :aria-pressed="focused" @click="focused = !focused"><V3Icon name="expand" /></button>
   </Teleport>
   <Teleport defer to="#v3-status">
+    <router-link v-if="foreshadowAlerts.length && session.novel.value" class="status-it foreshadow-chip" :to="`/plan/${session.novel.value.id}`"
+      :title="foreshadowAlerts.map(alert => `${alert.title}：${alert.text}`).join('；')">伏笔提醒 {{ foreshadowAlerts.length }}</router-link>
     <span class="status-it"><V3Icon name="type" size="s" />本章 <b class="m-num">{{ wordCount.toLocaleString() }}</b> 字 · 目标 {{ lengthPolicy.minWords }}–{{ lengthPolicy.maxWords }}</span>
     <div ref="typographyControl" class="write-type-control" @click.stop @keydown.esc.stop.prevent="typographyOpen = false">
       <button type="button" class="status-it write-type-trigger" aria-label="正文排版" title="正文排版"
@@ -306,6 +308,7 @@
 </template>
 
 <script setup lang="ts">
+import { foreshadowReminders, lastWrittenChapterIndex } from '../selectors/foreshadowReminders'
 import { errorText } from '@/services/userFacingError'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -1030,9 +1033,17 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey)
   document.fonts?.removeEventListener('loadingdone', scheduleMargins)
 })
+
+// 伏笔提醒：超期或久未推进的伏笔数量显示在状态栏，点开规划页查看
+const foreshadowAlerts = computed(() => {
+  const current = session.novel.value
+  return current ? foreshadowReminders(current.eventLog || [], lastWrittenChapterIndex(current.chapters)) : []
+})
 </script>
 
 <style scoped>
+.foreshadow-chip { color: var(--zhu); text-decoration: none; font-weight: 600; }
+.foreshadow-chip:hover { text-decoration: underline; }
 .lifecycle { display: flex; align-items: center; gap: 5px; color: var(--ink-4); font-size: 11px; }.lc-step { display: inline-flex; align-items: center; gap: 5px; }.lc-step i { width: 8px; height: 8px; border: 1px solid var(--line-2); border-radius: 50%; }.lc-step > span { display: none; }.lc-step.done i { background: var(--ink-3); border-color: var(--ink-3); }.lc-step.cur { color: var(--zhu); font-weight: 600; }.lc-step.cur i { background: var(--zhu); border-color: var(--zhu); box-shadow: 0 0 0 4px var(--zhu-soft); }.lc-step.cur > span { display: inline; }.lc-bar { width: 12px; height: 1px; background: var(--line-2); }
 .mode-wrap { display: flex; align-items: center; position: relative; gap: 4px; }.mode-wrap .m-seg button { padding: 0 8px; }.mode-info { width: 22px; height: 26px; color: var(--ink-4); }
 .mode-pop { display: none; position: absolute; z-index: 100; right: 0; top: calc(100% + 8px); width: 350px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); box-shadow: var(--shadow-3); white-space: normal; font-size: 12px; }

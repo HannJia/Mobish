@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { createPinia, setActivePinia } from 'pinia'
 import { chatWithOptionalSearch, parseSearchResponse, resolveChatSearchMode, resolveChatSearchProtocol, searchProtocolDescription } from './chatSearch'
-import { autoSearchAdapter, detectModelProvider, MODEL_PROVIDER_PRESETS } from './modelProviders'
+import { autoSearchAdapter, detectModelProvider, isEmbeddingModelName, MODEL_PROVIDER_PRESETS } from './modelProviders'
 import { buildWebSearchRequest, isWebSearchServiceConfigured, parseWebSearchResults, resolveBaseUrl, searchContextMessage, searchWebWithFallback } from './webSearchService'
 import { useConfigStore, type ModelConfig } from '@/stores/config'
 
@@ -26,7 +26,13 @@ describe('official provider presets', () => {
     expect(detectModelProvider('https://generativelanguage.googleapis.com/v1beta/openai')?.id).toBe('gemini')
     expect(detectModelProvider('https://relay.example/v1')).toBeNull()
     expect(detectModelProvider('https://evil-deepseek.com.example')).toBeNull()
-    expect(MODEL_PROVIDER_PRESETS.filter(item => item.region === 'domestic').map(item => item.id)).toEqual(['deepseek', 'qwen', 'kimi', 'zhipu', 'doubao'])
+    expect(MODEL_PROVIDER_PRESETS.filter(item => item.region === 'domestic').map(item => item.id)).toEqual(['deepseek', 'qwen', 'kimi', 'zhipu', 'doubao', 'siliconflow', 'minimax', 'hunyuan'])
+    expect(MODEL_PROVIDER_PRESETS.filter(item => item.region === 'local').map(item => item.id)).toEqual(['ollama', 'lmstudio'])
+    expect(detectModelProvider('http://127.0.0.1:11434/v1')?.id).toBe('ollama')
+    expect(detectModelProvider('https://api.siliconflow.cn/v1')?.id).toBe('siliconflow')
+    expect(isEmbeddingModelName('BAAI/bge-m3')).toBe(true)
+    expect(isEmbeddingModelName('BAAI/bge-reranker-v2-m3')).toBe(false)
+    expect(isEmbeddingModelName('deepseek-ai/DeepSeek-V3')).toBe(false)
   })
 
   it('picks the documented search mode for each official host in auto mode', () => {
@@ -149,13 +155,14 @@ describe('independent search service', () => {
     const fetcher = vi.fn()
     vi.stubGlobal('fetch', fetcher)
     await expect(chatWithOptionalSearch({ model: { ...base, baseUrl: 'https://api.deepseek.com' }, messages, webSearch: true, signal: signal() }))
-      .rejects.toThrow('请先在设置中填写博查搜索的 API 密钥')
+      .rejects.toThrow('填写博查搜索的 API 密钥')
     expect(fetcher).not.toHaveBeenCalled()
   })
 })
 
-describe('free search and fallback', () => {
+describe('search service defaults and fallback (1.1.3)', () => {
   const firecrawlBody = { success: true, data: { web: [{ url: 'https://example.org/fc', title: '驿传志', description: '宋代驿传', position: 1 }] } }
+  const bochaBody = { data: { webPages: { value: [{ name: '驿站考', url: 'https://example.org/bc', summary: '宋代驿站' }] } } }
   const modelReply = (content: string) => new Response(JSON.stringify({ choices: [{ message: { content }, finish_reason: 'stop' }] }))
 
   it('builds the keyless Firecrawl request and reads its web results', () => {
@@ -164,69 +171,69 @@ describe('free search and fallback', () => {
     expect(keyless.headers).not.toHaveProperty('Authorization')
     expect(JSON.parse(keyless.body!)).toEqual({ query: '驿站', limit: 4 })
     expect(buildWebSearchRequest({ provider: 'firecrawl', apiKey: 'fc-k', baseUrl: '', count: 4, freeFallback: true }, 'q').headers.Authorization).toBe('Bearer fc-k')
-    expect(isWebSearchServiceConfigured({ provider: 'firecrawl', apiKey: '', baseUrl: '', count: 5, freeFallback: false })).toBe(true)
     expect(parseWebSearchResults('firecrawl', firecrawlBody)).toEqual([{ url: 'https://example.org/fc', title: '驿传志', excerpt: '宋代驿传' }])
   })
 
-  it('uses Firecrawl by default for DeepSeek without any setup', async () => {
-    const fetcher = vi.fn(async (url: string) => url === 'https://api.firecrawl.dev/v2/search' ? new Response(JSON.stringify(firecrawlBody)) : modelReply('见 [1]。'))
+  it('does not use Firecrawl unless chosen, and guides the user when no service is set up', async () => {
+    const fetcher = vi.fn()
     vi.stubGlobal('fetch', fetcher)
-    const result = await chatWithOptionalSearch({ model: { ...base, baseUrl: 'https://api.deepseek.com' }, messages, webSearch: true, stream: false, signal: signal() })
-    expect(fetcher.mock.calls.map(call => call[0])).toEqual(['https://api.firecrawl.dev/v2/search', 'https://api.deepseek.com/v1/chat/completions'])
-    expect(result.search).toMatchObject({ status: 'searched', sources: [{ url: 'https://example.org/fc' }] })
-    expect(result.fallback).toBeUndefined()
-    expect(searchProtocolDescription({ ...base, baseUrl: 'https://api.deepseek.com' })).toBe('自动识别：独立搜索服务 · Firecrawl 免费搜索')
+    expect(useConfigStore().webSearchService.provider).toBe('bocha')
+    await expect(chatWithOptionalSearch({ model: { ...base, baseUrl: 'https://api.deepseek.com' }, messages, webSearch: true, stream: false, signal: signal() }))
+      .rejects.toThrow('通义、智谱、豆包模型可以直接用自带的搜索')
+    expect(fetcher).not.toHaveBeenCalled()
+    expect(searchProtocolDescription({ ...base, baseUrl: 'https://api.deepseek.com' })).toBe('自动识别：独立搜索服务 · 未设置')
   })
 
-  it('falls back to Firecrawl when the chosen service has no key or fails', async () => {
-    const config = useConfigStore()
-    Object.assign(config.webSearchService, { provider: 'bocha', apiKey: '', baseUrl: '', count: 3, freeFallback: true })
-    const fetcher = vi.fn(async (url: string) => url.includes('firecrawl') ? new Response(JSON.stringify(firecrawlBody)) : modelReply('好。'))
+  it('uses Firecrawl when chosen and explains that it needs an overseas network when unreachable', async () => {
+    Object.assign(useConfigStore().webSearchService, { provider: 'firecrawl', apiKey: '', baseUrl: '' })
+    const fetcher = vi.fn(async (url: string) => url.includes('firecrawl') ? new Response(JSON.stringify(firecrawlBody)) : modelReply('见 [1]。'))
     vi.stubGlobal('fetch', fetcher)
-    const noKey = await searchWebWithFallback(config.webSearchService, '驿站', signal())
-    expect(noKey).toMatchObject({ provider: 'firecrawl', fallbackReason: '未设置博查搜索的 API 密钥' })
-
-    Object.assign(config.webSearchService, { provider: 'tavily', apiKey: 'tvly', freeFallback: true })
-    fetcher.mockImplementation(async (url: string) => url === 'https://api.tavily.com/search' ? new Response('{}', { status: 429 })
-      : url.includes('firecrawl') ? new Response(JSON.stringify(firecrawlBody)) : modelReply('好。'))
     const result = await chatWithOptionalSearch({ model: { ...base, baseUrl: 'https://api.deepseek.com' }, messages, webSearch: true, stream: false, signal: signal() })
     expect(result.search?.sources[0].url).toBe('https://example.org/fc')
-    expect(result.fallback).toContain('已改用Firecrawl 免费搜索')
-
-    Object.assign(config.webSearchService, { freeFallback: false })
-    await expect(searchWebWithFallback(config.webSearchService, '驿站', signal())).rejects.toThrow('额度不足')
+    fetcher.mockImplementation(async () => { throw new TypeError('fetch failed') })
+    await expect(searchWebWithFallback(useConfigStore().webSearchService, '驿站', signal())).rejects.toThrow('需要境外网络')
   })
 
-  it('retries through the search service when built-in search fails, without sending the model key to it', async () => {
+  it('times out a browser request that never answers', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+      })))
+      const pending = searchWebWithFallback({ provider: 'bocha', apiKey: 'k', baseUrl: '', count: 3, freeFallback: true }, '驿站', signal())
+      const check = expect(pending).rejects.toThrow('30 秒内没有响应')
+      await vi.advanceTimersByTimeAsync(30_000)
+      await check
+    } finally { vi.useRealTimers() }
+  })
+
+  it('retries through a configured search service when built-in search fails, without sending the model key to it', async () => {
+    Object.assign(useConfigStore().webSearchService, { provider: 'bocha', apiKey: 'bocha-k', freeFallback: true })
     const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith('/responses')) return new Response('{}', { status: 400 })
-      if (url.includes('firecrawl')) {
+      if (url.includes('bochaai')) {
         expect(JSON.stringify(init?.headers)).not.toContain('synthetic-key')
-        return new Response(JSON.stringify(firecrawlBody))
+        return new Response(JSON.stringify(bochaBody))
       }
       return modelReply('根据 [1]。')
     })
     vi.stubGlobal('fetch', fetcher)
     const result = await chatWithOptionalSearch({ model: { ...base, modelName: 'gpt-5' }, messages, webSearch: true, stream: false, signal: signal() })
-    expect(fetcher.mock.calls.map(call => call[0])).toEqual(['https://relay.example/v1/responses', 'https://api.firecrawl.dev/v2/search', 'https://relay.example/v1/chat/completions'])
+    expect(fetcher.mock.calls.map(call => call[0])).toEqual(['https://relay.example/v1/responses', 'https://api.bochaai.com/v1/web-search', 'https://relay.example/v1/chat/completions'])
     expect(result.content).toBe('根据 [1]。')
-    expect(result.search).toMatchObject({ protocol: 'chat-completions', status: 'searched' })
-    expect(result.fallback).toMatch(/^模型内置搜索失败（.+），已改用Firecrawl 免费搜索$/)
+    expect(result.fallback).toMatch(/^模型内置搜索失败（.+），已改用博查搜索$/)
   })
 
-  it('retries when built-in search answers without evidence, and keeps the error when fallback is off', async () => {
+  it('keeps the built-in result or error when no search service is configured or fallback is off', async () => {
     const fetcher = vi.fn(async (url: string) => url.endsWith('/responses')
       ? new Response(JSON.stringify({ output: [{ type: 'message', content: [{ type: 'output_text', text: '凭记忆回答' }] }] }))
-      : url.includes('firecrawl') ? new Response(JSON.stringify(firecrawlBody)) : modelReply('有来源的回答'))
+      : modelReply('有来源的回答'))
     vi.stubGlobal('fetch', fetcher)
-    const retried = await chatWithOptionalSearch({ model: { ...base, modelName: 'gpt-5' }, messages, webSearch: true, stream: false, signal: signal() })
-    expect(retried).toMatchObject({ content: '有来源的回答', fallback: '模型内置搜索没有返回搜索证据，已改用Firecrawl 免费搜索' })
-
-    Object.assign(useConfigStore().webSearchService, { freeFallback: false })
-    fetcher.mockClear()
+    // 默认博查未填密钥：不改用，保留内置结果
     const plain = await chatWithOptionalSearch({ model: { ...base, modelName: 'gpt-5' }, messages, webSearch: true, stream: false, signal: signal() })
     expect(plain.content).toBe('凭记忆回答')
     expect(fetcher).toHaveBeenCalledTimes(1)
+    Object.assign(useConfigStore().webSearchService, { apiKey: 'bocha-k', freeFallback: false })
     fetcher.mockImplementation(async () => new Response('{}', { status: 400 }))
     await expect(chatWithOptionalSearch({ model: { ...base, modelName: 'gpt-5' }, messages, webSearch: true, stream: false, signal: signal() }))
       .rejects.toThrow('HTTP_400')

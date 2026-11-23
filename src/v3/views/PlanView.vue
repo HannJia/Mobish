@@ -51,6 +51,10 @@
         <p v-if="projectionIssueCount" class="projection-notice">{{ projectionIssueCount }} 处来源或字段待核对，可在工作台处理。</p>
 
         <div class="plan-section-heading foreshadow-heading"><div><h2>伏笔追踪</h2><p>第 1–{{ lastTimelineIndex + 1 }} 章刻度 · 红线为所选章；埋设、最近推进与回收分别记录。</p></div><button class="m-btn sm" type="button" @click="openPlanner('timeline')"><V3Icon name="plus" size="s" />登记伏笔</button></div>
+        <div v-if="foreshadowAlerts.length" class="m-panel foreshadow-alerts" role="status" data-foreshadow-alerts>
+          <strong>伏笔提醒 · {{ foreshadowAlerts.length }}</strong>
+          <ul><li v-for="alert in foreshadowAlerts" :key="alert.id" :class="alert.kind"><button type="button" class="m-link" @click="openPlanner('timeline', alert.id)">{{ alert.title }}</button><span class="alert-kind">{{ alert.kind === 'overdue' ? '超期' : '久未推进' }}</span><small>{{ alert.text }}</small></li></ul>
+        </div>
         <div v-if="foreshadowRows.length" class="m-panel foreshadow-panel" tabindex="0" aria-label="伏笔追踪轨道，可横向滚动">
           <div class="foreshadow-chart">
             <div v-for="item in foreshadowRows" :key="item.id" class="fs-row" :data-event-id="item.id">
@@ -110,6 +114,7 @@
 </template>
 
 <script setup lang="ts">
+import { foreshadowReminders, lastWrittenChapterIndex } from '../selectors/foreshadowReminders'
 import { errorText } from '@/services/userFacingError'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -150,6 +155,7 @@ const arcCards = computed(() => (novel.value?.storyArcs || []).map(raw => {
 }))
 const events = computed(() => [...projection.value.events].sort((a, b) => a.chapterIndex - b.chapterIndex || a.title.localeCompare(b.title)))
 const foreshadowings = computed(() => events.value.filter(event => event.type === '伏笔'))
+const foreshadowAlerts = computed(() => novel.value ? foreshadowReminders(projection.value.events, lastWrittenChapterIndex(novel.value.chapters)) : [])
 const livePlans = computed(() => (novel.value?.chapterPlans || []).filter(plan => plan.status !== 'archived'))
 const rangePlans = computed(() => livePlans.value.filter(plan => plan.targetChapterStart !== plan.targetChapterEnd))
 const planningDraft = computed(() => {
@@ -408,6 +414,13 @@ watch(() => route.query, query => {
 .board-empty h3 { margin: 8px 0; font: 600 16px var(--f-serif); color: var(--ink-2); }
 .board-empty p { margin: 8px 0 16px; font-size: 12px; line-height: 1.8; }
 .foreshadow-heading { margin-top: 30px; }
+.foreshadow-alerts { margin-bottom: 12px; padding: 12px 16px; border-left: 3px solid var(--zhu); }
+.foreshadow-alerts strong { font: 600 14px var(--f-serif); color: var(--zhu); }
+.foreshadow-alerts ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.foreshadow-alerts li { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.foreshadow-alerts .alert-kind { padding: 0 6px; border-radius: 999px; background: var(--zhu-soft); color: var(--zhu); font-size: 11px; }
+.foreshadow-alerts li.stale .alert-kind { background: var(--panel-2); color: var(--jin); }
+.foreshadow-alerts small { color: var(--ink-3); }
 .foreshadow-panel { padding: 6px 16px; overflow-x: auto; }
 .foreshadow-chart { min-width: 500px; }
 .fs-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) 92px; align-items: center; gap: 14px; padding: 7px 0; border-bottom: 1px dashed var(--line); }

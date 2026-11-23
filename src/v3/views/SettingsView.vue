@@ -110,7 +110,8 @@
               :aria-pressed="activeEmbeddingProvider?.id === preset.id" @click="applyEmbeddingPreset(preset)">{{ preset.label }}</button>
           </div>
           <p class="model-discovery-hint">选择后自动填写官方接口地址。需要接口兼容 OpenAI 的 /embeddings；使用中转站或本地服务（如 Ollama）时直接填写接口地址。
-            <a v-if="activeEmbeddingProvider" :href="activeEmbeddingProvider.consoleUrl" target="_blank" rel="noopener noreferrer">申请 API 密钥</a></p>
+            <a v-if="activeEmbeddingProvider" :href="activeEmbeddingProvider.consoleUrl" target="_blank" rel="noopener noreferrer">获取 API 密钥</a></p>
+          <p v-if="activeEmbeddingProvider?.signupUrl" class="model-discovery-hint">还没有账号？<a :href="activeEmbeddingProvider.signupUrl" target="_blank" rel="noopener noreferrer">注册{{ activeEmbeddingProvider.label.replace(/（.*$/, '') }}</a>。{{ activeEmbeddingProvider.signupNote }}</p>
         </V3Field>
         <V3Field v-if="!editingModel && modelForm.kind !== 'embedding'" label="常用服务商（选填）">
           <div class="provider-presets" role="group" aria-label="常用服务商">
@@ -154,12 +155,13 @@
               type="button"
               class="m-btn sm"
               :aria-busy="modelDiscoveryLoading"
-              :disabled="modelDiscoveryLoading || !modelForm.baseUrl.trim() || !modelForm.apiKey.trim()"
+              :disabled="modelDiscoveryLoading || !modelForm.baseUrl.trim() || (!modelForm.apiKey.trim() && !isLocalModelUrl(modelForm.baseUrl))"
               @click="fetchAvailableModels"
             >
               {{ modelDiscoveryLoading ? '获取中...' : '获取模型' }}
             </button>
-            <span v-if="availableModels.length" class="model-discovery-success">已获取 {{ availableModels.length }} 个模型，可多选</span>
+            <span v-if="availableModels.length" class="model-discovery-success">已获取 {{ availableModels.length }} 个模型{{ modelForm.kind === 'embedding' && !showAllModels ? `，其中向量模型 ${availableModelOptions.length} 个` : '' }}，可多选</span>
+            <label v-if="availableModels.length && modelForm.kind === 'embedding'" class="m-check model-show-all"><input v-model="showAllModels" type="checkbox">显示全部模型</label>
             <span v-else class="model-discovery-hint">从兼容 OpenAI 的 /models 接口读取</span>
             <button
               v-if="availableModels.length > 1"
@@ -446,6 +448,7 @@
         </details>
         <h3 class="about-help-title">信息与帮助</h3>
         <nav class="about-links" aria-label="信息与帮助">
+          <a class="about-star" :href="GITHUB_REPO_URL" target="_blank" rel="noopener noreferrer"><strong>在 GitHub 点 Star</strong><small>觉得好用的话，点个 Star 支持一下，也让更多写作者看到墨笔生花。{{ starCount !== null ? `目前 ${starCount} 人点过 Star。` : '' }}</small><span aria-hidden="true">★</span></a>
           <a href="https://github.com/HannJia/mobish" target="_blank" rel="noopener noreferrer"><strong>项目主页</strong><small>了解墨笔生花的更新动态与相关资源。</small><span aria-hidden="true">↗</span></a>
           <a href="https://github.com/HannJia/mobish#readme" target="_blank" rel="noopener noreferrer"><strong>使用说明</strong><small>查看功能介绍与使用方法。</small><span aria-hidden="true">↗</span></a>
           <a href="https://github.com/HannJia/mobish/issues" target="_blank" rel="noopener noreferrer"><strong>问题反馈</strong><small>提交使用中遇到的问题与建议。</small><span aria-hidden="true">↗</span></a>
@@ -485,7 +488,8 @@ import { listAvailableModels, openAiV1BaseUrl, testConnection, type AvailableMod
 import { testEmbeddingConnection } from '@/services/embeddings'
 import { modelConnectionFingerprint } from '@/services/modelConnectionTest'
 import { chatSearchModeOptions, splitSearchMode } from '@/services/chatSearch'
-import { detectModelProvider, EMBEDDING_PROVIDER_PRESETS, MODEL_PROVIDER_PRESETS, type ChatSearchAdapter, type EmbeddingProviderPreset, type ModelProviderPreset } from '@/services/modelProviders'
+import { detectModelProvider, EMBEDDING_PROVIDER_PRESETS, isEmbeddingModelName, isLocalModelUrl, MODEL_PROVIDER_PRESETS, RECOMMENDED_EMBEDDING_MODELS, type ChatSearchAdapter, type EmbeddingProviderPreset, type ModelProviderPreset } from '@/services/modelProviders'
+import { fetchStarCount, GITHUB_REPO_URL } from '@/services/githubStar'
 import WebSearchServicePanel from '@/components/WebSearchServicePanel.vue'
 import { CLOUD_SYNC_AVAILABLE } from '@/services/features'
 import type { ChatSearchProtocol } from '@/types/chat'
@@ -717,6 +721,7 @@ const modelForm = reactive({
 const providerPresetGroups = [
   { label: '国内', items: MODEL_PROVIDER_PRESETS.filter(item => item.region === 'domestic') },
   { label: '海外', items: MODEL_PROVIDER_PRESETS.filter(item => item.region === 'overseas') },
+  { label: '本机', items: MODEL_PROVIDER_PRESETS.filter(item => item.region === 'local') },
 ]
 const activeProvider = computed(() => modelForm.kind === 'embedding' ? null : detectModelProvider(modelForm.baseUrl))
 const activeEmbeddingProvider = computed(() => {
@@ -727,6 +732,11 @@ const activeEmbeddingProvider = computed(() => {
 function applyEmbeddingPreset(preset: EmbeddingProviderPreset) {
   modelForm.baseUrl = preset.baseUrl
   handleModelSourceChange()
+  // 推荐模型直接填好，用户只需填自己的密钥
+  if (preset.defaultModel && !modelForm.modelName.trim()) {
+    modelForm.modelName = preset.defaultModel
+    selectedModelNames.value = [preset.defaultModel]
+  }
 }
 function applyProviderPreset(preset: ModelProviderPreset) {
   modelForm.baseUrl = preset.baseUrl
@@ -820,21 +830,32 @@ const chatModelOptions = computed(() => [
   ...modelOptions.value,
 ])
 
-const availableModelOptions = computed(() => availableModels.value.map(model => ({
-  label: model.ownedBy ? `${model.id} · ${model.ownedBy}` : model.id,
-  value: model.id,
-})))
+// 向量模型模式下只列出向量模型（可切换显示全部），推荐的排前面并高亮
+const showAllModels = ref(false)
+const availableModelOptions = computed(() => {
+  const embeddingOnly = modelForm.kind === 'embedding' && !showAllModels.value
+  const recommended = (id: string) => RECOMMENDED_EMBEDDING_MODELS.includes(id)
+  return availableModels.value
+    .filter(model => !embeddingOnly || isEmbeddingModelName(model.id))
+    .sort((a, b) => modelForm.kind === 'embedding' ? Number(recommended(b.id)) - Number(recommended(a.id)) : 0)
+    .map(model => ({
+      label: model.ownedBy ? `${model.id} · ${model.ownedBy}` : model.id,
+      value: model.id,
+      ...(modelForm.kind === 'embedding' && recommended(model.id) ? { highlight: true, tag: '推荐' } : {}),
+      ...(modelForm.kind === 'embedding' && /^pro\//i.test(model.id) ? { tag: '付费' } : {}),
+    }))
+})
 
 // 表单是否有效
 const isFormValid = computed(() =>
   Boolean(
     modelForm.baseUrl.trim()
     && modelForm.modelName.trim()
-    && (modelForm.kind === 'embedding' || modelForm.apiKey.trim() || (editingModel.value && configStore.models.some(model => model.id === editingModel.value && model.apiKey))),
+    && (modelForm.kind === 'embedding' || modelForm.apiKey.trim() || isLocalModelUrl(modelForm.baseUrl) || (editingModel.value && configStore.models.some(model => model.id === editingModel.value && model.apiKey))),
   )
 )
 const isBatchFormValid = computed(() =>
-  Boolean(modelForm.baseUrl.trim() && modelForm.apiKey.trim() && selectedModelNames.value.length > 1)
+  Boolean(modelForm.baseUrl.trim() && (modelForm.apiKey.trim() || isLocalModelUrl(modelForm.baseUrl)) && selectedModelNames.value.length > 1)
 )
 
 // 遮蔽 API Key
@@ -1213,8 +1234,11 @@ function openSkillModal(skill?: WritingSkill) {
   skillDrafts.delete(id)
   showSkillModal.value = true
 }
+const starCount = ref<number | null>(null)
 watch(activeTab, tab => {
   if (tab === 'skills' && !showSkillModal.value && configStore.skills.length) openSkillModal(configStore.skills[0])
+  // 只在打开关于页时取 Star 数（缓存一天，失败不提示）
+  if (tab === 'about' && starCount.value === null) void fetchStarCount().then(count => { starCount.value = count })
 }, { immediate: true })
 
 async function closeSkillModal() {
@@ -1808,6 +1832,8 @@ function handleDeleteSkill(id: string) {
 .about-help-title { font-size: 20px; padding: 20px 0 10px; border-top: 1px solid var(--line); }
 .about-links a { display: grid; grid-template-columns: 140px minmax(0, 1fr) 24px; align-items: center; color: var(--ink); }
 .about-links small { color: var(--ink-2); font-size: 14px; }
+.about-links a.about-star strong { color: var(--zhu); }
+.about-links a.about-star > span { color: var(--zhu); }
 .about-backup-note { margin-top: 20px; font-size: 13px; color: var(--ink-2); }
 @media (max-width: 650px) { .about-links a { grid-template-columns: minmax(0, 1fr) 24px; gap: 6px; } .about-links small { grid-column: 1; grid-row: 2; } .about-links a > span { grid-column: 2; grid-row: 1 / 3; } }
 .workflow-rounds-value { color: var(--zhu); font-size: 17px; font-variant-numeric: tabular-nums; margin: 0 3px; }

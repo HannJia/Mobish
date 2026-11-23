@@ -246,3 +246,8 @@
 .v3 .m-pal-it:hover { background: var(--panel-2); }
 .v3 .m-pal-it.on { background: var(--zhu-soft); color: var(--ink); box-shadow: inset 2px 0 0 var(--zhu); }
 
+
+/* Markdown 表格（renderMd 输出） */
+.v3 .md-table { width: 100%; margin: 10px 0; border-collapse: collapse; font-size: 13px; line-height: 1.6; display: block; overflow-x: auto; }
+.v3 .md-table th, .v3 .md-table td { padding: 6px 10px; border: 1px solid var(--line-2); text-align: left; vertical-align: top; }
+.v3 .md-table th { background: var(--paper-2, var(--paper)); font-weight: 600; white-space: nowrap; }

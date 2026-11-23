@@ -7,10 +7,8 @@
     <div class="inspiration-workspace" :class="{ 'show-settings': compactPanel === 'settings' }">
       <main class="inspiration-conversation paper-panel">
         <header class="inspiration-heading"><h2>从一个想法开始</h2><p>和墨笔生花一起梳理灵感，把模糊的想法变成清晰的故事。</p></header>
-        <details ref="historyDetails" class="inspiration-options"><summary>对话选项 · 历史与参考资料</summary>
+        <details ref="historyDetails" class="inspiration-options" @toggle="optionsOpen = ($event.target as HTMLDetailsElement).open"><summary><V3Icon name="chevR" size="s" class="options-arrow" /><span>对话选项 · 历史与参考资料</span><small>{{ optionsOpen ? '点击收起' : '点击展开' }}</small></summary>
     <div class="inspiration-search-toolbar">
-      <button class="inspiration-search-toggle" :class="{ enabled: webSearch }" :aria-pressed="webSearch"
-        title="开启或关闭联网搜索，下条灵感消息生效" @click="webSearch = !webSearch">联网{{ webSearch ? '开' : '关' }}</button>
       <span>{{ webSearch ? '允许按需搜索近期事件和背景；查询词可能外发并额外计费。' : '未启用网页搜索；灵感对话仍需调用已配置 API。' }}</span>
       <V3Select
         class="inspiration-session-select"
@@ -84,6 +82,8 @@
         <p class="inspiration-input-hint">回车发送 · 上档键＋回车换行</p>
         <button type="button" class="m-btn" v-if="retryAvailable && !busy && !pendingIdea" @click="respond">重试回复</button>
         <div class="inspiration-send-group">
+          <button type="button" class="inspiration-search-toggle" :class="{ enabled: webSearch }" :aria-pressed="webSearch"
+            :title="webSearch ? '已开启联网：允许按需搜索近期事件和背景，查询词可能外发并额外计费；下条消息生效' : '未开启联网；点击开启，下条消息生效'" @click="webSearch = !webSearch">联网{{ webSearch ? '开' : '关' }}</button>
           <div v-if="contextStatus" class="inspiration-context-status" role="status">
             <button type="button" class="inspiration-context-summary" :aria-label="contextTooltip">
               <span class="inspiration-context-ring" :style="{ background: contextRingBackground }" aria-hidden="true"></span>
@@ -153,11 +153,14 @@ const props = defineProps<{
   active: boolean
   initialIdea?: string
   startRequest?: { id: number; idea: string }
+  /** 创建入口选的知识库；提供时与入口共用同一份选择 */
+  sharedKnowledgeIds?: string[]
 }>()
 const emit = defineEmits<{
   apply: [form: CreateWizardForm, history: InspirationMessage[]]
   'history-change': [history: InspirationMessage[]]
   'draft-change': [form: CreateWizardForm]
+  'knowledge-change': [ids: string[]]
 }>()
 const config = useConfigStore()
 const knowledge = useKnowledgeStore()
@@ -172,6 +175,7 @@ const savedSessions = computed(() => sessionsStore.sessions)
 const selectedSessionId = ref<string | null>(null)
 const historyElement = ref<HTMLElement | null>(null)
 const historyDetails = ref<HTMLDetailsElement | null>(null)
+const optionsOpen = ref(false)
 const compactPanel = ref<'conversation' | 'settings'>('conversation')
 async function openHistory() {
   compactPanel.value = 'conversation'
@@ -186,9 +190,14 @@ const canExtract = computed(() => history.value.some(item => item.role === 'user
   || !!importedIdea.value && input.value.trim() === importedIdea.value)
 const selectedKnowledgeIds = ref<string[] | null>(null)
 const knowledgeIds = computed<string[]>({
-  get: () => selectedKnowledgeIds.value === null ? knowledge.knowledgeBases.map(base => base.id)
+  get: () => props.sharedKnowledgeIds ? props.sharedKnowledgeIds.filter(id => knowledge.getKB(id))
+    : selectedKnowledgeIds.value === null ? knowledge.knowledgeBases.map(base => base.id)
     : selectedKnowledgeIds.value.filter(id => knowledge.getKB(id)),
-  set: ids => { selectedKnowledgeIds.value = ids || []; persistCurrentHistory() },
+  set: ids => {
+    selectedKnowledgeIds.value = ids || []
+    if (props.sharedKnowledgeIds) emit('knowledge-change', [...(ids || [])])
+    persistCurrentHistory()
+  },
 })
 const knowledgeOptions = computed(() => knowledge.knowledgeBases.map(base => ({
   label: `${base.name}（${base.entries.length} 条）`, value: base.id,
@@ -317,7 +326,7 @@ function persistCurrentHistory() {
     title: history.value.length ? sessionTitle(history.value) : input.value.trim().slice(0, 42) || '新书设定',
     updatedAt: new Date().toISOString(),
     messages: cloneHistory(history.value),
-    knowledgeIds: selectedKnowledgeIds.value === null ? null : [...selectedKnowledgeIds.value],
+    knowledgeIds: props.sharedKnowledgeIds ? [...knowledgeIds.value] : selectedKnowledgeIds.value === null ? null : [...selectedKnowledgeIds.value],
     draft: input.value,
     webSearch: webSearch.value,
     context: conversationContext.value,
@@ -375,6 +384,8 @@ function loadSession(id: string | null) {
   selectedSessionId.value = session.id
   history.value = cloneHistory(session.messages)
   selectedKnowledgeIds.value = Array.isArray(session.knowledgeIds) ? session.knowledgeIds.filter(id => typeof id === 'string') : null
+  // 打开以前的讨论时，沿用它当时选的知识库
+  if (props.sharedKnowledgeIds && selectedKnowledgeIds.value) emit('knowledge-change', [...selectedKnowledgeIds.value])
   input.value = session.draft
   webSearch.value = session.webSearch
   conversationContext.value = session.context
@@ -697,7 +708,14 @@ onBeforeUnmount(() => { persistCurrentHistory(); stop() })
 .inspiration-heading h2 { font-size: 30px; margin: 0 0 6px; }
 .inspiration-heading p { color: var(--ink-2); font-size: 14px; line-height: 1.7; }
 .inspiration-options { flex-shrink: 0; max-height: 30%; overflow-y: auto; margin: 12px 0; color: var(--ink-2); font-size: 12px; }
-.inspiration-options summary { cursor: pointer; padding: 4px 0; }
+/* 对话选项做成可见的展开条，提示可以点开 */
+.inspiration-options summary { cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 7px 12px; list-style: none;
+  border: 1px solid var(--line-2); border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 13px; font-weight: 600; }
+.inspiration-options summary::-webkit-details-marker { display: none; }
+.inspiration-options summary:hover { border-color: var(--dai); color: var(--dai); }
+.inspiration-options summary small { margin-left: auto; font-weight: 400; color: var(--ink-3); font-size: 12px; }
+.inspiration-options .options-arrow { transition: transform var(--motion-fast); }
+.inspiration-options[open] .options-arrow { transform: rotate(90deg); }
 .inspiration-options .inspiration-search-toolbar { padding-top: 10px; }
 .inspiration-history { flex: 1; min-height: 0; padding: 4px 0 16px; }
 .inspiration-message { max-width: 88%; margin: 18px 0; padding: 16px 18px; }

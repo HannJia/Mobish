@@ -70,7 +70,7 @@ describe('独立联网搜索服务设置', () => {
     local.setItem('mojian-v3-config', JSON.stringify({ models: [], assignments: {}, webSearchService: { provider: 'nope', count: 99 } }))
     const store = useConfigStore()
     await store.loadConfig()
-    expect(store.webSearchService).toMatchObject({ provider: 'firecrawl', count: 10, freeFallback: true })
+    expect(store.webSearchService).toMatchObject({ provider: 'bocha', count: 10, freeFallback: true })
   })
 
   it('云端配置不带本机联网方式和搜索服务，旧版本能读', async () => {

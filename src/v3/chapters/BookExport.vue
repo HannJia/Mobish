@@ -3,6 +3,7 @@
         <div><strong>导出作品</strong><p>导出已保存的正式正文，可选择包含总纲。</p></div>
         <label><span class="export-label">导出格式</span><select v-model="exportFormat" :disabled="exporting" aria-label="导出作品格式">
           <option value="txt">TXT（含总纲）</option><option value="txt-body">TXT（仅正文）</option>
+          <option value="docx">Word 文档 .docx（含总纲）</option><option value="docx-body">Word 文档 .docx（仅正文）</option>
           <option value="word">Word 兼容 HTML .doc（含总纲）</option><option value="word-body">Word 兼容 HTML .doc（仅正文）</option>
           <option value="epub">EPUB</option>
         </select></label>
@@ -18,6 +19,7 @@ import { useRoute } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
 import { flushEditorDrafts } from '@/services/appLifecycle'
 import { exportToTXT, exportToWordHtml, exportToEpub } from '@/services/export'
+import { exportToDocx } from '@/services/exportDocx'
 import { toast } from '@/v3/shell'
 
 const route = useRoute(), novels = useNovelStore()
@@ -33,6 +35,7 @@ async function exportBook() {
     if (novel.value?.id !== owner) throw new Error('作品已切换，请重新选择要导出的作品。')
     const snapshot = JSON.parse(JSON.stringify(novel.value))
     if (format === 'epub') await exportToEpub(snapshot)
+    else if (format === 'docx' || format === 'docx-body') await exportToDocx(snapshot, { bodyOnly: format === 'docx-body' })
     else if (format === 'word' || format === 'word-body') exportToWordHtml(snapshot, { bodyOnly: format === 'word-body' })
     else exportToTXT(snapshot, { bodyOnly: format === 'txt-body' })
     toast('作品已导出')

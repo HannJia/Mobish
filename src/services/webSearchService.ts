@@ -1,6 +1,6 @@
 // 独立联网搜索服务：先用搜索服务查网页，再把结果交给当前模型回答。
 // 适用于官方接口没有内置联网搜索的模型（如 DeepSeek），也可以给任何模型使用。
-// 默认使用 Firecrawl 的免密钥搜索；所选服务不可用时也可以退回它（见 freeFallback）。
+// 1.1.3 起默认服务为博查（国内可用，需要密钥）；Firecrawl 需境外网络，只在用户手动选择时使用。
 import type { ChatSource } from '@/types/chat'
 
 export type WebSearchProvider = 'firecrawl' | 'tavily' | 'bocha' | 'zhipu' | 'searxng'
@@ -12,7 +12,7 @@ export interface WebSearchServiceConfig {
   baseUrl: string
   /** 每次返回的结果条数。 */
   count: number
-  /** 所选服务不可用、或模型内置搜索失败时，改用免费搜索（Firecrawl 免密钥）。 */
+  /** 模型自带的搜索出错或没有搜到时，改用这里的搜索服务（需已配置可用）。字段名沿用旧版。 */
   freeFallback: boolean
 }
 
@@ -26,8 +26,6 @@ export interface WebSearchProviderInfo {
 }
 
 export const WEB_SEARCH_PROVIDERS: Record<WebSearchProvider, WebSearchProviderInfo> = {
-  firecrawl: { label: 'Firecrawl 免费搜索', defaultBaseUrl: 'https://api.firecrawl.dev', hosts: ['api.firecrawl.dev'], needsKey: false,
-    note: '无需密钥即可使用，按网络地址每日限量；填写 Firecrawl 的 API 密钥可提高额度。搜索词会发送到 Firecrawl（美国）。' },
   bocha: { label: '博查搜索', defaultBaseUrl: 'https://api.bochaai.com', hosts: ['api.bochaai.com', 'api.bocha.cn'], needsKey: true,
     note: '国内网页搜索服务，在博查开放平台申请 API 密钥。' },
   zhipu: { label: '智谱网络搜索', defaultBaseUrl: 'https://open.bigmodel.cn', hosts: ['open.bigmodel.cn', 'api.z.ai'], needsKey: true,
@@ -36,11 +34,11 @@ export const WEB_SEARCH_PROVIDERS: Record<WebSearchProvider, WebSearchProviderIn
     note: '海外网页搜索服务，在 Tavily 官网申请 API 密钥。' },
   searxng: { label: 'SearXNG（自建）', defaultBaseUrl: '', hosts: [], needsKey: false,
     note: '填写自建 SearXNG 的地址，需要在其设置中开启 JSON 输出。' },
+  firecrawl: { label: 'Firecrawl（需境外网络）', defaultBaseUrl: 'https://api.firecrawl.dev', hosts: ['api.firecrawl.dev'], needsKey: false,
+    note: '需要能访问境外网络（如代理），国内网络通常无法直接连接。不填密钥也能用，按网络地址每日限量；搜索词会发送到 Firecrawl（美国）。' },
 }
 
-export const DEFAULT_WEB_SEARCH_SERVICE: WebSearchServiceConfig = { provider: 'firecrawl', apiKey: '', baseUrl: '', count: 5, freeFallback: true }
-/** 免费兜底搜索：Firecrawl 免密钥接口。 */
-export const FREE_WEB_SEARCH_SERVICE: WebSearchServiceConfig = { provider: 'firecrawl', apiKey: '', baseUrl: '', count: 5, freeFallback: false }
+export const DEFAULT_WEB_SEARCH_SERVICE: WebSearchServiceConfig = { provider: 'bocha', apiKey: '', baseUrl: '', count: 5, freeFallback: true }
 
 export class WebSearchServiceError extends Error {
   constructor(public code: string, message: string) { super(message); this.name = 'WebSearchServiceError' }
@@ -68,7 +66,7 @@ export function isWebSearchServiceConfigured(config: WebSearchServiceConfig | un
 /** 实际会使用的搜索服务名称。 */
 export function effectiveWebSearchLabel(config: WebSearchServiceConfig | undefined | null): string {
   if (config && isWebSearchServiceConfigured(config)) return WEB_SEARCH_PROVIDERS[config.provider].label
-  return config?.freeFallback ? WEB_SEARCH_PROVIDERS.firecrawl.label : (config && WEB_SEARCH_PROVIDERS[config.provider]?.label) || '未设置'
+  return '未设置'
 }
 
 /** 校验并返回实际使用的服务地址；地址无效或不属于该服务时返回空字符串。 */
@@ -144,6 +142,8 @@ function httpError(status: number, label: string): WebSearchServiceError {
 
 interface WebSearchResponse { ok: boolean; status: number; text: string }
 
+export const SEARCH_TIMEOUT_MS = 30_000
+
 async function send(request: WebSearchHttpRequest, signal: AbortSignal): Promise<WebSearchResponse> {
   // 桌面版经主进程转发，避免搜索服务不支持跨域时请求失败；浏览器版直接请求。
   const bridge = typeof window !== 'undefined' ? window.electronAPI?.webSearchRequest : undefined
@@ -154,15 +154,28 @@ async function send(request: WebSearchHttpRequest, signal: AbortSignal): Promise
     ])
     return result
   }
-  const response = await fetch(request.url, { method: request.method, headers: request.headers, body: request.body, signal })
-  return { ok: response.ok, status: response.status, text: await response.text() }
+  // 浏览器版直接请求：网络不通时不能一直等，30 秒后超时（桌面版由主进程控制超时）
+  const timeout = new AbortController()
+  const timer = setTimeout(() => timeout.abort(new WebSearchServiceError('SEARCH_SERVICE_TIMEOUT', '搜索服务 30 秒内没有响应，请检查网络或换用其他搜索服务。')), SEARCH_TIMEOUT_MS)
+  const stop = () => timeout.abort(signal.reason)
+  signal.addEventListener('abort', stop, { once: true })
+  try {
+    const response = await fetch(request.url, { method: request.method, headers: request.headers, body: request.body, signal: timeout.signal })
+    return { ok: response.ok, status: response.status, text: await response.text() }
+  } catch (error) {
+    if (!signal.aborted && timeout.signal.reason instanceof WebSearchServiceError) throw timeout.signal.reason
+    throw error
+  } finally {
+    clearTimeout(timer)
+    signal.removeEventListener('abort', stop)
+  }
 }
 
 /** 调用搜索服务，返回来源列表；失败时抛出带中文说明的错误。 */
 export async function searchWeb(config: WebSearchServiceConfig, query: string, signal: AbortSignal): Promise<ChatSource[]> {
   const info = WEB_SEARCH_PROVIDERS[config.provider]
   if (!info) throw new WebSearchServiceError('NO_SERVICE', '请先在设置中选择联网搜索服务。')
-  if (info.needsKey && !config.apiKey.trim()) throw new WebSearchServiceError('NO_KEY', `请先在设置中填写${info.label}的 API 密钥。`)
+  if (info.needsKey && !config.apiKey.trim()) throw new WebSearchServiceError('NO_KEY', `这个模型需要借助搜索服务联网：请在“设置 → 联网搜索”填写${info.label}的 API 密钥（也可以换其他服务）；通义、智谱、豆包模型可以直接用自带的搜索。`)
   if (config.apiKey.startsWith('enc:') || config.apiKey.includes('***')) throw new WebSearchServiceError('BAD_KEY', '搜索服务的 API 密钥是密文或遮蔽文本，请重新填写。')
   const trimmed = query.replace(/\s+/g, ' ').trim().slice(0, 200)
   if (!trimmed) throw new WebSearchServiceError('EMPTY_QUERY', '没有可搜索的问题内容。')
@@ -172,7 +185,9 @@ export async function searchWeb(config: WebSearchServiceConfig, query: string, s
   catch (error) {
     if (signal.aborted) throw signal.reason
     if (error instanceof WebSearchServiceError) throw error
-    throw new WebSearchServiceError('SEARCH_SERVICE_CONNECTION_FAILED', `没有连上${info.label}，请检查网络或服务地址。`)
+    throw new WebSearchServiceError('SEARCH_SERVICE_CONNECTION_FAILED', config.provider === 'firecrawl'
+      ? '没有连上 Firecrawl。它需要境外网络，国内网络通常无法使用；可以在“设置 → 联网搜索”改用博查或智谱，或使用通义、智谱、豆包模型自带的搜索。'
+      : `没有连上${info.label}，请检查网络或服务地址。`)
   }
   if (!response.ok) throw httpError(response.status, info.label)
   let data: unknown
@@ -187,21 +202,9 @@ export interface WebSearchOutcome {
   fallbackReason?: string
 }
 
-/** 按设置搜索；所选服务不可用或出错且允许退回时，改用免费搜索。 */
+/** 按设置搜索。1.1.3 起不再自动改用 Firecrawl（国内网络通常连不上），只使用用户配置的服务。 */
 export async function searchWebWithFallback(config: WebSearchServiceConfig, query: string, signal: AbortSignal): Promise<WebSearchOutcome> {
-  const free = { ...FREE_WEB_SEARCH_SERVICE, count: config.count }
-  if (!isWebSearchServiceConfigured(config)) {
-    if (!config.freeFallback) return { sources: await searchWeb(config, query, signal), provider: config.provider }
-    const reason = config.provider === 'firecrawl' ? '' : `未设置${WEB_SEARCH_PROVIDERS[config.provider]?.label || '搜索服务'}的 API 密钥`
-    return { sources: await searchWeb(free, query, signal), provider: 'firecrawl', ...(reason ? { fallbackReason: reason } : {}) }
-  }
-  try {
-    return { sources: await searchWeb(config, query, signal), provider: config.provider }
-  } catch (error) {
-    if (signal.aborted || !config.freeFallback || config.provider === 'firecrawl') throw error
-    const reason = error instanceof Error ? error.message : '所选搜索服务没有完成搜索'
-    return { sources: await searchWeb(free, query, signal), provider: 'firecrawl', fallbackReason: reason }
-  }
+  return { sources: await searchWeb(config, query, signal), provider: config.provider }
 }
 
 /** 把搜索结果整理成交给模型的参考资料。 */

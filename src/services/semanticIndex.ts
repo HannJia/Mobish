@@ -15,6 +15,7 @@ import type { EvidenceRef } from '@/types/reconstruction'
 import type { CanonMutationRecord } from '@/types/reconstruction'
 import type { MemoryKnowledgeEdge } from '@/types/characterMemory'
 import { entrySourceVersion, getCurrentEntrySummary } from './knowledgeSources'
+import { knowledgeSections } from './knowledgeSections'
 import type { Novel, Chapter, Character, EventLogEntry, DataPanelItem, ChapterPlanHorizon, ChapterPlanStatus, StoryArcType, StoryArcStatus, StoryArcNode } from '@/types/novel'
 import type { KnowledgeBase } from '@/stores/knowledge'
 import type { EmbeddingConfig } from '@/stores/config'
@@ -397,9 +398,13 @@ function knowledgeRecords(novelId: string, kb: KnowledgeBase, entry: KnowledgeBa
   const id = novelId + ':knowledge:' + kb.id + ':' + entry.id
   const title = '知识库/' + kb.name + '/' + entry.title
   const metadata = { kbId: kb.id, category: entry.category, tags: entry.tags, sourceVersionId: entrySourceVersion(kb.id, entry) }
-  const records: SemanticRecord[] = splitMemoryText(entry.content).map((content, index) => ({
+  // 按标题小节切分（与关键词检索一致），每段带上标题路径，向量检索时能命中具体小节
+  const records: SemanticRecord[] = knowledgeSections(entry).flatMap(section => {
+    const heading = section.path.join(' / ')
+    return splitMemoryText(heading ? heading + '\n' + section.text : section.text).map(content => ({ heading, content }))
+  }).map(({ heading, content }, index) => ({
     id: index === 0 ? id : id + ':chunk:' + index, novelId, sourceType: 'knowledge', sourceId: entry.id,
-    title: title + ' 原文片段' + (index + 1), content, metadata: { ...metadata, chunkType: 'content', chunkIndex: index },
+    title: title + (heading ? ' · ' + heading : ' 原文片段' + (index + 1)), content, metadata: { ...metadata, chunkType: 'content', chunkIndex: index },
   }))
   // A compressed summary cannot replace the source evidence it may omit.
   splitMemoryText(getCurrentEntrySummary(kb.id, entry)).forEach((content, index) => records.push({

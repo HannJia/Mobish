@@ -310,7 +310,8 @@ describe('模型原始名称与配置备注', () => {
         expect(documents[index].attributes('tabindex')).toBe('0')
         expect(documents[index].attributes('aria-label')).toBeTruthy()
       })
-      expect(fetch).not.toHaveBeenCalled()
+      // 许可原文离线可读；关于页唯一的请求是 GitHub Star 数
+      expect(fetch.mock.calls.map(call => String(call[0])).filter(url => !url.startsWith('https://api.github.com/repos/HannJia/mobish'))).toEqual([])
     } finally {
       fetch.mockRestore()
     }

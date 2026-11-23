@@ -858,4 +858,21 @@ describe('inspiration search controls', () => {
     ])
     wrapper.unmount()
   })
+
+  it('shares the knowledge selection with the creation entry (1.1.3)', async () => {
+    const knowledge = useKnowledgeStore()
+    const a = knowledge.createKB('地方志')
+    knowledge.createKB('兵制考')
+    const wrapper = mountChat()
+    await wrapper.setProps({ sharedKnowledgeIds: [a.id] })
+    vi.mocked(chatInspiration).mockResolvedValue({ content: '好的。' })
+    await wrapper.get('textarea').setValue('只参考地方志')
+    await button(wrapper, '发送').trigger('click')
+    await flushPromises()
+    expect(vi.mocked(chatInspiration).mock.calls[vi.mocked(chatInspiration).mock.calls.length - 1][5]).toEqual([a.id])
+    wrapper.findAllComponents({ name: 'V3Select' }).find(select => select.attributes('aria-label') === '灵感参考知识库')!.vm.$emit('update:value', [])
+    const changes = wrapper.emitted('knowledge-change')!
+    expect(changes[changes.length - 1]).toEqual([[]])
+    wrapper.unmount()
+  })
 })

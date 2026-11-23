@@ -45,10 +45,15 @@
         <h2>{{ setupMethod ? creationSetupLabels[setupMethod] : '' }}</h2>
         <p>保存创建输入后，依次编辑作品契约、比较骨架候选并确认规划。</p>
         <label>作品名称（可稍后填写）<V3Input v-model:value="form.workingTitle" :disabled="creating || !!createdNovelId" placeholder="可在作品契约中继续修改" aria-label="新作品名称" /></label>
+        <div v-if="availableKnowledgeBases.length" class="entry-knowledge">
+          <span class="entry-knowledge-label">参考知识库（选填）</span>
+          <V3Select v-model:value="entryKnowledgeIds" multiple :options="entryKnowledgeOptions" :disabled="creating || !!createdNovelId" aria-label="参考知识库" />
+          <small>灵感对话和这部作品共用这里的选择；作品创建后会自动挂载，之后也可以在设定里修改。</small>
+        </div>
         <template v-if="setupMethod === 'inspiration'">
           <label>一句话灵感<V3Input v-model:value="ideaSentence" type="textarea" :rows="4" :maxlength="4000" :disabled="creating || !!createdNovelId" aria-label="一句话灵感" placeholder="一个人物、一个冲突或一个场景，就可以作为起点" /></label>
-          <label class="m-check"><input v-model="includeInspirationHistory" type="checkbox" :disabled="creating || !!createdNovelId || !inspirationHistory.length">一并保存当前灵感讨论（{{ inspirationHistory.length }} 条）</label>
-          <button type="button" class="m-btn entry-chat-btn" :disabled="creating || !!createdNovelId" @click="openInspirationDiscussion"><V3Icon name="chat" size="s" />{{ ideaSentence.trim() ? '发送灵感并开始讨论' : '继续已有讨论 / 展开灵感对话' }}</button>
+          <label class="m-check entry-history-check"><input v-model="includeInspirationHistory" type="checkbox" :disabled="creating || !!createdNovelId || !inspirationHistory.length">一并保存当前灵感讨论（{{ inspirationHistory.length }} 条）</label>
+          <button type="button" class="m-btn pri entry-chat-btn" :disabled="creating || !!createdNovelId" @click="openInspirationDiscussion"><V3Icon name="chat" size="s" />{{ ideaSentence.trim() ? '发送灵感并开始讨论' : inspirationHistory.length ? `继续讨论（${inspirationHistory.length} 条）` : '展开灵感对话' }}<V3Icon name="chevR" size="s" /></button>
           <p>填写灵感后，点击上方按钮会直接发送并开始讨论；留空可继续已有对话。创建时可一并保存讨论记录。</p>
         </template>
         <CreationOutlineInput v-if="setupMethod === 'outline'" v-model="outlineInput" :saved="outlineSaved"
@@ -67,7 +72,7 @@
       </section>
     </div>
     <inspiration-chat v-show="showInspiration"
-      :active="showInspiration" :form="form" :initial-idea="ideaSentence" :start-request="discussionStart" @apply="applyInspiration" @draft-change="updateInspirationDraft" @history-change="handleInspirationHistoryChange" />
+      :active="showInspiration" :form="form" :initial-idea="ideaSentence" :start-request="discussionStart" :shared-knowledge-ids="entryKnowledgeIds" @knowledge-change="ids => entryKnowledgeIds = ids" @apply="applyInspiration" @draft-change="updateInspirationDraft" @history-change="handleInspirationHistoryChange" />
     <div v-show="showSettings" class="wizard-body">
 
 
@@ -624,6 +629,12 @@ const showEntry = computed(() => !choosingCreationOptions.value && !!setupMethod
 const showInspiration = computed(() => showEntry.value && setupMethod.value === 'inspiration' && discussingInspiration.value)
 const showSettings = computed(() => !choosingCreationOptions.value && (setupMethod.value === 'custom' || reviewingInspiration.value))
 const availableKnowledgeBases = computed(() => knowledgeStore.knowledgeBases)
+const entryKnowledgeOptions = computed(() => availableKnowledgeBases.value.map(base => ({ label: `${base.name}（${base.entries.length} 条）`, value: base.id })))
+// 创建入口选的知识库：灵感对话和作品挂载共用
+const entryKnowledgeIds = computed<string[]>({
+  get: () => form.knowledgeEnabled ? (form.knowledgeBaseIds || []).filter(id => knowledgeStore.getKB(id)) : [],
+  set: ids => { form.knowledgeBaseIds = [...ids]; form.knowledgeEnabled = ids.length > 0 },
+})
 
 function openCreationOptions() {
   if (choosingCreationOptions.value || creating.value) return
@@ -662,14 +673,15 @@ function saveOutlineInput(value: OutlineInput) { savedOutlineInput.value = JSON.
 
 function updateInspirationDraft(settings: CreateWizardForm) {
   if (!showInspiration.value || creating.value) return
-  Object.assign(form, settings, { writingMode: form.writingMode })
+  Object.assign(form, settings, { writingMode: form.writingMode, knowledgeEnabled: form.knowledgeEnabled, knowledgeBaseIds: form.knowledgeBaseIds })
 }
 
 function applyInspiration(settings: CreateWizardForm, history: InspirationMessage[]) {
   if (!showInspiration.value || creating.value) return
   // Preparing settings never chooses who writes the prose. Keep the author's
   // current choice even if a response carries an older/different writing mode.
-  Object.assign(form, settings, { writingMode: form.writingMode })
+  // 知识库以入口处（与灵感对话共用）的选择为准
+  Object.assign(form, settings, { writingMode: form.writingMode, knowledgeEnabled: form.knowledgeEnabled, knowledgeBaseIds: form.knowledgeBaseIds })
   inspirationHistory.value = history
   includeInspirationHistory.value = true
   reviewingInspiration.value = true
@@ -1460,7 +1472,12 @@ async function handleCreate() {
 }
 
 .back-icon { transform: rotate(180deg); }
-.entry-chat-btn { justify-self: start; }
+.entry-chat-btn { justify-self: start; min-height: 40px; padding: 8px 18px; font-size: 14px; gap: 8px; }
+/* 勾选框和说明文字在同一行 */
+.creation-entry-panel .entry-knowledge { display: grid; gap: 6px; }
+.creation-entry-panel .entry-knowledge-label { font-size: 13px; color: var(--ink-2); }
+.creation-entry-panel .entry-knowledge small { color: var(--ink-3); font-size: 12px; }
+.creation-entry-panel .entry-history-check { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; justify-self: start; }
 .m-form-grid .span-2 { grid-column: 1 / -1; }
 
 /* 底部操作栏 */

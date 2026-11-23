@@ -4,7 +4,7 @@ import type { ChatSearchProtocol, ChatSearchRecord, ChatSource } from '@/types/c
 import { finishAiActivity, startAiActivity } from './aiActivity'
 import { autoSearchAdapter, type ChatSearchAdapter } from './modelProviders'
 import { readSearchPayload, SearchResponseError as SearchError } from './searchResponse'
-import { effectiveWebSearchLabel, searchContextMessage, searchWebWithFallback, WEB_SEARCH_PROVIDERS, WebSearchServiceError } from './webSearchService'
+import { effectiveWebSearchLabel, isWebSearchServiceConfigured, searchContextMessage, searchWebWithFallback, WEB_SEARCH_PROVIDERS, WebSearchServiceError } from './webSearchService'
 
 type ResolvedProtocol = Exclude<ChatSearchProtocol, 'auto'>
 /** 实际使用的联网方式：原有的四种协议，加上通义、智谱、Gemini 与独立搜索服务。 */
@@ -310,11 +310,11 @@ export async function chatWithOptionalSearch(options: AssistantChatOptions): Pro
     builtIn = await chatWithBuiltInSearch(options, mode)
   } catch (error) {
     // 内置搜索失败时改用独立搜索服务；只发送问题给搜索服务，模型密钥仍只发往原接口。
-    if (signal.aborted || !shouldFallBack(error) || !service.freeFallback) throw error
+    if (signal.aborted || !shouldFallBack(error) || !service.freeFallback || !isWebSearchServiceConfigured(service)) throw error
     const detail = error instanceof Error ? error.message.replace(/^[[^]]+]s*/, '') : '未完成'
     return chatWithSearchService(options, `模型内置搜索失败（${detail.slice(0, 160)}）`)
   }
-  if (builtIn.search?.status === 'not-used' && service.freeFallback) {
+  if (builtIn.search?.status === 'not-used' && service.freeFallback && isWebSearchServiceConfigured(service)) {
     signal.throwIfAborted()
     return chatWithSearchService(options, '模型内置搜索没有返回搜索证据')
   }

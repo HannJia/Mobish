@@ -5,6 +5,8 @@ import type { WritingSkillTask } from '@/types/skill'
 import { finishAiActivity, startAiActivity } from '@/services/aiActivity'
 import { structuredRequestFields, type StructuredOutputMode } from './aiStructuredRequest'
 import { safeAiUsage } from './aiDiagnostics'
+import { isLocalModelUrl } from './modelProviders'
+import { fetchWithParameterRetry } from './aiParameterRetry'
 import { createParser } from 'eventsource-parser'
 
 export interface ChatMessage {
@@ -166,23 +168,23 @@ async function chatCompletion(options: ChatCompletionOptions): Promise<ChatCompl
     const request = mergeSignals(signal, options.timeoutMs ?? NON_STREAM_TIMEOUT)
     try {
       request.signal.throwIfAborted()
-      const response = await fetch(url, {
+      const response = await fetchWithParameterRetry(body => fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${model.apiKey}`,
         },
-        body: JSON.stringify({
-          model: model.modelName,
-          messages: serializeChatMessages(messages),
-          max_tokens: maxTokens || model.maxTokens,
-          temperature: model.temperature,
-          top_p: model.topP,
-          stream: false,
-          ...structuredRequestFields(model, options.structuredOutput),
-          ...disableThinkingFields(model, options.disableThinking),
-        }),
+        body: JSON.stringify(body),
         signal: request.signal,
+      }), {
+        model: model.modelName,
+        messages: serializeChatMessages(messages),
+        max_tokens: maxTokens || model.maxTokens,
+        temperature: model.temperature,
+        top_p: model.topP,
+        stream: false,
+        ...structuredRequestFields(model, options.structuredOutput),
+        ...disableThinkingFields(model, options.disableThinking),
       })
 
       if (!response.ok) {
@@ -220,17 +222,17 @@ async function chatCompletionStream(options: ChatCompletionOptions): Promise<Cha
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   try {
     request.signal.throwIfAborted()
-    const response = await fetch(url, {
+    const response = await fetchWithParameterRetry(body => fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${model.apiKey}` },
-      body: JSON.stringify({
-        model: model.modelName, messages: serializeChatMessages(messages),
-        max_tokens: maxTokens || model.maxTokens, temperature: model.temperature,
-        top_p: model.topP, stream: true,
-        ...structuredRequestFields(model, options.structuredOutput),
-        ...disableThinkingFields(model, options.disableThinking),
-      }),
+      body: JSON.stringify(body),
       signal: request.signal,
+    }), {
+      model: model.modelName, messages: serializeChatMessages(messages),
+      max_tokens: maxTokens || model.maxTokens, temperature: model.temperature,
+      top_p: model.topP, stream: true,
+      ...structuredRequestFields(model, options.structuredOutput),
+      ...disableThinkingFields(model, options.disableThinking),
     })
     if (!response.ok) throw new Error(`API 请求失败 (${response.status}): ${await response.text()}`)
     reader = response.body?.getReader()
@@ -291,7 +293,7 @@ export async function listAvailableModels(
 ): Promise<AvailableModel[]> {
   const baseUrl = openAiV1BaseUrl(model.baseUrl)
   if (!baseUrl) throw new Error('请先填写 API Base URL')
-  if (!model.apiKey.trim()) throw new Error('请先填写 API 密钥')
+  if (!model.apiKey.trim() && !isLocalModelUrl(model.baseUrl)) throw new Error('请先填写 API 密钥')
 
   let payload: unknown
   const request = mergeSignals(signal, 30_000)

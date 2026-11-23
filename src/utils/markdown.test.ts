@@ -20,3 +20,18 @@ describe('markdown 工具', () => {
     expect(html).toContain('<code>&lt;i&gt;</code>')
   })
 })
+
+describe('renderMd tables', () => {
+  it('turns a markdown table into an html table and escapes cells', () => {
+    const html = renderMd('境界表：\n| 境界 | 寿元 |\n| --- | :-: |\n| **炼气** | 120 |\n| 筑基 | <b>200</b> |\n\n之后的段落 a|b')
+    expect(html).toContain('<table class="md-table"><thead><tr><th>境界</th><th>寿元</th></tr></thead>')
+    expect(html).toContain('<tr><td><strong>炼气</strong></td><td>120</td></tr>')
+    expect(html).toContain('<td>&lt;b&gt;200&lt;/b&gt;</td>')
+    expect(html).not.toContain('<br><table')
+    expect(html).toContain('a │ b')
+  })
+
+  it('leaves lines with pipes alone when there is no separator row', () => {
+    expect(renderMd('| 只是 | 一行 |')).not.toContain('<table')
+  })
+})
