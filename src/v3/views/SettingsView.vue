@@ -453,6 +453,13 @@
           <a href="https://github.com/HannJia/mobish#readme" target="_blank" rel="noopener noreferrer"><strong>使用说明</strong><small>查看功能介绍与使用方法。</small><span aria-hidden="true">↗</span></a>
           <a href="https://github.com/HannJia/mobish/issues" target="_blank" rel="noopener noreferrer"><strong>问题反馈</strong><small>提交使用中遇到的问题与建议。</small><span aria-hidden="true">↗</span></a>
         </nav>
+        <div class="about-diagnostics">
+          <div><strong>反馈问题时附上诊断信息</strong><small>包含版本、系统、作品和知识库数量、模型配置概况；不含作品内容、知识库内容、文件路径、API 密钥和接口地址。</small></div>
+          <div class="about-diagnostics-actions">
+            <button type="button" class="m-btn sm" data-copy-diagnostics @click="copyDiagnostics">复制诊断信息</button>
+            <button type="button" class="m-btn sm ghost" @click="saveDiagnostics">保存诊断包（.json）</button>
+          </div>
+        </div>
         <p class="about-backup-note">项目备份可在书架导出。</p>
       </section>
     </div>
@@ -490,6 +497,9 @@ import { modelConnectionFingerprint } from '@/services/modelConnectionTest'
 import { chatSearchModeOptions, splitSearchMode } from '@/services/chatSearch'
 import { detectModelProvider, EMBEDDING_PROVIDER_PRESETS, isEmbeddingModelName, isLocalModelUrl, MODEL_PROVIDER_PRESETS, RECOMMENDED_EMBEDDING_MODELS, type ChatSearchAdapter, type EmbeddingProviderPreset, type ModelProviderPreset } from '@/services/modelProviders'
 import { fetchStarCount, GITHUB_REPO_URL } from '@/services/githubStar'
+import { useNovelStore } from '@/stores/novel'
+import { useKnowledgeStore } from '@/stores/knowledge'
+import { collectDiagnostics, formatDiagnostics } from '@/services/diagnostics'
 import WebSearchServicePanel from '@/components/WebSearchServicePanel.vue'
 import { CLOUD_SYNC_AVAILABLE } from '@/services/features'
 import type { ChatSearchProtocol } from '@/types/chat'
@@ -1099,6 +1109,7 @@ async function runModelConnectionTest(model: ModelConfig, quiet = false): Promis
     let status: 'ok' | 'fail'
     let successMessage = ''
     let failureMessage = '连接测试失败'
+    let failureDetail = ''
     try {
       if (snapshot.kind === 'embedding') {
         const result = await testEmbeddingConnection({ enabled: true, baseUrl: snapshot.baseUrl, apiKey: snapshot.apiKey, modelName: snapshot.modelName, batchSize: 1 })
@@ -1109,6 +1120,7 @@ async function runModelConnectionTest(model: ModelConfig, quiet = false): Promis
         status = result.ok ? 'ok' : 'fail'
         successMessage = result.message
         failureMessage = result.message
+        failureDetail = result.detail || ''
       }
     } catch (error) {
       status = 'fail'
@@ -1122,7 +1134,7 @@ async function runModelConnectionTest(model: ModelConfig, quiet = false): Promis
       if (status === 'ok') message.success(successMessage)
       else message.error(failureMessage)
     }
-    return { ok: status === 'ok', message: status === 'ok' ? successMessage || '连接正常' : failureMessage }
+    return { ok: status === 'ok', message: status === 'ok' ? successMessage || '连接正常' : failureMessage, ...(status === 'ok' ? {} : { detail: failureDetail }) }
   } finally {
     configStore.finishModelConnectionTest(attempt)
   }
@@ -1235,6 +1247,23 @@ function openSkillModal(skill?: WritingSkill) {
   showSkillModal.value = true
 }
 const starCount = ref<number | null>(null)
+// 问题反馈的诊断信息（不含作品内容和密钥）
+function diagnosticsData() {
+  const novelStore = useNovelStore(), knowledgeStore = useKnowledgeStore()
+  return collectDiagnostics({ novels: novelStore.novels, knowledgeBases: knowledgeStore.knowledgeBases, models: configStore.models,
+    assignments: { ...configStore.assignments }, theme: theme.currentTheme, storage: configStore.securityStatus.storage })
+}
+async function copyDiagnostics() {
+  try { await navigator.clipboard.writeText(formatDiagnostics(diagnosticsData())); message.success('诊断信息已复制，可以粘贴到问题反馈里') }
+  catch { message.error('复制失败，请改用“保存诊断包”') }
+}
+function saveDiagnostics() {
+  const blob = new Blob([JSON.stringify(diagnosticsData(), null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = `mobish-diagnostics-${new Date().toISOString().slice(0, 10)}.json`
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+}
 watch(activeTab, tab => {
   if (tab === 'skills' && !showSkillModal.value && configStore.skills.length) openSkillModal(configStore.skills[0])
   // 只在打开关于页时取 Star 数（缓存一天，失败不提示）
@@ -1834,6 +1863,11 @@ function handleDeleteSkill(id: string) {
 .about-links small { color: var(--ink-2); font-size: 14px; }
 .about-links a.about-star strong { color: var(--zhu); }
 .about-links a.about-star > span { color: var(--zhu); }
+.about-diagnostics { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; }
+.about-diagnostics strong { display: block; font-size: 14px; }
+.about-diagnostics small { color: var(--ink-3); font-size: 12px; line-height: 1.6; }
+.about-diagnostics > div:first-child { flex: 1 1 320px; }
+.about-diagnostics-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .about-backup-note { margin-top: 20px; font-size: 13px; color: var(--ink-2); }
 @media (max-width: 650px) { .about-links a { grid-template-columns: minmax(0, 1fr) 24px; gap: 6px; } .about-links small { grid-column: 1; grid-row: 2; } .about-links a > span { grid-column: 2; grid-row: 1 / 3; } }
 .workflow-rounds-value { color: var(--zhu); font-size: 17px; font-variant-numeric: tabular-nums; margin: 0 3px; }

@@ -86,7 +86,7 @@ watch(index, value => {
 })
 
 function switchTheme(name: ThemeName) {
-  try { theme.switchTheme(name); toast('主题：' + THEME_LABEL[name]) } catch { toast('主题偏好无法保存', { error: true }) }
+  try { theme.switchTheme(name); toast('主题：' + THEME_LABEL[name], { group: 'theme' }) } catch { toast('主题偏好无法保存', { error: true }) }
 }
 function run(it: Item) { emit('close'); it.run() }
 function onKey(event: KeyboardEvent) {

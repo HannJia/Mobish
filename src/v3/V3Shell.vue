@@ -160,7 +160,7 @@ async function retrySave() {
 
 function cycleTheme() {
   const next = nextTheme(theme.currentTheme)
-  try { theme.switchTheme(next); toast('主题：' + THEME_LABEL[next]) } catch { toast('主题偏好无法保存', { error: true }) }
+  try { theme.switchTheme(next); toast('主题：' + THEME_LABEL[next], { group: 'theme' }) } catch { toast('主题偏好无法保存', { error: true }) }
 }
 
 const guideOpen = ref(false)

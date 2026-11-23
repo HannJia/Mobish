@@ -6,7 +6,25 @@
     </div>
     <div class="inspiration-workspace" :class="{ 'show-settings': compactPanel === 'settings' }">
       <main class="inspiration-conversation paper-panel">
-        <header class="inspiration-heading"><h2>从一个想法开始</h2><p>和墨笔生花一起梳理灵感，把模糊的想法变成清晰的故事。</p></header>
+        <header class="inspiration-heading">
+          <div><h2>从一个想法开始</h2><p>和墨笔生花一起梳理灵感，把模糊的想法变成清晰的故事。</p></div>
+          <div ref="headingKnowledge" class="heading-knowledge" @keydown.esc.stop="knowledgePickerOpen = false">
+            <button type="button" class="heading-knowledge-btn" :class="{ on: knowledgeIds.length }" :aria-expanded="knowledgePickerOpen"
+              data-heading-knowledge @click="knowledgePickerOpen = !knowledgePickerOpen">
+              <V3Icon name="book" size="s" />
+              <span>{{ knowledgeIds.length ? '参考知识库：' + knowledgeNames : '未挂载知识库' }}</span>
+              <V3Icon name="chevD" size="s" />
+            </button>
+            <div v-if="knowledgePickerOpen" class="heading-knowledge-pop" role="dialog" aria-label="选择参考知识库">
+              <div v-if="!knowledge.knowledgeBases.length" class="heading-knowledge-empty">还没有知识库，可以在左侧“知识库”中导入资料。</div>
+              <label v-for="option in knowledgeOptions" :key="option.value" class="m-check">
+                <input type="checkbox" :checked="knowledgeIds.includes(option.value)" :disabled="busy"
+                  @change="toggleKnowledge(option.value, ($event.target as HTMLInputElement).checked)">{{ option.label }}
+              </label>
+              <small>灵感对话会参考所选知识库；创建作品时同一份选择会自动挂载。</small>
+            </div>
+          </div>
+        </header>
         <details ref="historyDetails" class="inspiration-options" @toggle="optionsOpen = ($event.target as HTMLDetailsElement).open"><summary><V3Icon name="chevR" size="s" class="options-arrow" /><span>对话选项 · 历史与参考资料</span><small>{{ optionsOpen ? '点击收起' : '点击展开' }}</small></summary>
     <div class="inspiration-search-toolbar">
       <span>{{ webSearch ? '允许按需搜索近期事件和背景；查询词可能外发并额外计费。' : '未启用网页搜索；灵感对话仍需调用已配置 API。' }}</span>
@@ -84,16 +102,19 @@
         <div class="inspiration-send-group">
           <button type="button" class="inspiration-search-toggle" :class="{ enabled: webSearch }" :aria-pressed="webSearch"
             :title="webSearch ? '已开启联网：允许按需搜索近期事件和背景，查询词可能外发并额外计费；下条消息生效' : '未开启联网；点击开启，下条消息生效'" @click="webSearch = !webSearch">联网{{ webSearch ? '开' : '关' }}</button>
-          <div v-if="contextStatus" class="inspiration-context-status" role="status">
+          <div class="inspiration-context-status" :class="{ empty: !contextStatus }" role="status">
             <button type="button" class="inspiration-context-summary" :aria-label="contextTooltip">
               <span class="inspiration-context-ring" :style="{ background: contextRingBackground }" aria-hidden="true"></span>
             </button>
             <div class="inspiration-context-tooltip" role="tooltip">
               <strong>背景信息窗口：</strong>
+              <span v-if="!contextStatus">还没有对话内容；聊天越多占用越多，接近上限时自动压缩较早的对话。</span>
+              <template v-else>
               <span>{{ contextPercent }}% 已用（剩余 {{ contextRemainingPercent }}%）</span>
               <span>已用 {{ contextLength.toLocaleString() }} 字符，共 {{ INSPIRATION_CONTEXT_BUDGET.toLocaleString() }} 字符</span>
               <span v-if="compacting">{{ compactionProgress }}</span>
               <span v-else-if="compressedMessageCount">已压缩前 {{ compressedMessageCount }} 条消息</span>
+              </template>
             </div>
             <progress class="inspiration-context-progress-native" :value="contextPercent" max="100"
               aria-label="灵感对话上下文使用量"></progress>
@@ -202,6 +223,17 @@ const knowledgeIds = computed<string[]>({
 const knowledgeOptions = computed(() => knowledge.knowledgeBases.map(base => ({
   label: `${base.name}（${base.entries.length} 条）`, value: base.id,
 })))
+const knowledgePickerOpen = ref(false)
+const headingKnowledge = ref<HTMLElement | null>(null)
+function closeKnowledgePicker(event: MouseEvent) {
+  if (knowledgePickerOpen.value && !headingKnowledge.value?.contains(event.target as Node)) knowledgePickerOpen.value = false
+}
+onMounted(() => document.addEventListener('click', closeKnowledgePicker))
+onBeforeUnmount(() => document.removeEventListener('click', closeKnowledgePicker))
+const knowledgeNames = computed(() => knowledgeIds.value.map(id => knowledge.getKB(id)?.name).filter(Boolean).join('、'))
+function toggleKnowledge(id: string, checked: boolean) {
+  knowledgeIds.value = checked ? [...new Set([...knowledgeIds.value, id])] : knowledgeIds.value.filter(item => item !== id)
+}
 const showKnowledgeDraft = ref(false)
 const knowledgeDraft = ref('')
 const composing = ref(false)
@@ -673,6 +705,8 @@ onBeforeUnmount(() => { persistCurrentHistory(); stop() })
   padding: 0; border: 0; border-radius: 6px; background: transparent; cursor: help; }
 .inspiration-context-summary:focus-visible { outline: 2px solid var(--zhu); outline-offset: 2px; }
 .inspiration-context-ring { position: relative; display: inline-block; width: 22px; height: 22px; flex: 0 0 22px; border-radius: 50%; }
+/* 没有消息时圆环为灰色，但一直显示，避免发第一条消息时挤动旁边按钮 */
+.inspiration-context-status.empty .inspiration-context-ring { background: var(--line) !important; opacity: .7; }
 .inspiration-context-ring::after { content: ''; position: absolute; inset: 4px; border-radius: 50%; background: var(--paper); }
 .inspiration-context-tooltip { position: absolute; z-index: 5; bottom: calc(100% + 8px); right: 0; display: flex; flex-direction: column; gap: 3px;
   width: max-content; max-width: min(280px, calc(100vw - 160px)); padding: 9px 11px; border-radius: 9px;
@@ -704,7 +738,14 @@ onBeforeUnmount(() => { persistCurrentHistory(); stop() })
 .inspiration-panel-switch { display: none; }
 .inspiration-workspace { flex: 1; display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(320px, 1fr); grid-template-rows: minmax(0, 1fr); gap: 16px; width: 100%; min-height: 0; }
 .inspiration-conversation { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 24px; overflow: hidden; }
-.inspiration-heading { flex-shrink: 0; }
+.inspiration-heading { flex-shrink: 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.heading-knowledge { position: relative; flex: 0 1 auto; min-width: 0; max-width: 46%; }
+.heading-knowledge-btn { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 6px 12px; border: 1px dashed var(--line-2); border-radius: 8px; background: var(--paper); color: var(--ink-3); font-size: 13px; cursor: pointer; }
+.heading-knowledge-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.heading-knowledge-btn.on { border-style: solid; border-color: var(--dai); color: var(--dai); background: var(--dai-soft); }
+.heading-knowledge-btn:hover { border-color: var(--dai); color: var(--dai); }
+.heading-knowledge-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: 300px; max-width: 80vw; display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--paper); box-shadow: var(--shadow-2, 0 6px 24px rgba(0,0,0,.12)); }
+.heading-knowledge-pop small, .heading-knowledge-empty { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.6; }
 .inspiration-heading h2 { font-size: 30px; margin: 0 0 6px; }
 .inspiration-heading p { color: var(--ink-2); font-size: 14px; line-height: 1.7; }
 .inspiration-options { flex-shrink: 0; max-height: 30%; overflow-y: auto; margin: 12px 0; color: var(--ink-2); font-size: 12px; }

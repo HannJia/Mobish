@@ -9,11 +9,24 @@
           <div class="card-heading"><h4>{{ card.title }}</h4><button type="button" :aria-label="`${contractCardConfirmed(form, card.id) ? '撤销确认' : '确认'}${card.title}`" :aria-pressed="contractCardConfirmed(form, card.id)" @click="toggle(card.id)">{{ contractCardConfirmed(form, card.id) ? '✓ 已确认' : '确认' }}</button></div>
           <button v-if="editingCard !== card.id" type="button" class="card-summary" :aria-label="'编辑' + card.title" @click="editingCard = card.id">{{ cardSummary(card.id) }}</button>
           <div v-else class="card-fields">
-          <label v-for="key in card.fields" :key="key">{{ labels[key] }}
+          <template v-for="key in card.fields" :key="key">
+          <label>{{ labels[key] }}
             <select v-if="key === 'format'" aria-label="作品形式" :value="form.format" @change="setField(key, ($event.target as HTMLSelectElement).value)"><option value="serial">连载</option><option value="complete">完结作品</option><option value="undecided">暂不确定</option></select>
             <input v-else-if="key === 'targetWordCountMin' || key === 'targetWordCountMax'" :aria-label="labels[key]" type="number" min="1" :value="form[key]" @input="setField(key, ($event.target as HTMLInputElement).value)" />
             <textarea v-else :aria-label="labels[key]" :value="Array.isArray(form[key]) ? (form[key] as string[]).join('\n') : form[key]" :rows="card.id === 'rules' ? 2 : 1" :placeholder="card.id === 'rules' ? '每行一条，也可填写暂无' : '填写方向或暂不确定'" @input="setField(key, ($event.target as HTMLTextAreaElement).value)"></textarea>
           </label>
+          <div v-if="key === 'title'" class="title-suggest" data-title-suggest>
+            <button type="button" class="title-suggest-btn" :disabled="busy || exploring || titleBusy" @click="loadTitles">{{ titleBusy ? '正在想书名…' : titleOptions.length ? '换一批' : 'AI 推荐书名' }}</button>
+            <span v-if="titleError" class="title-suggest-error" role="alert">{{ titleError }}</span>
+            <div v-if="titleOptions.length" class="title-suggest-list" role="list" aria-label="书名候选">
+              <button v-for="option in titleOptions" :key="option.title" type="button" role="listitem" class="title-suggest-option"
+                :class="{ on: form.title === option.title }" :title="option.reason" @click="setField('title', option.title)">
+                <strong>{{ option.title }}</strong><small v-if="option.reason">{{ option.reason }}</small>
+              </button>
+            </div>
+            <small class="title-suggest-note">点选候选即可填入，也可以直接在上面输入自己的书名。</small>
+          </div>
+          </template>
           <button type="button" class="collapse-card" @click="editingCard = ''">收起编辑</button>
           </div>
         </fieldset>
@@ -37,6 +50,8 @@ import { computed, ref, watch } from 'vue'
 import { createEmptyCreationDraft, validateCreationStage, type ContractExploration, type ContractSuggestion, type StoryContract } from '@/types/reconstruction'
 import { adoptContractSuggestion, contractCards, contractCardConfirmed, materializeContractConfirmations, toggleContractCard } from '@/services/storyContract'
 import ContractExplorationPanel from './ContractExplorationPanel.vue'
+import { useConfigStore } from '@/stores/config'
+import { suggestTitles, type TitleSuggestion } from '@/services/titleSuggestions'
 
 const props = defineProps<{ contract: StoryContract; exploration?: ContractExploration; busy?: boolean; cancelable?: boolean; flush?: () => Promise<void> }>()
 const emit = defineEmits<{ save: [contract: StoryContract]; confirm: [contract: StoryContract]; cancel: []; change: [contract: StoryContract, exploration?: ContractExploration]; exploring: [busy: boolean] }>()
@@ -45,6 +60,23 @@ const form = ref(materializeContractConfirmations(clone(props.contract)))
 const exploring = ref(false)
 const adoptionError = ref('')
 const editingCard = ref('')
+// AI 推荐书名：只给候选，作者点选后才填入
+const config = useConfigStore()
+const titleOptions = ref<TitleSuggestion[]>([])
+const titleBusy = ref(false)
+const titleError = ref('')
+const titleHistory: string[] = []
+async function loadTitles() {
+  const model = config.getModelForTask('chat') || config.getModelForTask('outline')
+  if (!model) { titleError.value = '请先在设置中配置对话模型'; return }
+  titleBusy.value = true; titleError.value = ''
+  try {
+    const titles = await suggestTitles(model, clone(form.value), titleHistory.slice(-20))
+    titleHistory.push(...titles.map(item => item.title))
+    titleOptions.value = titles
+  } catch (error) { titleError.value = errorText(error, '推荐书名失败') }
+  finally { titleBusy.value = false }
+}
 watch(() => props.contract, value => {
   const next = materializeContractConfirmations(clone(value))
   if (JSON.stringify(form.value) !== JSON.stringify(next)) form.value = next
@@ -90,6 +122,16 @@ const confirmedCount = computed(() => contractCards.filter(card => contractCardC
 const issues = computed(() => validateCreationStage({ ...createEmptyCreationDraft({ id: 'validation', now: '' }), contract: form.value }))
 </script>
 <style scoped>
+.title-suggest { display: grid; gap: 8px; margin: -2px 0 10px; }
+.title-suggest-btn { justify-self: start; padding: 4px 12px; border: 1px solid var(--zhu); border-radius: 999px; background: var(--zhu-soft); color: var(--zhu); font-size: 12px; font-weight: 600; cursor: pointer; }
+.title-suggest-btn:disabled { opacity: .6; cursor: default; }
+.title-suggest-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+.title-suggest-option { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--paper); text-align: left; cursor: pointer; }
+.title-suggest-option strong { font: 600 15px var(--f-serif); color: var(--ink); }
+.title-suggest-option small { color: var(--ink-3); font-size: 11px; line-height: 1.5; }
+.title-suggest-option:hover, .title-suggest-option.on { border-color: var(--zhu); background: var(--zhu-soft); }
+.title-suggest-note, .title-suggest-error { color: var(--ink-3); font-size: 11px; }
+.title-suggest-error { color: var(--zhu); }
 .story-contract {
   display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px 20px; align-items: stretch; width: 100%; color: var(--ink); }
 form { display: contents; }

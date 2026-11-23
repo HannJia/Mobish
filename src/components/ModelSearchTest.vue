@@ -2,7 +2,7 @@
   <div class="model-search-test" :class="{ 'model-search-test--compact': compact }">
     <p v-if="!compact || busy || result || cancelled" class="search-protocol">{{ description }}<span v-if="!result"> · 尚未验证服务商能力</span></p>
     <div class="search-actions">
-      <button type="button" :class="btnClass" :aria-busy="busy" :disabled="busy || !model.baseUrl.trim() || !model.modelName.trim() || !model.apiKey.trim()"
+      <button type="button" :class="btnClass" :aria-busy="busy" :disabled="busy || !model.baseUrl.trim() || !model.modelName.trim() || (!model.apiKey.trim() && !isLocalModelUrl(model.baseUrl))"
         @click="confirmTest"><V3Icon name="search" size="s" />{{ connection ? '测试' : '测试联网' }}</button>
       <button v-if="busy" type="button" :class="btnClass" @click="stop"><V3Icon name="stop" size="s" />停止测试</button>
       <button v-if="result" type="button" class="m-btn ghost" :class="compact ? 'xs' : 'sm'" @click="copyDiagnostic"><V3Icon name="file" size="s" />复制诊断</button>
@@ -12,6 +12,8 @@
       <strong>{{ heading }}</strong>
       <template v-if="connectionResult">
         <p><b>对话：</b>{{ connectionResult.message }}</p>
+        <p v-if="!connectionResult.ok && connectionResult.message.includes('（403）')" class="search-detail-note">{{ MODEL_LIST_NOT_PERMISSION }}</p>
+        <details v-if="!connectionResult.ok && connectionResult.detail" class="search-raw"><summary>服务商原始返回</summary><pre>{{ connectionResult.detail }}</pre></details>
         <p><b>联网：</b>{{ result.message }}</p>
       </template>
       <p v-else>{{ result.message }}</p>
@@ -27,6 +29,8 @@ import { useDialog, useMessage } from '@/v3/feedback'
 import V3Icon from '@/v3/components/V3Icon.vue'
 import type { ModelConfig } from '@/stores/config'
 import { searchProtocolDescription, testChatSearch, type ChatSearchTestResult } from '@/services/chatSearch'
+import { MODEL_LIST_NOT_PERMISSION } from '@/services/aiErrorExplain'
+import { isLocalModelUrl } from '@/services/modelProviders'
 
 /**
  * 联网测试。传入 connection 时先测对话，再测联网，结果分两行显示，哪一步出错就提示哪一步；
@@ -35,7 +39,7 @@ import { searchProtocolDescription, testChatSearch, type ChatSearchTestResult } 
 const props = defineProps<{
   model: ModelConfig
   compact?: boolean
-  connection?: (model: ModelConfig) => Promise<{ ok: boolean; message: string }>
+  connection?: (model: ModelConfig) => Promise<{ ok: boolean; message: string; detail?: string }>
 }>()
 const dialog = useDialog()
 const message = useMessage()
@@ -43,7 +47,7 @@ const busy = ref(false)
 const cancelled = ref(false)
 const step = ref<'connection' | 'search'>('search')
 const result = ref<ChatSearchTestResult | null>(null)
-const connectionResult = ref<{ ok: boolean; message: string } | null>(null)
+const connectionResult = ref<{ ok: boolean; message: string; detail?: string } | null>(null)
 const testedAt = ref('')
 const btnClass = computed(() => ['m-btn', props.compact ? 'xs ghost' : 'sm'])
 const description = computed(() => searchProtocolDescription(props.model))
@@ -136,6 +140,9 @@ onBeforeUnmount(stop)
 </script>
 
 <style scoped>
+.search-detail-note { color: var(--ink-3); font-size: 12px; }
+.search-raw summary { cursor: pointer; color: var(--ink-3); font-size: 12px; }
+.search-raw pre { margin: 6px 0 0; max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; color: var(--ink-2); background: var(--panel-2, var(--paper)); padding: 8px; border-radius: 6px; }
 .model-search-test { display: grid; gap: 8px; min-width: 0; }
 .model-search-test--compact, .model-search-test--compact .search-actions { display: contents; }
 .model-search-test--compact .search-protocol, .model-search-test--compact .search-result { order: 1; flex-basis: 100%; min-width: 0; }

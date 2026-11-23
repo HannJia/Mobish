@@ -875,4 +875,23 @@ describe('inspiration search controls', () => {
     expect(changes[changes.length - 1]).toEqual([[]])
     wrapper.unmount()
   })
+
+  it('shows and toggles the mounted knowledge bases in the heading (1.1.4)', async () => {
+    const knowledge = useKnowledgeStore()
+    const a = knowledge.createKB('地方志')
+    const b = knowledge.createKB('兵制考')
+    const wrapper = mountChat()
+    await wrapper.setProps({ sharedKnowledgeIds: [] })
+    const btn = wrapper.get('[data-heading-knowledge]')
+    expect(btn.text()).toContain('未挂载知识库')
+    await btn.trigger('click')
+    const boxes = wrapper.findAll('.heading-knowledge-pop input[type=checkbox]')
+    expect(boxes).toHaveLength(2)
+    await boxes[1].setValue(true)
+    const changes = wrapper.emitted('knowledge-change')!
+    expect(changes[changes.length - 1]).toEqual([[b.id]])
+    await wrapper.setProps({ sharedKnowledgeIds: [a.id, b.id] })
+    expect(wrapper.get('[data-heading-knowledge]').text()).toContain('参考知识库：地方志、兵制考')
+    wrapper.unmount()
+  })
 })

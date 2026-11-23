@@ -7,15 +7,28 @@ export type V3ToastKind = 'success' | 'info' | 'warning' | 'error'
 export interface V3Toast { id: number; text: string; error?: boolean; kind: V3ToastKind; /** 内部错误的原始信息，可复制为诊断信息。 */ detail?: string | null }
 export const toasts = reactive<V3Toast[]>([])
 let toastSeq = 0
-function removeToast(id: number) { const i = toasts.findIndex(t => t.id === id); if (i >= 0) toasts.splice(i, 1) }
-/** 显示一条提示，返回可提前关闭它的函数。错误和警告停留更久。 */
-export function toast(text: string, options: { error?: boolean; kind?: V3ToastKind; ms?: number } = {}) {
+const toastTimers = new Map<number, ReturnType<typeof setTimeout>>()
+const toastGroups = new Map<number, string>()
+function removeToast(id: number) {
+  const i = toasts.findIndex(t => t.id === id)
+  if (i >= 0) toasts.splice(i, 1)
+  clearTimeout(toastTimers.get(id)); toastTimers.delete(id); toastGroups.delete(id)
+}
+/**
+ * 显示一条提示，返回可提前关闭它的函数。错误和警告停留更久。
+ * group：同组的新提示替换旧提示（如连续切换主题只留最后一条）；屏幕上已有完全相同的提示时不重复添加，只重新计时。
+ */
+export function toast(text: string, options: { error?: boolean; kind?: V3ToastKind; ms?: number; group?: string } = {}) {
   const kind = options.kind ?? (options.error ? 'error' : 'success')
   const described = kind === 'error' ? describeError(text) : { text, detail: null }
-  const item = { id: ++toastSeq, text: described.text, error: kind === 'error', kind, detail: described.detail }
-  toasts.push(item)
-  const timer = setTimeout(() => removeToast(item.id), options.ms ?? (item.detail ? 12000 : kind === 'error' ? 5200 : kind === 'warning' ? 4200 : 2600))
-  return () => { clearTimeout(timer); removeToast(item.id) }
+  if (options.group) for (const [id, group] of [...toastGroups]) if (group === options.group) removeToast(id)
+  const same = toasts.find(t => t.text === described.text && t.kind === kind)
+  const item = same ?? { id: ++toastSeq, text: described.text, error: kind === 'error', kind, detail: described.detail }
+  if (same) clearTimeout(toastTimers.get(same.id))
+  else toasts.push(item)
+  if (options.group) toastGroups.set(item.id, options.group)
+  toastTimers.set(item.id, setTimeout(() => removeToast(item.id), options.ms ?? (item.detail ? 12000 : kind === 'error' ? 5200 : kind === 'warning' ? 4200 : 2600)))
+  return () => removeToast(item.id)
 }
 export function toastError(error: unknown, fallback: string) {
   toast(error instanceof Error && error.message ? error.message : fallback, { error: true })

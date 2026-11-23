@@ -7,6 +7,7 @@ import { structuredRequestFields, type StructuredOutputMode } from './aiStructur
 import { safeAiUsage } from './aiDiagnostics'
 import { isLocalModelUrl } from './modelProviders'
 import { fetchWithParameterRetry } from './aiParameterRetry'
+import { explainAiError } from './aiErrorExplain'
 import { createParser } from 'eventsource-parser'
 
 export interface ChatMessage {
@@ -404,7 +405,7 @@ export async function callAI(options: ChatCompletionOptions): Promise<ChatComple
 }
 
 // 测试 API 连接
-export async function testConnection(model: ModelConfig): Promise<{ ok: boolean; message: string; latency?: number }> {
+export async function testConnection(model: ModelConfig): Promise<{ ok: boolean; message: string; detail?: string; latency?: number }> {
   const start = Date.now()
   try {
     const result = await callAI({
@@ -420,10 +421,7 @@ export async function testConnection(model: ModelConfig): Promise<{ ok: boolean;
       latency,
     }
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err)
-    return {
-      ok: false,
-      message: `连接失败：${message}`,
-    }
+    const { hint, detail } = explainAiError(err instanceof Error ? err.message : String(err))
+    return { ok: false, message: `连接失败：${hint}`, detail }
   }
 }
