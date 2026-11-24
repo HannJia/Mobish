@@ -25,11 +25,17 @@
             <div v-if="headerMenu === 'history'" class="heading-pop" role="group" aria-label="历史灵感会话">
               <button type="button" class="m-btn" @click="loadSession(null)"><V3Icon name="plus" size="s" />新建会话</button>
               <p v-if="!savedSessions.length" class="heading-knowledge-empty">还没有保存的会话。</p>
-              <button v-for="session in savedSessions" :key="session.id" type="button" class="history-session" :data-history-session="session.id"
-                :aria-current="selectedSessionId === session.id ? 'true' : undefined" @click="loadSession(session.id)">
-                <span>{{ session.title }}</span>
-                <small>{{ session.messages.length }} 条消息 · {{ sessionTime(session.updatedAt) }}</small>
-              </button>
+              <div v-for="session in savedSessions" :key="session.id" class="history-row">
+                <button type="button" class="history-session" :data-history-session="session.id"
+                  :aria-current="selectedSessionId === session.id ? 'true' : undefined" @click="loadSession(session.id)">
+                  <span>{{ session.title }}</span>
+                  <small>{{ session.messages.length }} 条消息 · {{ sessionTime(session.updatedAt) }}</small>
+                </button>
+                <button type="button" class="m-btn sm history-delete" :data-delete-history-session="session.id"
+                  :aria-label="`删除会话《${session.title}》`" title="删除会话" @click="confirmRemoveSession(session)">
+                  <V3Icon name="trash" size="s" />
+                </button>
+              </div>
             </div>
             <div v-if="headerMenu === 'knowledge'" class="heading-pop heading-knowledge-pop" role="group" aria-label="选择参考知识库">
               <div v-if="!knowledge.knowledgeBases.length" class="heading-knowledge-empty">还没有知识库，可以在左侧“知识库”中导入资料。</div>
@@ -154,7 +160,7 @@
 
 <script setup lang="ts">
 import { errorText } from '@/services/userFacingError'
-import { useMessage } from '@/v3/feedback'
+import { useDialog, useMessage } from '@/v3/feedback'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import V3Icon from '@/v3/components/V3Icon.vue'
 import V3Modal from '@/v3/components/V3Modal.vue'
@@ -207,6 +213,8 @@ const knowledge = useKnowledgeStore()
 const openedReference = ref<InspirationKnowledgeReference | null>(null)
 const referenceExcerpt = computed(() => openedReference.value && inspirationKnowledgeExcerpt(knowledge.knowledgeBases, openedReference.value))
 const sessionsStore = useInspirationSessionsStore()
+const dialog = useDialog()
+const message = useMessage()
 const history = ref<InspirationMessage[]>([])
 const initialForm: CreateWizardForm = JSON.parse(JSON.stringify(props.form))
 const discussionSettings = ref<InspirationSettingsDraft>(JSON.parse(JSON.stringify(props.form)))
@@ -215,6 +223,7 @@ const settingsMessageCount = ref<number>()
 let restoreSettingsOnOpen = false
 const savedSessions = computed(() => sessionsStore.sessions)
 const selectedSessionId = ref<string | null>(null)
+let removingSessionId: string | null = null
 const historyElement = ref<HTMLElement | null>(null)
 const compactPanel = ref<'conversation' | 'settings'>('conversation')
 const settingsCollapsed = ref(false)
@@ -398,7 +407,10 @@ function updateDiscussionSettings(form: InspirationSettingsDraft) {
 }
 
 function persistCurrentHistory() {
-  if (restoring || !sessionsStore.initialized || (!selectedSessionId.value && !hasSettingsDraft.value && !history.value.some(message => message.role === 'user') && !input.value.trim())) return
+  if (restoring || !sessionsStore.initialized) return
+  if (selectedSessionId.value) {
+    if (removingSessionId === selectedSessionId.value || !savedSessions.value.some(session => session.id === selectedSessionId.value)) return
+  } else if (!hasSettingsDraft.value && !history.value.some(message => message.role === 'user') && !input.value.trim()) return
   const id = selectedSessionId.value || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
   selectedSessionId.value = id
   const next: InspirationSession = {
@@ -440,10 +452,32 @@ function commitPendingIdea(content = '') {
   pendingIdea.value = ''
 }
 
-function loadSession(id: string | null) {
+function confirmRemoveSession(session: InspirationSession) {
+  dialog.warning({
+    title: '删除灵感会话',
+    content: `确定删除《${session.title}》的对话和草稿吗？已同步的会话也会从云端移除。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      removingSessionId = session.id
+      try {
+        await sessionsStore.remove(session.id)
+        if (selectedSessionId.value === session.id) loadSession(null, false)
+        headerMenu.value = null
+        await nextTick()
+        headingTools.value?.querySelector<HTMLButtonElement>('[data-inspiration-history]')?.focus()
+      } catch (cause) {
+        message.error(errorText(cause, '删除会话失败，请重试'))
+        return false
+      } finally { removingSessionId = null }
+    },
+  })
+}
+
+function loadSession(id: string | null, preserveCurrent = true) {
   headerMenu.value = null
-  persistCurrentHistory()
-  importedIdea.value = ''
+  if (preserveCurrent) persistCurrentHistory()
+  importedIdea.value = preserveCurrent ? '' : props.initialIdea?.trim() || ''
   pendingIdea.value = ''
   restoring = true
   try {
@@ -452,6 +486,7 @@ function loadSession(id: string | null) {
   hoveredTurn.value = null
   focusedTurn.value = null
   expandedReferences.value.clear()
+  openedReference.value = null
   showKnowledgeDraft.value = false
   saveReminder.value = undefined
   if (!id) {
@@ -718,6 +753,9 @@ watch(() => JSON.stringify(props.form), () => {
   persistCurrentHistory()
 })
 watch([input, webSearch], persistCurrentHistory, { flush: 'sync' })
+watch(() => !!selectedSessionId.value && !savedSessions.value.some(session => session.id === selectedSessionId.value), missing => {
+  if (missing && !removingSessionId) loadSession(null, false)
+})
 watch([() => props.active, () => props.initialIdea], ([active], previous) => {
   if (active) {
     if (!previous?.[0] && props.sharedKnowledgeIds && selectedKnowledgeIds.value && !props.sharedKnowledgeIds.length) {
@@ -778,6 +816,8 @@ onBeforeUnmount(() => { persistCurrentHistory(); stop() })
 }
 .heading-pop small, .heading-knowledge-empty { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.55; }
 .heading-pop .m-check { min-width: 0; overflow-wrap: anywhere; }
+.history-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.history-delete:hover { color: var(--zhu); border-color: var(--zhu); }
 .history-session {
   display: grid; gap: 2px; padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--r-s);
   background: var(--panel); color: var(--ink); text-align: left; font: inherit; cursor: pointer; overflow-wrap: anywhere;

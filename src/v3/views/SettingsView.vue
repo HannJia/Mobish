@@ -21,7 +21,14 @@
         :aria-selected="selectedNavKey === item.key"
         :tabindex="selectedNavKey === item.key ? 0 : -1"
         @click="selectNav(item.key)"
-      ><V3Icon :name="item.icon" /><span>{{ item.label }}</span></button>
+      >
+        <V3Icon :name="item.icon" />
+        <span class="settings-nav-caption">
+          <span>{{ item.label }}</span>
+          <span v-if="CLOUD_SYNC_AVAILABLE && item.key === 'cloud'" class="m-tag zhu outlined"
+            title="云同步暂未全面开放">暂未开发</span>
+        </span>
+      </button>
     </nav>
     <div ref="contentEl" class="settings-content">
       <p v-if="hasUnsavedChanges" class="settings-draft-note" role="status">有未保存的模型或技能草稿。切换条目或分区会暂存，离开设置前请保存。</p>
@@ -1912,6 +1919,7 @@ function handleDeleteSkill(id: string) {
 .settings-v3 .settings-nav-item:hover { background: var(--hover); color: var(--ink); }
 .settings-v3 .settings-nav-item[aria-selected="true"] { border-left: 0; background: var(--paper); box-shadow: var(--shadow-1); color: var(--ink); font-weight: 600; }
 .settings-v3 .settings-nav-item:focus-visible { outline: 2px solid var(--zhu); outline-offset: -2px; }
+.settings-nav-caption { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .settings-v3 .settings-content { gap: 28px; max-width: none; padding: 28px 36px 60px; overflow: auto; }
 .settings-v3 .settings-section.paper-panel { padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
 .settings-v3 .section-title { margin: 0 0 4px; color: var(--ink); font: 600 24px var(--f-serif); }
@@ -1920,7 +1928,7 @@ function handleDeleteSkill(id: string) {
 .settings-v3 .section-header { align-items: flex-start; margin-bottom: 0; }
 .settings-v3 :deep(.cloud-heading h2) { font: 600 24px var(--f-serif); }
 .settings-v3 :deep(.cloud-page-subtitle) { font-size: 13px; }
-.settings-v3 :deep(.history-panel h2) { margin: 0 0 8px; font: 600 20px var(--f-serif); }
+.settings-v3 :deep(.history-panel h2) { margin: 0; font: 600 20px var(--f-serif); }
 .settings-v3 :deep(.history-panel h3) { font: 600 16px var(--f-serif); }
 .settings-v3 :deep(.history-panel p) { color: var(--ink-3); font-size: 12px; line-height: 1.8; }
 .settings-v3 :deep(.history-panel button) { min-height: 32px; max-width: 100%; padding: 6px 12px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--paper); color: var(--ink-2); font: 12px var(--f-ui); }
@@ -1998,6 +2006,7 @@ function handleDeleteSkill(id: string) {
   .settings-v3 .settings-layout { display: flex; flex-direction: column; height: auto; }
   .settings-v3 .settings-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); flex: none; gap: 4px; padding: 10px 12px; overflow: visible; border-right: 0; border-bottom: 1px solid var(--line); }
   .settings-v3 .settings-nav-item { width: auto; min-width: 0; padding: 8px 6px; gap: 6px; white-space: normal; font-size: 12px; }
+  .settings-nav-caption { flex-wrap: wrap; }
   .settings-v3 .settings-nav-item span { min-width: 0; overflow-wrap: anywhere; }
   .settings-v3 .settings-content { padding: 20px 14px 40px; overflow: visible; }
   .settings-v3 .model-list { grid-template-columns: 1fr; }

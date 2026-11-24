@@ -6,7 +6,7 @@
       <router-link to="/breakdown" class="rail-btn" :class="{ on: area === 'breakdown' }"><V3Icon name="search" size="l" /><span>拆书</span></router-link>
       <router-link v-if="CLOUD_SYNC_AVAILABLE" :to="{ path: '/settings', query: { section: 'cloud' } }" class="rail-btn"
         :class="{ on: route.path === '/settings' && route.query.section === 'cloud' }" title="云同步设置">
-        <V3Icon name="cloud" size="l" /><span>云同步</span>
+        <span class="cloud-icon"><V3Icon name="cloud" size="l" /><V3Icon v-if="cloud.transferring" name="refresh" class="cloud-transfer" size="s" aria-hidden="true" /></span><span>云同步</span>
       </router-link>
       <router-link v-for="it in BOOK_AREAS" :key="it.area" :to="book ? areaPath(it.area, book.id) : '/'" class="rail-btn"
         :class="{ on: area === it.area }" :aria-disabled="!book" :title="book ? `${it.label} ·《${book.title}》` : '先在书架打开一部作品'">
@@ -60,7 +60,7 @@
       </button>
       <span class="status-it" :title="saveErrorText || ''"><i :class="saveErrorText ? 'warn' : saving ? 'busy' : 'ok'" />{{ saveErrorText ? '保存失败' : saving ? '正在保存' : '已保存' }}</span>
       <button v-if="CLOUD_SYNC_AVAILABLE" type="button" class="status-it" :title="cloud.statusText" @click="openCloudSettings">
-        <V3Icon name="cloud" size="s" />{{ cloud.session ? cloud.statusText : '云同步未开启' }}
+        <span class="cloud-icon"><V3Icon name="cloud" size="s" /><V3Icon v-if="cloud.transferring" name="refresh" class="cloud-transfer" size="s" aria-hidden="true" /></span>{{ cloud.session ? cloud.statusText : '云同步未开启' }}
       </button>
     </footer>
 
@@ -191,3 +191,14 @@ onMounted(() => {
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 </script>
+
+<style scoped>
+.cloud-icon { position: relative; display: inline-flex; flex: none; }
+.cloud-icon .cloud-transfer {
+  position: absolute; right: -5px; bottom: -3px; width: 11px; height: 11px;
+  border-radius: 50%; background: var(--paper); color: var(--dai);
+  animation: cloud-transfer-spin .85s linear infinite;
+}
+@keyframes cloud-transfer-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .cloud-icon .cloud-transfer { animation: none; } }
+</style>

@@ -1,6 +1,5 @@
 import type { InspirationMessage } from './inspiration'
 
-const MAX_INSPIRATION_SESSIONS = 5
 export interface InspirationSession {
   id: string
   title: string
@@ -94,7 +93,6 @@ export function parseInspirationSession(raw: unknown): InspirationSession {
     ...(value.settingsMessageCount === undefined ? {} : { settingsMessageCount: value.settingsMessageCount }) }
 }
 
-export function latestInspirationSessions(sessions: InspirationSession[]) {
+export function sortInspirationSessions(sessions: InspirationSession[]) {
   return [...sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
-    .slice(0, MAX_INSPIRATION_SESSIONS)
 }

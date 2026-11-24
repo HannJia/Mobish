@@ -393,10 +393,38 @@ describe('云同步状态机', () => {
     const novel = addBook()
     await loginAndEnable()
     await remoteEdit(`novel:${novel.id}`, '公司')
-    memory.onPull = () => { useNovelStore().getNovel(novel.id)!.title = '下载时的新编辑' }
+    expect(sync.transferring).toBe(false)
+    const observedTransfers: boolean[] = []
+    memory.onPull = () => {
+      observedTransfers.push(sync.transferring)
+      useNovelStore().getNovel(novel.id)!.title = '下载时的新编辑'
+    }
     await sync.syncNow()
+    expect(observedTransfers).toEqual([true])
+    expect(sync.transferring).toBe(false)
     expect(useNovelStore().getNovel(novel.id)?.title).toBe('下载时的新编辑')
     expect(sync.pendingConflicts[0].local).toContain('下载时的新编辑')
+  })
+  it('clears the document transfer indicator after an upload fails and after retry succeeds', async () => {
+    const novel = addBook()
+    await loginAndEnable()
+    useNovelStore().getNovel(novel.id)!.title = '待同步的新稿'
+    const observedTransfers: boolean[] = []
+    memory.onPush = async () => {
+      observedTransfers.push(sync.transferring)
+      throw new Error('上传连接中断')
+    }
+    await sync.syncNow()
+    expect(observedTransfers).toEqual([true])
+    expect(sync.transferring).toBe(false)
+    expect(sync.error).toContain('上传连接中断')
+
+    memory.onPush = async () => { observedTransfers.push(sync.transferring) }
+    await sync.syncNow()
+    expect(observedTransfers).toEqual([true, true])
+    expect(sync.transferring).toBe(false)
+    expect(sync.error).toBe('')
+    expect(memory.records.get(`novel:${novel.id}`).payload).toContain('待同步的新稿')
   })
   it('keeps a locally edited novel when another device deletes it', async () => {
     const novel = addBook()

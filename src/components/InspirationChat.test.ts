@@ -18,6 +18,8 @@ import InspirationSettingsSummary from './InspirationSettingsSummary.vue'
 import type { CreateWizardForm } from '@/types/novel'
 import { useInspirationSessionsStore } from '@/stores/inspirationSessions'
 import { parseInspirationSession } from '@/services/inspirationSessions'
+import { saveInspirationSessions } from '@/services/db/inspirationSessions'
+import { dialogs, runDialogAction } from '@/v3/feedback'
 
 vi.mock('@/services/inspiration', async original => ({
   ...await original<object>(),
@@ -30,7 +32,7 @@ vi.mock('@/services/inspiration', async original => ({
 }))
 vi.mock('@/services/db/inspirationSessions', () => ({
   loadInspirationSessions: async () => JSON.parse(localStorage.getItem('novel-writer-inspiration-sessions') || '[]').map(parseInspirationSession),
-  saveInspirationSessions: async () => {},
+  saveInspirationSessions: vi.fn(async sessions => localStorage.setItem('novel-writer-inspiration-sessions', JSON.stringify(sessions))),
 }))
 beforeEach(async () => {
   setActivePinia(createPinia()); vi.resetAllMocks(); localStorage.clear(); await useInspirationSessionsStore().initialize()
@@ -57,6 +59,34 @@ async function selectSession(wrapper: Wrapper, id: string) {
   await wrapper.get('[data-inspiration-history]').trigger('click')
   await wrapper.get(`[data-history-session="${id}"]`).trigger('click')
 }
+
+it('confirms session deletion, retains other sessions and clears a deleted current draft after saving', async () => {
+  const store = useInspirationSessionsStore()
+  store.adopt(Array.from({ length: 6 }, (_, index) => ({
+    id: `session-${index}`, title: `历史 ${index}`, updatedAt: '2026-11-24T00:00:00.000Z',
+    messages: [], knowledgeIds: null, draft: index === 0 ? '带入的灵感' : '', webSearch: false,
+  })))
+  const wrapper = mountChat(true, '带入的灵感')
+  await wrapper.get('[data-inspiration-history]').trigger('click')
+  expect(wrapper.findAll('[data-history-session]')).toHaveLength(6)
+  await wrapper.get('[data-delete-history-session="session-0"]').trigger('click')
+  await runDialogAction(dialogs[dialogs.length - 1].id, 'negative')
+  expect(store.sessions).toHaveLength(6)
+
+  await wrapper.get('[data-delete-history-session="session-0"]').trigger('click')
+  vi.mocked(saveInspirationSessions).mockRejectedValueOnce(new Error('合成写入失败'))
+  await runDialogAction(dialogs[dialogs.length - 1].id, 'positive')
+  expect(store.sessions).toHaveLength(6)
+  await runDialogAction(dialogs[dialogs.length - 1].id, 'positive')
+  expect(store.sessions.map(session => session.id)).toEqual(['session-1', 'session-2', 'session-3', 'session-4', 'session-5'])
+  expect(wrapper.get('textarea').element.value).toBe('')
+  wrapper.unmount()
+  await store.flushPendingSaves()
+  setActivePinia(createPinia())
+  const reopened = useInspirationSessionsStore()
+  await reopened.initialize()
+  expect(reopened.sessions.map(session => session.id)).toEqual(['session-1', 'session-2', 'session-3', 'session-4', 'session-5'])
+})
 
 describe('inspiration search controls', () => {
   it('keeps the save entry in the action row when knowledge citations are expanded', async () => {
@@ -862,7 +892,7 @@ describe('inspiration search controls', () => {
     wrapper.unmount()
   })
 
-  it('persists inspiration sessions and keeps only the latest five', async () => {
+  it('persists inspiration sessions in recent-first order without dropping older drafts', async () => {
     vi.mocked(chatInspiration).mockResolvedValue({ content: '回复' })
     for (let index = 0; index < 6; index++) {
       const wrapper = mountChat()
@@ -875,7 +905,7 @@ describe('inspiration search controls', () => {
     }
 
     const sessions = useInspirationSessionsStore().sessions
-    expect(sessions).toHaveLength(5)
+    expect(sessions).toHaveLength(6)
     expect(sessions[0].messages[0].content).toBe('第 6 个灵感会话')
   })
 

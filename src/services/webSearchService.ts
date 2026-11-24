@@ -145,29 +145,33 @@ interface WebSearchResponse { ok: boolean; status: number; text: string }
 export const SEARCH_TIMEOUT_MS = 30_000
 
 async function send(request: WebSearchHttpRequest, signal: AbortSignal): Promise<WebSearchResponse> {
+  signal.throwIfAborted()
   // 桌面版经主进程转发，避免搜索服务不支持跨域时请求失败；浏览器版直接请求。
-  const bridge = typeof window !== 'undefined' ? window.electronAPI?.webSearchRequest : undefined
-  if (bridge) {
-    const result = await Promise.race([
-      bridge(request),
-      new Promise<never>((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })),
-    ])
-    return result
-  }
-  // 浏览器版直接请求：网络不通时不能一直等，30 秒后超时（桌面版由主进程控制超时）
   const timeout = new AbortController()
   const timer = setTimeout(() => timeout.abort(new WebSearchServiceError('SEARCH_SERVICE_TIMEOUT', '搜索服务 30 秒内没有响应，请检查网络或换用其他搜索服务。')), SEARCH_TIMEOUT_MS)
-  const stop = () => timeout.abort(signal.reason)
-  signal.addEventListener('abort', stop, { once: true })
+  const requestSignal = AbortSignal.any([signal, timeout.signal])
   try {
-    const response = await fetch(request.url, { method: request.method, headers: request.headers, body: request.body, signal: timeout.signal })
+    const desktop = typeof window !== 'undefined' ? window.electronAPI : undefined
+    if (desktop?.webSearchRequest) {
+      const id = crypto.randomUUID()
+      let stop: (() => void) | undefined
+      const cancelled = new Promise<never>((_, reject) => {
+        stop = () => {
+          desktop.webSearchCancel?.(id)
+          reject(requestSignal.reason)
+        }
+        requestSignal.addEventListener('abort', stop, { once: true })
+      })
+      try { return await Promise.race([desktop.webSearchRequest(request, id), cancelled]) }
+      finally { if (stop) requestSignal.removeEventListener('abort', stop) }
+    }
+    const response = await fetch(request.url, { method: request.method, headers: request.headers, body: request.body, signal: requestSignal })
     return { ok: response.ok, status: response.status, text: await response.text() }
   } catch (error) {
     if (!signal.aborted && timeout.signal.reason instanceof WebSearchServiceError) throw timeout.signal.reason
     throw error
   } finally {
     clearTimeout(timer)
-    signal.removeEventListener('abort', stop)
   }
 }
 

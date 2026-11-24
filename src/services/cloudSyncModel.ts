@@ -1,7 +1,7 @@
 import type { Novel, ChapterRevision } from '@/types/novel'
 import type { KnowledgeBase } from '@/stores/knowledge'
 import { createProjectBackup, parseProjectBackup, type ProjectBackup, type ProjectWorkspaceSnapshot } from './projectBackup'
-import { latestInspirationSessions, parseInspirationSession, type InspirationSession } from './inspirationSessions'
+import { sortInspirationSessions, parseInspirationSession, type InspirationSession } from './inspirationSessions'
 
 export const DEFAULT_SYNC_ENDPOINT = 'https://154.94.227.164'
 const MAX_SYNC_DOCUMENT_BYTES = 50 * 1024 * 1024
@@ -168,5 +168,5 @@ export function mergeCloudDocuments(project: ProjectBackup, updates: Map<string,
   const available = new Set(libraries.map(kb => kb.id))
   novels = novels.map(novel => ({ ...novel, knowledgeBaseIds: novel.knowledgeBaseIds.filter(id => available.has(id)) }))
   return parseProjectBackup(JSON.stringify(createProjectBackup({ novels, knowledgeBases: libraries, chapterRevisions: revisions,
-    inspirationSessions: latestInspirationSessions(sessions), reconstructionWorkspaces: workspaces })))
+    inspirationSessions: sortInspirationSessions(sessions), reconstructionWorkspaces: workspaces })))
 }

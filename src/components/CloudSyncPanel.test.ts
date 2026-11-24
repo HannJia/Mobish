@@ -76,6 +76,7 @@ describe('cloud password forms', () => {
   it('can start the first download without selecting or approving local uploads', async () => {
     holder.store.session = { user: { username: 'author', usedBytes: 0, quotaBytes: 100, role: 'user' } }
     const wrapper = mountPanel()
+    expect(wrapper.get('.cloud-title .m-tag').text()).toBe('暂未开发')
     const toggle = wrapper.findComponent({ name: 'V3Switch' })
     expect(toggle.props('disabled')).toBe(false)
     toggle.vm.$emit('update:value', true)

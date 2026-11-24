@@ -4,7 +4,7 @@ import path from 'node:path'
 import { createPinia, setActivePinia } from 'pinia'
 import { chatWithOptionalSearch, parseSearchResponse, resolveChatSearchMode, resolveChatSearchProtocol, searchProtocolDescription } from './chatSearch'
 import { autoSearchAdapter, detectModelProvider, isEmbeddingModelName, MODEL_PROVIDER_PRESETS } from './modelProviders'
-import { buildWebSearchRequest, isWebSearchServiceConfigured, parseWebSearchResults, resolveBaseUrl, searchContextMessage, searchWebWithFallback } from './webSearchService'
+import { buildWebSearchRequest, isWebSearchServiceConfigured, parseWebSearchResults, resolveBaseUrl, SEARCH_TIMEOUT_MS, searchContextMessage, searchWeb, searchWebWithFallback } from './webSearchService'
 import { useConfigStore, type ModelConfig } from '@/stores/config'
 
 const requireLocal = createRequire(path.resolve('app-main/main.js'))
@@ -241,6 +241,27 @@ describe('search service defaults and fallback (1.1.3)', () => {
 })
 
 describe('main-process search proxy', () => {
+  it('aborts a forwarded request and times out browser requests with a distinct message', async () => {
+    const pendingFetch = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_, reject) => {
+      init.signal!.addEventListener('abort', () => reject(init.signal!.reason), { once: true })
+    }))
+    const cancel = new AbortController()
+    const config = { provider: 'searxng' as const, apiKey: '', baseUrl: 'http://127.0.0.1:8888', count: 2, freeFallback: false }
+    const proxy = createWebSearchProxy(pendingFetch)
+    const forwarded = proxy(buildWebSearchRequest(config, 'test'), cancel.signal)
+    const stopped = expect(forwarded).rejects.toMatchObject({ name: 'AbortError' })
+    cancel.abort()
+    await stopped
+
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal('fetch', pendingFetch)
+      const timedOut = expect(searchWeb(config, 'test', signal())).rejects.toMatchObject({ code: 'SEARCH_SERVICE_TIMEOUT' })
+      await vi.advanceTimersByTimeAsync(SEARCH_TIMEOUT_MS)
+      await timedOut
+    } finally { vi.useRealTimers() }
+  })
+
   it('only forwards fixed service endpoints and SearXNG JSON queries', () => {
     const ok = { provider: 'bocha', method: 'POST', url: 'https://api.bochaai.com/v1/web-search', headers: { Authorization: 'Bearer k', 'Content-Type': 'application/json' }, body: '{}' }
     expect(validateWebSearchRequest(ok).url).toBe('https://api.bochaai.com/v1/web-search')

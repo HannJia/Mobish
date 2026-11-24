@@ -248,7 +248,7 @@ function createBaseProject(): ProjectBackup {
 async function createClient(id: string, project: ProjectBackup): Promise<Client> {
   return clientContext.run(id, async () => {
     fixture.projects.set(id, clone(project))
-    fixture.novelIds.set(id, project.novels[0].id)
+    if (project.novels[0]) fixture.novelIds.set(id, project.novels[0].id)
     fixture.states.set(id, {
       binding: null, enabled: false, bases: {}, lastSync: '', approvedUploads: [], pendingUploads: [],
     })
@@ -435,6 +435,34 @@ describe('真实 FastAPI 双客户端云冲突验收', () => {
       if (typeof window !== 'undefined') window.fetch = previousFetch
     }
   })
+
+  it('downloads a library and six linked discussions to an empty device, then propagates only the explicit deletion', async () => {
+    const now = '2026-11-24T00:00:00.000Z'
+    const upload = createBaseProject()
+    upload.knowledgeBases = [{ id: 'p1-library', name: '合成资料', description: '', createdAt: now,
+      entries: [{ id: 'p1-entry', title: '渡口', category: '', content: '# 名单\n阿青守夜。', summary: '',
+        tags: ['合成'], visibility: { mode: 'never' }, createdAt: now, updatedAt: now }] }]
+    upload.novels[0].knowledgeBaseIds = ['p1-library']
+    upload.inspirationSessions = Array.from({ length: 6 }, (_, index) => ({ id: `p1-session-${index}`,
+      title: `渡口 ${index}`, updatedAt: now, messages: [], draft: `草稿 ${index}`, knowledgeIds: ['p1-library'], webSearch: false }))
+    const deviceA = await createClient('p1-A', upload)
+    expect(deviceA.sync.statusText).toBe('已同步')
+    const empty = createProjectBackup({ novels: [], knowledgeBases: [], chapterRevisions: [], inspirationSessions: [], reconstructionWorkspaces: [] })
+    const deviceB = await createClient('p1-B', empty)
+    await withClient(deviceB, () => deviceB.sync.syncNow())
+    expect(deviceB.sync.statusText).toBe('已同步')
+    expect(fixture.projects.get(deviceB.id)!.knowledgeBases).toEqual(upload.knowledgeBases)
+    expect(fixture.projects.get(deviceB.id)!.inspirationSessions).toEqual(upload.inspirationSessions)
+
+    fixture.projects.get(deviceA.id)!.inspirationSessions.shift()
+    await withClient(deviceA, () => deviceA.sync.syncNow())
+    await withClient(deviceB, () => deviceB.sync.syncNow())
+    await withClient(deviceB, () => deviceB.sync.syncNow())
+    expect((await pullRecord(tokenOf(deviceA), 'inspiration:p1-session-0')).payload).toBeNull()
+    expect(fixture.projects.get(deviceB.id)!.inspirationSessions).toEqual(upload.inspirationSessions.slice(1))
+    expect(deviceB.sync.statusText).toBe('已同步')
+    expect(deviceB.sync.transferring).toBe(false)
+  }, 30000)
 
   it('uses two independent clients for 409 preservation, local/cloud decisions and manual merge upload', async () => {
     const localProject = createBaseProject()

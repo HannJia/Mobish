@@ -13,6 +13,9 @@ import {
   inspirationSettingsSnapshot,
 } from './inspiration'
 import { parseInspirationSession } from './inspirationSessions'
+import { inspirationKnowledgeExcerpt } from './inspirationKnowledge'
+import { stopInspirationKnowledgeIndexing } from './inspirationKnowledgeVectors'
+import { useConfigStore } from '@/stores/config'
 import type { ModelConfig } from '@/stores/config'
 import type { CreateWizardForm } from '@/types/novel'
 import type { InspirationMessage } from './inspiration'
@@ -245,6 +248,55 @@ describe('inspiration settings', () => {
     const request = vi.mocked(callAI).mock.calls.slice(-1)[0][0].messages[0].content
     expect(request).toContain('"原文":"渡船旧有码头。"')
     expect(restored.messages[1].knowledgeReferences).toEqual(answer.knowledgeReferences)
+  })
+
+  it('keeps named passages and follow-up citations when optional semantic retrieval is slow', async () => {
+    const store = useKnowledgeStore()
+    const left = store.createKB('河志')
+    const right = store.createKB('值守档案')
+    const add = (id: string, title: string, content: string) => store.addEntry(id, { title, content, category: '', summary: '', tags: [] })!
+    add(left.id, '沿河小记', '## 前任\n旧码头由沈榕守夜。\n## 洪水记录\n暴雨后只能走木桥。')
+    add(right.id, '值守制度', '## 通行规则\n夜间过桥须持铜铃。')
+    add(right.id, '家书', '## 约定\n两人碰面时先摘斗笠。')
+    const signal = new AbortController().signal
+    const ids = [left.id, right.id]
+    vi.mocked(callAI).mockImplementation(async options => {
+      if (options.taskName === '选择知识库原文') return { content: '{"sections":[]}' }
+      return { content: answerWithQuestions('先过木桥，再凭铜铃通行。〔资料1〕〔资料2〕') }
+    })
+    const question = { role: 'user' as const, content: '结合洪水记录和通行规则，主角夜里怎么过去？' }
+    const ask = (messages: InspirationMessage[]) => chatInspiration(model, messages, signal, () => {}, false, ids)
+    const ordinary = await ask([question])
+    expect(ordinary.knowledgeReferences?.map(ref => inspirationKnowledgeExcerpt(store.knowledgeBases, ref)?.excerpt)).toEqual(['暴雨后只能走木桥。', '夜间过桥须持铜铃。'])
+
+    const config = useConfigStore().embedding
+    Object.assign(config, { enabled: true, baseUrl: 'https://vectors.example.test', modelName: 'BAAI/bge-m3' })
+    let slow = false
+    const embed = vi.fn(async (_url: string, { body, signal }: RequestInit) => {
+      const { input }: { input: string[] } = JSON.parse(String(body))
+      if (slow) return new Promise<Response>((_, reject) => signal!.addEventListener('abort', () => reject(signal!.reason), { once: true }))
+      return new Response(JSON.stringify({ data: input.map((line, index) => ({ index,
+        embedding: line.includes('斗笠') || line.includes('怎么过去') ? [1, 0] : [0, 1] })) }))
+    })
+    vi.stubGlobal('fetch', embed)
+    try {
+      await ask([question])
+      await vi.waitFor(() => expect(embed).toHaveBeenCalledTimes(1))
+      const semantic = await ask([question])
+      expect(semantic.knowledgeReferences).toEqual(ordinary.knowledgeReferences)
+      expect(vi.mocked(callAI).mock.lastCall?.[0].messages[0].content).toContain('两人碰面时先摘斗笠。')
+      slow = true
+      vi.useFakeTimers()
+      const pending = ask([question, { role: 'assistant', ...semantic }, { role: 'user', content: '第一份再往前看一节，谁守夜？' }])
+      await vi.advanceTimersByTimeAsync(1499)
+      expect(embed).toHaveBeenCalledTimes(3)
+      await vi.advanceTimersByTimeAsync(1)
+      const fallback = await pending
+      expect(inspirationKnowledgeExcerpt(store.knowledgeBases, fallback.knowledgeReferences![0])?.excerpt).toBe('旧码头由沈榕守夜。')
+    } finally {
+      vi.useRealTimers()
+      stopInspirationKnowledgeIndexing()
+    }
   })
   it('normalizes labels, retains known fields and never mutates the confirmation form', () => {
     const form = base()

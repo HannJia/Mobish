@@ -5,6 +5,7 @@ import { createPinia, disposePinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import V3Shell from './V3Shell.vue'
 import { useAppUpdateStore } from '@/stores/appUpdate'
+import { useCloudSyncStore } from '@/stores/cloudSync'
 import type { AppUpdateState } from '@/types/update'
 
 vi.mock('vue-router', () => ({
@@ -24,6 +25,20 @@ beforeEach(() => {
 afterEach(() => {
   wrapper.unmount()
   disposePinia(pinia)
+})
+
+it('shows the transfer indicator on both cloud icons only during a document transfer', async () => {
+  const cloud = useCloudSyncStore()
+  expect(wrapper.find('.cloud-transfer').exists()).toBe(false)
+
+  cloud.transferring = true
+  await nextTick()
+  expect(wrapper.find('.rail-btn .cloud-transfer').exists()).toBe(true)
+  expect(wrapper.find('.status-it .cloud-transfer').exists()).toBe(true)
+
+  cloud.transferring = false
+  await nextTick()
+  expect(wrapper.find('.cloud-transfer').exists()).toBe(false)
 })
 
 function setUpdate(phase: AppUpdateState['phase'], autoCheck = false) {

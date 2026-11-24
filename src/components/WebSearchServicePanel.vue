@@ -28,8 +28,9 @@
     <div class="web-search-actions">
       <button type="button" class="m-btn sm pri" :disabled="saving || !dirty || Boolean(addressError)" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
       <button type="button" class="m-btn sm" :disabled="testing || dirty || !configured" :title="dirty ? '请先保存' : ''" @click="test">{{ testing ? '搜索中…' : '测试搜索' }}</button>
+      <button v-if="testing" type="button" class="m-btn sm" @click="stopTest()">停止测试</button>
       <span v-if="!configured" class="model-discovery-hint">{{ info.needsKey ? '填写 API 密钥并保存后可以测试。' : '填写服务地址并保存后可以测试。' }}</span>
-      <span v-else-if="testResult" :class="testResult.ok ? 'model-discovery-success' : 'model-discovery-error'" role="status">{{ testResult.text }}</span>
+      <span v-else-if="testResult" :class="`model-discovery-${testResult.kind}`" role="status">{{ testResult.text }}</span>
     </div>
     <p class="model-discovery-hint">测试会发送一次搜索请求（可能产生少量费用），不包含小说内容。联网对话时，搜索词会发送给所用的搜索服务。搜索服务的设置只保存在本机。</p>
   </section>
@@ -81,12 +82,14 @@ const configured = computed(() => isWebSearchServiceConfigured(configStore.webSe
 
 function changeProvider(value: WebSearchProvider) {
   if (value === form.provider) return
+  stopTest(false)
   Object.assign(form, { provider: value, apiKey: '', baseUrl: '' })
   testResult.value = null
 }
 
 const saving = ref(false)
 async function save() {
+  stopTest(false)
   saving.value = true
   try {
     await configStore.setWebSearchService(nextConfig.value)
@@ -98,24 +101,37 @@ async function save() {
 }
 
 const testing = ref(false)
-const testResult = ref<{ ok: boolean; text: string } | null>(null)
+const testResult = ref<{ kind: 'success' | 'error' | 'hint'; text: string } | null>(null)
 let controller: AbortController | null = null
 async function test() {
-  controller?.abort()
-  controller = new AbortController()
+  if (controller) return
+  const request = new AbortController()
+  controller = request
   testing.value = true
   testResult.value = null
   try {
-    const sources = await searchWeb(configStore.webSearchService, 'Vue.js 官方网站', controller.signal)
+    const sources = await searchWeb(configStore.webSearchService, 'Vue.js 官方网站', request.signal)
+    if (controller !== request) return
     testResult.value = sources.length
-      ? { ok: true, text: `搜索成功，返回 ${sources.length} 条结果，第一条：${sources[0].title}` }
-      : { ok: false, text: '服务有响应，但没有返回结果。' }
+      ? { kind: 'success', text: `搜索成功，返回 ${sources.length} 条结果，第一条：${sources[0].title}` }
+      : { kind: 'error', text: '服务有响应，但没有返回结果。' }
   } catch (error) {
-    if (controller.signal.aborted) return
-    testResult.value = { ok: false, text: errorText(error, '搜索测试失败') }
-  } finally { testing.value = false }
+    if (controller === request) testResult.value = { kind: 'error', text: errorText(error, '搜索测试失败') }
+  } finally {
+    if (controller === request) {
+      controller = null
+      testing.value = false
+    }
+  }
 }
-onBeforeUnmount(() => controller?.abort())
+function stopTest(showStatus = true) {
+  if (!controller) return
+  controller.abort()
+  controller = null
+  testing.value = false
+  if (showStatus) testResult.value = { kind: 'hint', text: '已停止搜索测试。' }
+}
+onBeforeUnmount(() => stopTest(false))
 </script>
 
 <style scoped>
@@ -128,7 +144,7 @@ onBeforeUnmount(() => controller?.abort())
 .model-discovery-success { color: var(--qing); }
 .model-discovery-error { margin: 0; color: var(--zhu); }
 /* 字段顶部对齐：说明文字长短不一时，输入框仍在同一条线上 */
-.web-search-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 4px 16px; align-items: start; }
+.web-search-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 4px 16px; align-items: start; }
 .web-search-tip { margin-top: -8px; }
 .web-search-fallback { display: flex; align-items: center; gap: 10px; margin: 4px 0 6px; font-size: 13px; color: var(--ink-2); }
 .web-search-fallback label { cursor: pointer; line-height: 1.5; }

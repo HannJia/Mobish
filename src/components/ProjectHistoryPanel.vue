@@ -1,6 +1,9 @@
 <template>
   <section class="history-panel paper-panel" aria-labelledby="project-history-title">
-    <h2 id="project-history-title">项目历史与单作品恢复</h2>
+    <div class="history-heading">
+      <h2 id="project-history-title">项目历史与单作品恢复</h2>
+      <span class="m-tag qing outlined">可使用</span>
+    </div>
     <p>{{ desktop ? '每次保存都会自动留一个版本，你也可以手动建立恢复点。' : '可为作品手动保存本地恢复点；记录保存在当前浏览器中，清除浏览器数据会同时清除这些记录。' }}</p>
       <p>先选择作品和版本，查看与当前内容的差异，再确认恢复。</p>
       <div v-if="desktop" class="history-retention">
@@ -253,6 +256,7 @@ onMounted(refresh)
 
     <style scoped>
 .history-panel { padding: 24px; margin-top: 20px; }
+.history-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
 .history-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
 .history-retention { border-top: 1px solid var(--line-2); margin-top: 16px; padding-top: 12px; }
 .retention-pin { display: flex; align-items: center; gap: 8px; }

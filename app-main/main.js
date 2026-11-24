@@ -1113,9 +1113,22 @@ ipcMain.handle('config:decrypt', async (event, value) => {
 })
 
 const webSearchProxy = createWebSearchProxy((url, init) => net.fetch(url, init))
-ipcMain.handle('web-search:request', async (event, request) => {
+const webSearchRequests = new Map()
+ipcMain.handle('web-search:request', async (event, request, requestId) => {
   assertMainWindowSender(event)
-  return webSearchProxy(request)
+  if (requestId === undefined) return webSearchProxy(request)
+  if (typeof requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(requestId)) throw new TypeError('搜索请求编号无效')
+  const key = `${event.sender.id}:${requestId}`
+  if (webSearchRequests.has(key)) throw new Error('搜索请求编号重复')
+  const controller = new AbortController()
+  webSearchRequests.set(key, controller)
+  try { return await webSearchProxy(request, controller.signal) }
+  finally { webSearchRequests.delete(key) }
+})
+ipcMain.on('web-search:cancel', (event, requestId) => {
+  if (!isMainWindowSender(event) || event.senderFrame !== mainWindow.webContents.mainFrame
+    || !isTrustedRendererUrl(event.senderFrame?.url) || typeof requestId !== 'string' || requestId.length !== 36) return
+  webSearchRequests.get(`${event.sender.id}:${requestId}`)?.abort()
 })
 
 ipcMain.handle('config:security-status', async (event) => {

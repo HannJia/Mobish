@@ -25,6 +25,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
   const busy = ref(false)
   const error = ref('')
   const pendingDownloads = ref(0)
+  const transferring = ref(false)
   const phase = ref<'signed-out' | 'paused' | 'syncing' | 'synced' | 'waiting' | 'error'>('signed-out')
   const endpoint = ref(DEFAULT_SYNC_ENDPOINT)
   let generation = 0
@@ -188,6 +189,11 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
       || (payload && raw.payload !== null && typeof raw.payload !== 'string')) throw new Error('云端同步记录格式错误。')
     return raw
   }
+  async function transferDocument<T>(action: () => Promise<T>): Promise<T> {
+    transferring.value = true
+    try { return await action() }
+    finally { transferring.value = false }
+  }
   async function syncNow() {
     if (running) return running
     if (busy.value || operation || cloudApplyBusy.value || cloudPreferencesBusy.value || !session.value || !state.value.enabled) return
@@ -224,9 +230,9 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
       const pushCandidates: string[] = []
       
       async function fetchRecord(key: string) {
-        const response = await cloudRequest<{ records: CloudRecord[] }>(auth.endpoint, 'sync/pull', {
+        const response = await transferDocument(() => cloudRequest<{ records: CloudRecord[] }>(auth.endpoint, 'sync/pull', {
           token: auth.token, signal, body: { keys: [key] },
-        })
+        }))
         const item = checkedRecord(response.records?.[0], true)
         if (item.key !== key || await hashPayload(item.payload ?? null) !== item.hash) throw new Error('云端文档校验失败。')
         if (item.payload !== null) parseCloudDocument(key, item.payload!)
@@ -371,9 +377,9 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         check()
         if (localWorkBusy() || !safeView()) { blockedUpload = true; break }
         try {
-          const response = await cloudRequest<{ record: CloudRecord }>(auth.endpoint, 'sync/push', {
+          const response = await transferDocument(() => cloudRequest<{ record: CloudRecord }>(auth.endpoint, 'sync/push', {
             token: auth.token, signal, body: { key, baseVersion: next.bases[key]?.version || 0, payload: freshLocal.get(key) ?? null },
-          })
+          }))
           const accepted = checkedRecord(response.record)
           if (accepted.key !== key || accepted.hash !== (freshHashes.get(key) ?? null)) throw new Error('云端写入结果校验失败。')
           next.bases[key] = { hash: accepted.hash, version: accepted.version }
@@ -552,7 +558,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     abort?.abort()
   }
   return {
-    state, session, conflicts, initialized, busy, error, pendingDownloads, phase, endpoint,
+    state, session, conflicts, initialized, busy, error, pendingDownloads, transferring, phase, endpoint,
     pendingConflicts, pendingUploads, statusText, initialize, authenticate, logout, setEnabled, syncNow,
     schedule, approveUploads, resolveConflict, exportConflict, createInvite, recover, changePassword, flushBeforeClose, dispose,
   }

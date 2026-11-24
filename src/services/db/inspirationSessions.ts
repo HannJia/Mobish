@@ -1,5 +1,5 @@
 import { execute, initDb, queryAll, runTransaction } from '../database'
-import { latestInspirationSessions, parseInspirationSession, type InspirationSession } from '../inspirationSessions'
+import { sortInspirationSessions, parseInspirationSession, type InspirationSession } from '../inspirationSessions'
 import { usesProjectKernel, readKernelBackup, mutateProjectLibrary } from '../projectKernelClient'
 
 export function writeInspirationSessions(sessions: InspirationSession[]) {
@@ -10,7 +10,7 @@ export function writeInspirationSessions(sessions: InspirationSession[]) {
 export async function loadInspirationSessions(): Promise<InspirationSession[]> {
   if (usesProjectKernel()) return (await readKernelBackup()).inspirationSessions
   await initDb()
-  return latestInspirationSessions(queryAll<{ value: string }>('SELECT value FROM inspiration_sessions').map(row => parseInspirationSession(JSON.parse(row.value))))
+  return sortInspirationSessions(queryAll<{ value: string }>('SELECT value FROM inspiration_sessions').map(row => parseInspirationSession(JSON.parse(row.value))))
 }
 export async function saveInspirationSessions(sessions: InspirationSession[]) {
   if (usesProjectKernel()) {

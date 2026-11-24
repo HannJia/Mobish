@@ -42,12 +42,13 @@ function validateWebSearchRequest(request) {
 }
 
 function createWebSearchProxy(fetchImpl, timeoutMs = 30_000) {
-  return async function proxy(request) {
+  return async function proxy(request, cancelSignal) {
     const checked = validateWebSearchRequest(request)
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     try {
-      const response = await fetchImpl(checked.url, { method: checked.method, headers: checked.headers, body: checked.body, signal: controller.signal })
+      const signal = cancelSignal ? AbortSignal.any([controller.signal, cancelSignal]) : controller.signal
+      const response = await fetchImpl(checked.url, { method: checked.method, headers: checked.headers, body: checked.body, signal })
       const buffer = Buffer.from(await response.arrayBuffer())
       if (buffer.length > MAX_RESPONSE) throw new Error('搜索服务返回的内容过大')
       return { ok: response.ok, status: response.status, text: buffer.toString('utf8') }

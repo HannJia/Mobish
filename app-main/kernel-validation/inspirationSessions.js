@@ -2,8 +2,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseInspirationSession = parseInspirationSession;
-exports.latestInspirationSessions = latestInspirationSessions;
-const MAX_INSPIRATION_SESSIONS = 5;
+exports.sortInspirationSessions = sortInspirationSessions;
 function parseInspirationSession(raw) {
     const value = raw;
     const invalid = () => { throw new Error('灵感会话数据不完整或无效。'); };
@@ -98,7 +97,6 @@ function parseInspirationSession(raw) {
         ...(value.settingsDraft === undefined ? {} : { settingsDraft: value.settingsDraft }),
         ...(value.settingsMessageCount === undefined ? {} : { settingsMessageCount: value.settingsMessageCount }) };
 }
-function latestInspirationSessions(sessions) {
-    return [...sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
-        .slice(0, MAX_INSPIRATION_SESSIONS);
+function sortInspirationSessions(sessions) {
+    return [...sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
 }

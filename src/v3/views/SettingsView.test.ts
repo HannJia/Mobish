@@ -94,7 +94,7 @@ afterEach(async () => {
 
 describe('模型原始名称与配置备注', () => {
   it.each([
-    { section: 'cloud', label: '项目历史', selector: '.cloud-settings-section' },
+    { section: 'cloud', label: '云同步与历史暂未开发', selector: '.cloud-settings-section' },
     { section: 'about', label: '关于', selector: '.about-section' },
     { section: 'websearch', label: '联网搜索', selector: 'web-search-service-panel-stub' },
   ])('opens the requested $section settings section from the shell deep link', async ({ section, label, selector }) => {
@@ -108,7 +108,7 @@ describe('模型原始名称与配置备注', () => {
   it('combines about and updates, and highlights the real workflow limits', async () => {
     const wrapper = mountSettings()
     const tabs = wrapper.findAll('.settings-nav-item')
-    expect(tabs.map(tab => tab.text())).toEqual(['模型配置', '联网搜索', 'AI 工作流', '外观', '语义检索', '写作技能', '项目历史', '关于'])
+    expect(tabs.map(tab => tab.text())).toEqual(['模型配置', '联网搜索', 'AI 工作流', '外观', '语义检索', '写作技能', '云同步与历史暂未开发', '关于'])
     expect(tabs[0].attributes('aria-selected')).toBe('true')
     await tabs.find(tab => tab.text() === '关于')!.trigger('click')
     await flushPromises()

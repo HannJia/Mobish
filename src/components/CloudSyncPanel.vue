@@ -1,7 +1,13 @@
 <template>
   <section class="cloud-panel cloud-page" id="cloud-sync-panel">
     <div class="cloud-heading">
-      <div><h2>云同步</h2><p class="cloud-page-subtitle">在不同设备间继续创作。</p></div>
+      <div>
+        <div class="cloud-title">
+          <h2>云同步</h2>
+          <span class="m-tag zhu outlined" title="云同步暂未全面开放">暂未开发</span>
+        </div>
+        <p class="cloud-page-subtitle">在不同设备间继续创作。</p>
+      </div>
       <span class="cloud-state" :class="{ problem: sync.error || sync.pendingConflicts.length }" role="status">{{ sync.statusText }}</span>
     </div>
     <p v-if="feedback" class="cloud-feedback" role="alert">{{ feedback }}</p>
@@ -62,7 +68,7 @@
 
       <details class="cloud-explanation paper-panel">
         <summary>同步说明</summary>
-        <p class="cloud-note">作品同步包含小说、正文版本、剧情规划、资料记忆、书内对话、最近 5 个灵感会话及草稿、知识库。模型配置与 API 密钥可在上方单独开启同步。</p>
+        <p class="cloud-note">作品同步包含小说、正文版本、剧情规划、资料记忆、书内对话、灵感会话及草稿、知识库。模型配置与 API 密钥可在上方单独开启同步。</p>
         <p class="cloud-note">PDF、图片等原始文件和 OCR 识别缓存仅保存在本机。</p>
         <p class="cloud-note">作品同步不采用端到端加密，云同步服务管理方可访问云端内容。API 密钥在云端加密存储，加密密钥由同步服务管理。</p>
         <p class="cloud-note">请妥善保管账号和恢复码，避免与他人共享账号。</p>
@@ -308,6 +314,7 @@ h4 { font-size:14px; margin:0 0 12px; }
 
 .cloud-page { display: flex; flex-direction: column; gap: 20px; padding: 0; }
 .cloud-heading { margin-bottom: 4px; }
+.cloud-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .cloud-heading h2 { margin: 0; font-size: 30px; }
 .cloud-page-subtitle { margin-top: 6px; font-size: 14px; color: var(--ink-2); }
 .cloud-account-card, .cloud-sync-settings, .cloud-auth-card { padding: 24px; }
