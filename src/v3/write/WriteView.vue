@@ -286,9 +286,16 @@
     </aside>
   </div>
 
-  <div v-if="selectedText && selectionRect && !busy && !locked" ref="selectionTools" class="selection-tools" role="toolbar" aria-label="选区 AI 操作" :style="selectionToolStyle" @mousedown.prevent>
-    <span>{{ selectedText.length }} 字</span><button v-for="item in selectionActions" :key="item.mode" type="button" @click="runSelection(item.mode)">{{ item.label }}</button><i /><button type="button" @click="openSelectionChat('check')">设定核对</button><button type="button" @click="openSelectionChat('chat')">问 AI</button>
+  <div v-if="selectedText && selectionRect && !busy && !styleSample" ref="selectionTools" class="selection-tools" role="toolbar" aria-label="选区 AI 操作" :style="selectionToolStyle" @mousedown.prevent>
+    <span>{{ selectedText.length }} 字</span>
+    <template v-if="!locked">
+      <button v-for="item in selectionActions" :key="item.mode" type="button" @click="runSelection(item.mode)">{{ item.label }}</button><i />
+      <button type="button" @click="openSelectionChat('check')">设定核对</button><button type="button" @click="openSelectionChat('chat')">问 AI</button>
+    </template>
+    <button type="button" @click="openSampleStyle">提炼写法</button>
   </div>
+  <SampleStyleDialog v-if="styleSample" :novel-id="styleSample.novelId" :sample="styleSample.text" :previous-rules="styleSample.previousRules"
+    @close="styleSample = undefined" @saved="finishSampleStyle" />
   <button v-if="focused" type="button" class="focus-hint" @click="focused = false">专注模式 · 按 Esc 退出</button>
   <div v-if="completionOpen" class="m-overlay completion-overlay" @click.self="closeCompletion" @keydown="onCompletionKey">
     <section ref="completionDialog" class="m-modal" role="dialog" aria-modal="true" aria-labelledby="completion-title" aria-describedby="completion-description" tabindex="-1">
@@ -343,6 +350,9 @@ import type { SelectionRevisionMode } from '@/services/selectionRevision'
 import { copyText } from '@/utils/clipboard'
 import { placeSelectionToolbar } from './selectionToolbar'
 import { writeCommand } from '../shell'
+import { useMessage } from '../feedback'
+import { MAX_STYLE_SAMPLE_LENGTH } from '@/services/sampleStyle'
+import SampleStyleDialog from './SampleStyleDialog.vue'
 
 defineOptions({ name: 'V3WriteView' })
 const route = useRoute(), router = useRouter()
@@ -352,6 +362,9 @@ const session = useChapterSession({ novelId, chapterId })
 const editor = ref<InstanceType<typeof PlainTextEditor>>()
 const ai = useChapterAi({ session, editor })
 const workspace = useReconstructionWorkspaceStore(), novels = useNovelStore()
+const message = useMessage()
+const styleSample = ref<{ novelId: string; text: string; previousRules: string }>()
+watch([novelId, chapterId], () => { styleSample.value = undefined })
 const paper = ref<HTMLElement>(), editorHost = ref<HTMLElement>()
 const sideOpen = ref(window.innerWidth > 800), deskOpen = ref(window.innerWidth > 1120), focused = ref(false)
 const closedGroups = ref(new Set<string>()), selectedSceneId = ref(''), modeInfoOpen = ref(false)
@@ -838,6 +851,23 @@ function onSelection(value: SelectionInfo) {
   selection.value = { start: value.start, end: value.end, text: value.text }
   selectionRect.value = value.rect
 }
+function openSampleStyle() {
+  const source = session.novel.value
+  const text = selectedText.value.trim()
+  if (!source || !text) return
+  if (text.length > MAX_STYLE_SAMPLE_LENGTH) {
+    message.warning(`请圈选不超过 ${MAX_STYLE_SAMPLE_LENGTH} 字的样文。`)
+    return
+  }
+  styleSample.value = { novelId: source.id, text, previousRules: source.writingStyle.sampleRules || '' }
+  selectionRect.value = null
+}
+
+function finishSampleStyle() {
+  styleSample.value = undefined
+  message.success('已应用本书写法')
+}
+
 // 生成的修订候选直接出现在页边，与对应批注并排；不切换案头标签。
 async function proposeRevision(mode: SelectionRevisionMode, instruction: string, range: { start: number; end: number }) {
   const before = new Set(pendingRevisionRows.value.map(row => row.id))

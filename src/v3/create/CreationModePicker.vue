@@ -29,11 +29,11 @@
     <div class="choice-actions">
       <p class="choice-summary" aria-live="polite">
         {{ writingMode === 'ai' ? 'AI 模式' : '作者主笔 · 写作辅助' }}
-        ＋ {{ setupMethod ? creationSetupLabels[setupMethod] : '请选择创建起点' }}
+        ＋ {{ setupOptions.find(option => option.value === setupMethod)?.label || '请选择创建起点' }}
       </p>
       <button id="start-creation-btn" type="button" class="m-btn" :disabled="disabled || !writingMode || !setupMethod"
         @click="emit('start')">
-        {{ setupMethod === 'inspiration' ? '填写一句话灵感 →' : setupMethod === 'outline' ? '读取或粘贴大纲 →' : setupMethod === 'blank' ? '准备空白作品 →' : setupMethod === 'custom' ? '填写小说设定 →' : '选择后继续' }}
+        {{ setupMethod === 'inspiration' ? '进入灵感对话 →' : setupMethod === 'outline' ? '读取或粘贴大纲 →' : setupMethod === 'blank' ? '准备空白作品 →' : setupMethod === 'custom' ? '填写小说设定 →' : '选择后继续' }}
       </button>
     </div>
   </section>
@@ -41,7 +41,7 @@
 
 <script setup lang="ts">
 import V3Icon from '@/v3/components/V3Icon.vue'
-import { creationSetupLabels, type CreationSetupMethod } from '@/types/creationEntry'
+import type { CreationSetupMethod } from '@/types/creationEntry'
 
 defineProps<{
   writingMode?: 'ai' | 'manual'
@@ -58,7 +58,7 @@ const writingOptions = [
   { value: 'ai' as const, label: 'AI 模式', icon: 'spark' as const, description: '允许 AI 生成候选正文，由你编辑、调整和确认。' },
 ]
 const setupOptions = [
-  { value: 'inspiration' as const, label: '一句话灵感', icon: 'bulb' as const, description: '写下一个想法即可开始契约，也可继续已有灵感讨论。' },
+  { value: 'inspiration' as const, label: '灵感对话 · 输入你的想法', icon: 'bulb' as const, description: '写下一个想法即可开始契约，也可继续已有灵感讨论。' },
   { value: 'outline' as const, label: '已有大纲文件 / 粘贴', icon: 'sliders' as const, description: '本地读取 TXT、Markdown、DOCX，预览编辑并保存为候选。' },
   { value: 'blank' as const, label: '空白模板', icon: 'edit' as const, description: '无需模型或预设题材，从空白作品契约手工设计。' },
   { value: 'custom' as const, label: '自选设定', icon: 'sliders' as const, description: '保留详细类型、人物、世界和风格设置，再确认作品契约。' },

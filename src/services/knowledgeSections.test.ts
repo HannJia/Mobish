@@ -44,4 +44,14 @@ describe('knowledge section retrieval', () => {
   it('builds a short outline from top-level headings', () => {
     expect(knowledgeOutlineText(timeline)).toBe('一、总体分期 / 二、完整时间线')
   })
+
+  it('keeps distinct original offsets for repeated text under the same heading', () => {
+    const repeated = entry('史料', '## 旧案\r\n\r\n相同原句。\r\n---\r\n相同原句。')
+    const sections = knowledgeSections(repeated)
+    expect(sections.map(section => section.text)).toEqual(['相同原句。', '相同原句。'])
+    expect(sections.map(section => section.start)).toEqual([
+      repeated.content.indexOf('相同原句。'), repeated.content.lastIndexOf('相同原句。'),
+    ])
+    expect(sections.every(section => repeated.content.slice(section.start, section.end) === section.text)).toBe(true)
+  })
 })

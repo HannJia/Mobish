@@ -6,6 +6,7 @@ import { createRevisionPersistence } from './revisionPersistence'
 import { splitKnowledgeText, type KnowledgeSplitOptions } from '@/services/knowledgeText'
 import { entrySourceVersion, baseSourceVersion, createEntrySummarySource, createBaseSummarySource } from '@/services/knowledgeSources'
 import { selectKnowledgeEntries } from '@/services/knowledgeSelection'
+import { mergedKnowledgeVisibility } from '@/services/knowledgeVisibility'
 import type { KBEntry, KnowledgeBase, KnowledgeSummarySource, KnowledgeSummaryHistory, KnowledgeSummaryCoverage } from '@/types/knowledge'
 export type { KBEntry, KnowledgeBase } from '@/types/knowledge'
 
@@ -165,6 +166,38 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     persistence.markDirty(kbId)
   }
 
+  async function mergeEntries(kbId: string, expected: Array<{ id: string; revision: string }>, title: string): Promise<string> {
+    const mergedTitle = title.trim()
+    if (!mergedTitle || expected.length < 2 || new Set(expected.map(entry => entry.id)).size !== expected.length) {
+      throw new Error('请选择至少两条不同的资料并填写合并后的标题')
+    }
+    return persistence.transact(kbId, async draft => {
+      const entries = expected.map(({ id, revision }) => {
+        const entry = draft.entries.find(item => item.id === id)
+        if (!entry || JSON.stringify(entry) !== revision) throw new Error('待合并资料已变更，请重新核对')
+        return entry
+      })
+      const selected = new Set(entries.map(entry => entry.id))
+      const now = new Date().toISOString()
+      const merged: KBEntry = {
+        id: crypto.randomUUID(),
+        title: mergedTitle,
+        category: entries[0].category,
+        content: entries.map(entry => `## ${entry.title}\n\n${entry.content}`).join('\n\n'),
+        tags: [...new Set(entries.flatMap(entry => entry.tags))],
+        summary: '',
+        createdAt: now,
+        updatedAt: now,
+        visibility: mergedKnowledgeVisibility(entries),
+        mergedSources: entries.flatMap(entry => [{
+          entryId: entry.id, title: entry.title, category: entry.category, sourceVersionId: entrySourceVersion(kbId, entry),
+        }, ...(entry.mergedSources || [])]),
+      }
+      draft.entries = [merged, ...draft.entries.filter(entry => !selected.has(entry.id))]
+      return { value: merged.id, persist: () => saveKnowledgeBaseToDb(draft) }
+    })
+  }
+
   // 从文本批量导入
   function importFromText(kbId: string, text: string, category: string, options: KnowledgeSplitOptions = {}): number {
     const kb = getKB(kbId)
@@ -180,8 +213,8 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   }
 
   // 获取与关键词相关的知识条目（供 AI Prompt 注入）
-  function getRelevantEntries(kbIds: string[], keywords: string[], maxEntries = 5): KBEntry[] {
-    return selectKnowledgeEntries(knowledgeBases.value, kbIds, keywords, maxEntries)
+  function getRelevantEntries(kbIds: string[], keywords: string[], maxEntries = 5, chapterNumber?: number): KBEntry[] {
+    return selectKnowledgeEntries(knowledgeBases.value, kbIds, keywords, maxEntries, chapterNumber)
   }
 
   return {
@@ -193,7 +226,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     saveError, saving, hasPendingSaves,
     createKB, deleteKB, getKB,
     saveEntrySummary, saveBaseSummary,
-    addEntry, updateEntry, deleteEntry,
+    addEntry, updateEntry, deleteEntry, mergeEntries,
     importFromText, getRelevantEntries,
   }
 })

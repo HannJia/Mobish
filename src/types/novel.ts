@@ -322,6 +322,7 @@ export interface WritingStyle {
   combatStyle: string         // 战斗描写
   pacingControl: string       // 节奏控制
   emotionExpression: string   // 情感表达
+  sampleRules?: string        // 作者试写确认的本书写法
 }
 
 // 配角设定

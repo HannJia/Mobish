@@ -784,7 +784,7 @@ describe('模型卡片的用途标签', () => {
 describe('模型连接测试结果持久化', () => {
   it('saves a testing record when the mock request starts and an ok record when it succeeds', async () => {
     const model = addLegacyModel()
-    let resolveTest!: (result: { ok: boolean; message: string }) => void
+    let resolveTest!: (result: Awaited<ReturnType<typeof testConnection>>) => void
     vi.mocked(testConnection).mockImplementation(() => new Promise(resolve => { resolveTest = resolve }))
     vi.mocked(testChatSearch).mockResolvedValue({ status: 'verified', message: 'synthetic search ok', sourceCount: 1 })
     const wrapper = mountSettings(true)
@@ -804,11 +804,13 @@ describe('模型连接测试结果持久化', () => {
     expect(pending.fingerprint).toMatch(/^[a-f0-9]{64}$/)
     expect(pending.fingerprint).not.toContain(model.apiKey)
 
-    resolveTest({ ok: true, message: 'synthetic connection success' })
+    resolveTest({ ok: true, message: '已自动识别为 Responses 格式', detectedProtocol: 'responses' })
     await flushPromises()
     await vi.waitFor(() => {
       const saved = JSON.parse(localStorage.getItem('mojian-v3-config')!)
-      expect(saved.models.find((item: { id: string }) => item.id === model.id).connectionTest.status).toBe('ok')
+      expect(saved.models.find((item: { id: string }) => item.id === model.id)).toMatchObject({
+        apiProtocol: 'responses', connectionTest: { status: 'ok' },
+      })
     })
     expect(wrapper.get('.model-card').text()).toContain('连接正常')
     expect(wrapper.get('.model-tested-at').attributes('datetime')).toMatch(/T/)

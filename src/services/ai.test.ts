@@ -62,15 +62,12 @@ describe.each([false, true])('AI transport (stream=%s)', stream => {
 
   it.each([
     'https://unknown.example/v1', 'http://api.deepseek.com', 'https://api.deepseek.com.evil.example',
-    'https://evilapi.deepseek.com', 'https://api.deepseek.com@evil.example', 'https://evil.example@api.deepseek.com',
-    'https://user:password@api.deepseek.com', 'https://@api.deepseek.com', 'https://api.deepseek.com:444/v1',
-    'https://api.deepseek.com./v1', 'https://api%2edeepseek.com/v1', 'https://api.deepseek.com/v1?key=x',
-    'https://api.deepseek.com/v1?', 'https://api.deepseek.com/v1#', 'https://api.deepseek.com/v1#fragment',
+    'https://evilapi.deepseek.com', 'https://api.deepseek.com:444/v1',
+    'https://api.deepseek.com./v1', 'https://api%2edeepseek.com/v1',
     'https://api.deepseek.com/custom', 'https://api.deepseek.com/v1/chat/completions', 'https://api.deepseek.com/V1',
     'https://api.deepseek.com//v1', 'https://api.deepseek.com/other/../v1', 'https://api.deepseek.com/%76%31',
     'https://api.deepseek.com/other/%2e%2e/v1', 'https://api.deepseek.com\\v1', 'https://api.deepseek.com\n/v1',
     'https://api.deepseek.com/v1\n', ' https://api.deepseek.com', 'https://api.deepseek.com/v1 ',
-    '//api.deepseek.com/v1', 'not a URL', '',
   ])('does not add provider fields for an unknown or noncanonical endpoint: %s', async baseUrl => {
     const fetcher = vi.fn().mockResolvedValue(response(stream))
     vi.stubGlobal('fetch', fetcher)
@@ -79,6 +76,17 @@ describe.each([false, true])('AI transport (stream=%s)', stream => {
     expect(body).not.toHaveProperty('thinking')
     expect(body).not.toHaveProperty('response_format')
     expect(body.max_tokens).toBe(900)
+  })
+
+  it.each([
+    'https://api.deepseek.com@evil.example', 'https://evil.example@api.deepseek.com', 'https://user:password@api.deepseek.com',
+    'https://@api.deepseek.com', 'https://api.deepseek.com/v1?key=x', 'https://api.deepseek.com/v1?',
+    'https://api.deepseek.com/v1#', 'https://api.deepseek.com/v1#fragment', '//api.deepseek.com/v1', 'not a URL', '',
+  ])('rejects invalid or credential-bearing base URLs before sending: %s', async baseUrl => {
+    const fetcher = vi.fn()
+    vi.stubGlobal('fetch', fetcher)
+    await expect(callAI(options({ model: { ...model, baseUrl } }))).rejects.toThrow('API 地址')
+    expect(fetcher).not.toHaveBeenCalled()
   })
 
   it.each(['deepseek-chat', 'deepseek-reasoner', 'deepseek-flash-custom', 'deepseek-v4-pro-latest', 'DeepSeek-Flash', 'deepseek-flash ', 'unknown'])('does not infer capabilities for model %s', async modelName => {
@@ -118,7 +126,7 @@ describe.each([false, true])('AI transport (stream=%s)', stream => {
   it('preserves length finish and usage, without retrying or raising maxTokens', async () => {
     const fetcher = vi.fn().mockResolvedValue(response(stream, usage, 'length'))
     vi.stubGlobal('fetch', fetcher)
-    const result = await callAI(options())
+    const result = await callAI(options({ structuredOutput: undefined }))
     expect(result.finishReason).toBe('length')
     expect(result.usage).toEqual(usage)
     expect(structuredOutputDiagnostic(result)).toContain('推理用量：608 Token')

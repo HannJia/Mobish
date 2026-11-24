@@ -6,6 +6,9 @@ export interface KnowledgeSection {
   /** 标题路径，如 ['二、完整时间线', '阶段四 · 全面市场化', '1998年7月3日｜房改 23 号文']。 */
   path: string[]
   text: string
+  /** UTF-16 offsets into the original entry, before any formatting or newline conversion. */
+  start: number
+  end: number
 }
 export interface KnowledgeSectionHit<T> { source: T; entry: KBEntry; section: KnowledgeSection; score: number }
 
@@ -17,23 +20,31 @@ const CHUNK_TARGET = 1000
 const cleanTitle = (value: string) => value.replace(/[`*_]/g, '').trim().slice(0, 120)
 
 /** 过长的小节按段落再分块，保留同一标题路径。 */
-function chunk(path: string[], text: string, untitled: boolean, counter: { value: number }): KnowledgeSection[] {
-  const trimmed = text.trim()
-  if (!trimmed) return []
-  if (trimmed.length <= SECTION_LIMIT) return [{ path: untitled ? [`第 ${++counter.value} 段`] : path, text: trimmed }]
-  const parts: string[] = []
-  let current = ''
-  for (const paragraph of trimmed.split(/\n\s*\n/)) {
-    if (current && current.length + paragraph.length > CHUNK_TARGET) { parts.push(current); current = '' }
-    // 单个段落超长时按固定长度切开
-    let rest = paragraph
-    while (rest.length > SECTION_LIMIT) { parts.push((current ? current + '\n\n' : '') + rest.slice(0, CHUNK_TARGET)); current = ''; rest = rest.slice(CHUNK_TARGET) }
-    current = current ? current + '\n\n' + rest : rest
+function chunk(path: string[], content: string, start: number, end: number, untitled: boolean, counter: { value: number }): KnowledgeSection[] {
+  const parts: Array<Omit<KnowledgeSection, 'path'>> = []
+  const body = content.slice(start, end)
+  let offset = 0
+  while (offset < body.length) {
+    let next = body.length
+    if (next - offset > SECTION_LIMIT) {
+      const window = body.slice(offset, offset + SECTION_LIMIT)
+      const boundaries = [...window.matchAll(/\r?\n[ \t]*\r?\n/g)]
+      const lastBreak = boundaries[boundaries.length - 1]
+      next = offset + (lastBreak && lastBreak.index >= CHUNK_TARGET / 2 ? lastBreak.index + lastBreak[0].length : CHUNK_TARGET)
+      // Keep a Unicode surrogate pair together when a long paragraph has to be cut.
+      if (/[\uDC00-\uDFFF]/.test(body[next])) next--
+    }
+    const piece = body.slice(offset, next)
+    const text = piece.trim()
+    if (text) {
+      const from = start + offset + piece.length - piece.trimStart().length
+      parts.push({ text, start: from, end: from + text.length })
+    }
+    offset = next
   }
-  if (current.trim()) parts.push(current)
   return parts.map((part, index) => ({
+    ...part,
     path: untitled ? [`第 ${++counter.value} 段`] : parts.length > 1 ? [...path.slice(0, -1), `${path[path.length - 1] || ''}（${index + 1}/${parts.length}）`] : path,
-    text: part.trim(),
   }))
 }
 
@@ -42,8 +53,8 @@ const cache = new WeakMap<KBEntry, { content: string; sections: KnowledgeSection
 export function knowledgeSections(entry: KBEntry): KnowledgeSection[] {
   const cached = cache.get(entry)
   if (cached && cached.content === entry.content) return cached.sections
-  const lines = entry.content.replace(/\r\n?/g, '\n').split('\n')
-  const hasMarkdown = lines.some(line => MARKDOWN_HEADING.test(line))
+  const content = entry.content
+  const hasMarkdown = /^#{1,4}[ \t]+[^\r\n]+/m.test(content)
   const headingOf = (line: string): { level: number; title: string } | null => {
     const markdown = MARKDOWN_HEADING.exec(line)
     if (markdown) return { level: markdown[1].length, title: cleanTitle(markdown[2]) }
@@ -53,23 +64,23 @@ export function knowledgeSections(entry: KBEntry): KnowledgeSection[] {
   const sections: KnowledgeSection[] = []
   const stack: Array<{ level: number; title: string }> = []
   const counter = { value: 0 }
-  let body: string[] = []
-  let anyHeading = false
-  const flush = () => {
+  let start = 0
+  const flush = (end: number) => {
     const path = stack.map(item => item.title)
-    sections.push(...chunk(path.length ? path : [entry.title], body.join('\n').replace(/^\s*---+\s*$/gm, ''), !anyHeading, counter))
-    body = []
+    sections.push(...chunk(path.length ? path : [entry.title], content, start, end, !path.length, counter))
   }
-  for (const line of lines) {
+  for (const match of content.matchAll(/([^\r\n]*)(?:\r\n|\r|\n|$)/g)) {
+    const line = match[1]
     const heading = headingOf(line)
-    if (!heading) { body.push(line); continue }
-    flush()
-    anyHeading = true
+    if (!heading && !/^[ \t]*---+[ \t]*$/.test(line)) continue
+    flush(match.index)
+    start = match.index + match[0].length
+    if (!heading) continue
     while (stack.length && stack[stack.length - 1].level >= heading.level) stack.pop()
     stack.push(heading)
   }
-  flush()
-  cache.set(entry, { content: entry.content, sections })
+  flush(content.length)
+  cache.set(entry, { content, sections })
   return sections
 }
 

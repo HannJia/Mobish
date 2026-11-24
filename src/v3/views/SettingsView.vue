@@ -192,6 +192,10 @@
         </V3Field>
         <details v-if="modelForm.kind !== 'embedding'" class="model-advanced">
           <summary>高级参数与联网测试</summary>
+          <V3Field label="对话接口格式">
+            <V3Select v-model:value="modelForm.apiProtocol" :options="aiProtocolOptions" aria-label="对话接口格式" />
+            <p class="model-discovery-hint">选择「自动识别」后保存模型，再点「测试对话」识别并记住接口格式。</p>
+          </V3Field>
           <V3Field label="对话联网方式">
           <V3Select v-model:value="modelForm.chatSearchProtocol" :options="chatSearchModeOptions" aria-label="对话联网方式" />
           <p class="model-discovery-hint">在灵感对话或写作台的书内对话开启“联网”时使用。“自动”会按官方接口地址选择；中转站需要支持所选方式。选“独立搜索服务”时使用“联网搜索”页的设置。</p>
@@ -492,6 +496,7 @@ import { createBuiltInSkills } from '@/data/skills'
 import { useThemeStore, type ThemeName } from '@/stores/theme'
 import { useConfigStore, type ModelConfig, type ModelConnectionTestRecord, type ModelConnectionTestStatus } from '@/stores/config'
 import { listAvailableModels, openAiV1BaseUrl, testConnection, type AvailableModel } from '@/services/ai'
+import { AI_PROTOCOL_LABELS, type AiProtocol } from '@/services/aiProtocols'
 import { testEmbeddingConnection } from '@/services/embeddings'
 import { modelConnectionFingerprint } from '@/services/modelConnectionTest'
 import { chatSearchModeOptions, splitSearchMode } from '@/services/chatSearch'
@@ -715,6 +720,7 @@ const workflowSteps = computed(() => [
 const skillForm = reactive({ name: '', description: '', task: 'writing' as WritingSkillTask, instructions: '' })
 
 // 模型表单
+const aiProtocolOptions = [{ value: 'auto', label: '自动识别' }, ...Object.entries(AI_PROTOCOL_LABELS).map(([value, label]) => ({ value, label }))]
 const modelForm = reactive({
   kind: 'chat' as 'chat' | 'embedding',
   name: '',
@@ -727,6 +733,7 @@ const modelForm = reactive({
   /** 上下文窗口（Token）；不填时整理摘要按保守值规划。 */
   contextWindow: null as number | null,
   chatSearchProtocol: 'auto' as ChatSearchProtocol | ChatSearchAdapter,
+  apiProtocol: 'auto' as AiProtocol | 'auto',
 })
 const providerPresetGroups = [
   { label: '国内', items: MODEL_PROVIDER_PRESETS.filter(item => item.region === 'domestic') },
@@ -751,6 +758,7 @@ function applyEmbeddingPreset(preset: EmbeddingProviderPreset) {
 function applyProviderPreset(preset: ModelProviderPreset) {
   modelForm.baseUrl = preset.baseUrl
   modelForm.chatSearchProtocol = 'auto'
+  modelForm.apiProtocol = 'auto'
   handleModelSourceChange()
 }
 type ModelDraft = {
@@ -818,6 +826,7 @@ onBeforeUnmount(() => {
 
 const searchTestModel = computed<ModelConfig>(() => ({
   ...modelForm,
+  apiProtocol: modelForm.apiProtocol === 'auto' ? undefined : modelForm.apiProtocol,
   contextWindow: modelForm.contextWindow ?? undefined,
   ...splitSearchMode(modelForm.chatSearchProtocol),
   id: editingModel.value || 'search-test',
@@ -895,6 +904,7 @@ function editModel(model?: ModelConfig) {
     maxTokens: model.maxTokens,
     contextWindow: model.contextWindow ?? null,
     chatSearchProtocol: model.searchAdapter || model.chatSearchProtocol || 'auto',
+    apiProtocol: model.apiProtocol || 'auto',
   })
   availableModels.value = draft?.availableModels || []
   selectedModelNames.value = draft?.selectedModelNames || (model ? [model.modelName] : [])
@@ -941,6 +951,8 @@ async function fetchAvailableModels() {
     const models = await listAvailableModels({
       baseUrl: modelForm.baseUrl,
       apiKey: modelForm.apiKey,
+      apiProtocol: modelForm.kind === 'chat' && modelForm.apiProtocol !== 'auto' ? modelForm.apiProtocol : undefined,
+      kind: modelForm.kind,
     }, controller.signal)
     if (controller.signal.aborted || modelDiscoveryController !== controller) return
     availableModels.value = models
@@ -993,8 +1005,9 @@ function handleSaveModel() {
     ? configStore.models.find(model => model.id === editingModel.value)
     : null
   const apiKey = modelForm.apiKey.trim() || existingModel?.apiKey || ''
-  if (!apiKey && modelForm.kind !== 'embedding') return
+  if (!apiKey && modelForm.kind !== 'embedding' && !isLocalModelUrl(modelForm.baseUrl)) return
   const config = { ...modelForm, ...splitSearchMode(modelForm.chatSearchProtocol), apiKey, name: modelForm.name.trim() || modelName, modelName,
+    apiProtocol: modelForm.kind === 'chat' && modelForm.apiProtocol !== 'auto' ? modelForm.apiProtocol : undefined,
     contextWindow: modelForm.contextWindow && modelForm.contextWindow > 0 ? Math.round(modelForm.contextWindow) : undefined }
   if (editingModel.value) {
     configStore.updateModel(editingModel.value, config)
@@ -1039,6 +1052,7 @@ function handleBatchSaveModels() {
       temperature: modelForm.temperature,
       topP: modelForm.topP,
       maxTokens: modelForm.maxTokens,
+      apiProtocol: modelForm.kind === 'chat' && modelForm.apiProtocol !== 'auto' ? modelForm.apiProtocol : undefined,
       ...(modelForm.contextWindow && modelForm.contextWindow > 0 ? { contextWindow: Math.round(modelForm.contextWindow) } : {}),
       ...splitSearchMode(modelForm.chatSearchProtocol),
     })
@@ -1101,7 +1115,7 @@ async function runModelConnectionTest(model: ModelConfig, quiet = false): Promis
   const attempt = configStore.beginModelConnectionTest(model.id, environment)
   if (!attempt) return null
   try {
-    const fingerprint = await modelConnectionFingerprint(snapshot)
+    let fingerprint = await modelConnectionFingerprint(snapshot)
     if (!configStore.isCurrentModelConnectionTest(attempt)) return null
     const started = await configStore.recordModelConnectionTest(attempt, connectionTestRecord('testing', fingerprint, environment))
     if (!started || !configStore.isCurrentModelConnectionTest(attempt)) return null
@@ -1110,6 +1124,7 @@ async function runModelConnectionTest(model: ModelConfig, quiet = false): Promis
     let successMessage = ''
     let failureMessage = '连接测试失败'
     let failureDetail = ''
+    let detectedProtocol: AiProtocol | undefined
     try {
       if (snapshot.kind === 'embedding') {
         const result = await testEmbeddingConnection({ enabled: true, baseUrl: snapshot.baseUrl, apiKey: snapshot.apiKey, modelName: snapshot.modelName, batchSize: 1 })
@@ -1121,13 +1136,15 @@ async function runModelConnectionTest(model: ModelConfig, quiet = false): Promis
         successMessage = result.message
         failureMessage = result.message
         failureDetail = result.detail || ''
+        detectedProtocol = result.detectedProtocol
+        if (detectedProtocol) fingerprint = await modelConnectionFingerprint({ ...snapshot, apiProtocol: detectedProtocol })
       }
     } catch (error) {
       status = 'fail'
       failureMessage = errorText(error, '连接测试失败')
     }
 
-    const published = await configStore.recordModelConnectionTest(attempt, connectionTestRecord(status, fingerprint, environment))
+    const published = await configStore.recordModelConnectionTest(attempt, connectionTestRecord(status, fingerprint, environment), detectedProtocol)
     if (!published) return null
     testState[model.id] = status
     if (!quiet) {
@@ -1196,6 +1213,7 @@ function resetForm() {
     maxTokens: 4096,
     contextWindow: null,
     chatSearchProtocol: 'auto',
+    apiProtocol: 'auto',
   })
 }
 

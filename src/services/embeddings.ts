@@ -28,8 +28,11 @@ function normalizeVector(vector: number[]): number[] {
   return values.map(value => Number((value / norm).toFixed(8)))
 }
 
-async function requestBatch(config: EmbeddingConfig, inputs: string[]): Promise<number[][]> {
+async function requestBatch(config: EmbeddingConfig, inputs: string[], signal?: AbortSignal): Promise<number[][]> {
+  signal?.throwIfAborted()
   const controller = new AbortController()
+  const abort = () => controller.abort(signal?.reason)
+  signal?.addEventListener('abort', abort, { once: true })
   const timer = setTimeout(() => controller.abort(new Error('Embedding 请求超时')), EMBEDDING_TIMEOUT)
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -58,16 +61,17 @@ async function requestBatch(config: EmbeddingConfig, inputs: string[]): Promise<
       })
   } finally {
     clearTimeout(timer)
+    signal?.removeEventListener('abort', abort)
   }
 }
 
-export async function embedTextsWithProvider(config: EmbeddingConfig, inputs: string[]): Promise<number[][]> {
+export async function embedTextsWithProvider(config: EmbeddingConfig, inputs: string[], signal?: AbortSignal): Promise<number[][]> {
   if (!isRemoteEmbeddingEnabled(config)) throw new Error('Embedding 配置未启用或不完整')
   if (inputs.length === 0) return []
   const batchSize = Math.min(64, Math.max(1, Math.round(config.batchSize || 16)))
   const vectors: number[][] = []
   for (let index = 0; index < inputs.length; index += batchSize) {
-    vectors.push(...await requestBatch(config, inputs.slice(index, index + batchSize)))
+    vectors.push(...await requestBatch(config, inputs.slice(index, index + batchSize), signal))
   }
   const dimensions = vectors[0]?.length || 0
   if (vectors.some(vector => vector.length !== dimensions)) {

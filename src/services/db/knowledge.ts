@@ -26,7 +26,9 @@ export function readAllKnowledgeRows(): KnowledgeBase[] {
   }))
 
   for (const kb of knowledgeBases) {
-    const entriesRows = queryAll<any>('SELECT * FROM knowledge_entries WHERE kb_id = ? ORDER BY created_at DESC', [kb.id])
+    const entriesRows = queryAll<any>(`SELECT e.*, m.visibility, m.merged_sources
+      FROM knowledge_entries e LEFT JOIN knowledge_entry_metadata m ON e.id = m.id
+      WHERE e.kb_id = ? ORDER BY e.created_at DESC`, [kb.id])
     kb.entries = entriesRows.map(r => ({
       id: r.id,
       category: r.category,
@@ -36,6 +38,8 @@ export function readAllKnowledgeRows(): KnowledgeBase[] {
       summarySource: r.summary_source ? JSON.parse(r.summary_source) : undefined,
       summaryHistory: r.summary_history ? JSON.parse(r.summary_history) : undefined,
       tags: JSON.parse(r.tags || '[]'),
+      ...(r.visibility ? { visibility: JSON.parse(r.visibility) } : {}),
+      ...(r.merged_sources ? { mergedSources: JSON.parse(r.merged_sources) } : {}),
       createdAt: r.created_at,
       updatedAt: r.updated_at
     }))
@@ -59,13 +63,18 @@ export function writeKnowledgeBaseRows(kb: KnowledgeBase) {
     const existingEntryIds = queryAll<{ id: string }>('SELECT id FROM knowledge_entries WHERE kb_id = ?', [kb.id]).map(r => r.id)
     const currentEntryIds = new Set(kb.entries.map(e => e.id))
     for (const id of existingEntryIds) {
-      if (!currentEntryIds.has(id)) execute('DELETE FROM knowledge_entries WHERE id = ?', [id])
+      if (currentEntryIds.has(id)) continue
+      execute('DELETE FROM knowledge_entry_metadata WHERE id = ?', [id])
+      execute('DELETE FROM knowledge_entries WHERE id = ?', [id])
     }
 
     for (const e of kb.entries) {
       upsertRow('knowledge_entries', 'id, kb_id, category, title, content, summary, tags, created_at, updated_at, summary_source, summary_history', [
         e.id, kb.id, e.category, e.title, e.content, e.summary || '', JSON.stringify(e.tags), e.createdAt, e.updatedAt,
         e.summarySource ? JSON.stringify(e.summarySource) : null, e.summaryHistory ? JSON.stringify(e.summaryHistory) : null,
+      ])
+      upsertRow('knowledge_entry_metadata', 'id, visibility, merged_sources', [
+        e.id, e.visibility ? JSON.stringify(e.visibility) : null, e.mergedSources ? JSON.stringify(e.mergedSources) : null,
       ])
     }
 }
@@ -74,6 +83,7 @@ export async function deleteKnowledgeBaseFromDb(kbId: string) {
   if (usesProjectKernel()) return deleteKernelKnowledge(kbId)
   await initDb()
   await runTransaction(() => {
+    execute('DELETE FROM knowledge_entry_metadata WHERE id IN (SELECT id FROM knowledge_entries WHERE kb_id = ?)', [kbId])
     execute('DELETE FROM knowledge_entries WHERE kb_id = ?', [kbId])
     execute("DELETE FROM semantic_index WHERE source_type = 'knowledge' AND source_id NOT IN (SELECT id FROM knowledge_entries)")
     execute('DELETE FROM knowledge_bases WHERE id = ?', [kbId])
@@ -81,6 +91,7 @@ export async function deleteKnowledgeBaseFromDb(kbId: string) {
 }
 
 export function clearKnowledgeRows() {
+    execute('DELETE FROM knowledge_entry_metadata')
     execute('DELETE FROM knowledge_entries')
     execute('DELETE FROM knowledge_bases')
 }

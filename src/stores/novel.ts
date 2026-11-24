@@ -740,6 +740,16 @@ export const useNovelStore = defineStore('novel', () => {
     return commitStoryContext(novelId, { outline }, ['outline'], baseline)
   }
 
+  async function updateSampleStyleRules(novelId: string, rules: string, previousRules: string) {
+    return useReconstructionWorkspaceStore().transactStory(novelId, aggregate => {
+      const { writingStyle } = aggregate.novel
+      if ((writingStyle.sampleRules || '') !== previousRules) throw new Error('本书写法已变化，请重新打开后再试写。')
+      return editNovelContextWithImpact(aggregate, {
+        updates: { writingStyle: { ...writingStyle, sampleRules: rules.trim() } }, fields: ['writingStyle'],
+      }, new Date().toISOString(), generateId)
+    }, changed => !changed)
+  }
+
   async function updateTitleWithImpact(novelId: string, title: string) {
     return commitStoryContext(novelId, { title }, ['title'])
   }
@@ -1326,6 +1336,7 @@ export const useNovelStore = defineStore('novel', () => {
     updateOutline,
     updateTitleWithImpact,
     updateOutlineWithImpact,
+    updateSampleStyleRules,
     setWritingMode,
     setCover,
     setChapterLengthPolicy,

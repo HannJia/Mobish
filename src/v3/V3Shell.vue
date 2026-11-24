@@ -3,6 +3,7 @@
     <nav class="rail" aria-label="主导航">
       <router-link to="/" class="rail-seal" title="墨笔生花 · 回到书架" aria-label="墨笔生花，回到书架"><img :src="mojianIcon" alt="墨笔生花" /></router-link>
       <router-link to="/" class="rail-btn" :class="{ on: area === 'shelf' }"><V3Icon name="shelf" size="l" /><span>书架</span></router-link>
+      <router-link to="/breakdown" class="rail-btn" :class="{ on: area === 'breakdown' }"><V3Icon name="search" size="l" /><span>拆书</span></router-link>
       <router-link v-if="CLOUD_SYNC_AVAILABLE" :to="{ path: '/settings', query: { section: 'cloud' } }" class="rail-btn"
         :class="{ on: route.path === '/settings' && route.query.section === 'cloud' }" title="云同步设置">
         <V3Icon name="cloud" size="l" /><span>云同步</span>
@@ -47,6 +48,7 @@
         <router-view v-slot="{ Component, route: r }">
           <component :is="Component" :key="r.path" />
         </router-view>
+        <BreakdownReferences v-if="area === 'write' || area === 'plan' || area === 'codex' || area === 'knowledge'" />
       </div>
     </main>
 
@@ -76,7 +78,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import V3Icon from './components/V3Icon.vue'
 import V3Palette from './components/V3Palette.vue'
@@ -102,6 +104,8 @@ import { openBlockers } from './selectors/shelf'
 import mojianIcon from '@/assets/v3/mojian-icon.svg'
 import { diagnosticReport } from '@/services/userFacingError'
 import { version as appVersion } from '../../package.json'
+
+const BreakdownReferences = defineAsyncComponent(() => import('./breakdown/BreakdownReferences.vue'))
 
 async function copyDiagnostics(detail: string) {
   try { await navigator.clipboard.writeText(diagnosticReport(detail, appVersion)); toast('诊断信息已复制，可以粘贴到反馈里') }

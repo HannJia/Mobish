@@ -70,7 +70,7 @@ export function createCreationDraftFromNovel(novel: Novel, now: string): Creatio
     targetWordCountMin: novel.targetWordCountMin > 0 ? novel.targetWordCountMin * 10000 : undefined,
     targetWordCountMax: novel.targetWordCountMax > 0 ? novel.targetWordCountMax * 10000 : undefined,
     pointOfView: styleLabel('narrativePov', novel.writingStyle.narrativePov),
-    styleDirection: Object.entries(novel.writingStyle).filter(([, value]) => Boolean(value)).map(([key, value]) => styleLabel(key, value)).join(' / '),
+    styleDirection: Object.entries(novel.writingStyle).filter(([key, value]) => key !== 'sampleRules' && value).map(([key, value]) => styleLabel(key, value)).join(' / '),
     coreTheme: novel.tags.join('、'),
     readerPromise: novel.settings.payoff.patterns.join('、'),
     protagonistPremise: [novel.settings.protagonist.name, novel.settings.protagonist.background].filter(Boolean).join('：'),

@@ -3,6 +3,7 @@ import { retrieveKnowledgeSections, sectionExcerpt } from './knowledgeSections'
 import type { KnowledgeBase, KBEntry } from '@/stores/knowledge'
 import type { ChatSearchRecord } from '@/types/chat'
 import { getCurrentBaseSummary, getCurrentEntrySummary } from './knowledgeSources'
+import { canUseKnowledgeBaseSummary, canUseKnowledgeEntry } from './knowledgeVisibility'
 
 export function knowledgeDraftWithSources(content: string, search?: ChatSearchRecord): string {
   const sources = (search?.sources || []).flatMap(source => {
@@ -64,7 +65,7 @@ export function buildChatKnowledgeContext(bases: KnowledgeBase[], ids: string[],
   const available = bases.filter(base => selected.has(base.id))
   if (!available.length) return '【本轮知识库】未选择参考知识库或所选知识库已不存在；没有读取任何知识库正文。'
   const terms = queryTerms(query)
-  const ranked = available.flatMap(base => base.entries.map(entry => {
+  const ranked = available.flatMap(base => base.entries.filter(entry => canUseKnowledgeEntry(entry)).map(entry => {
     const cached = indexed(base.id, entry)
     const title = `${base.name} ${entry.title} ${entry.category} ${entry.tags.join(' ')}`.toLowerCase()
     let score = 0
@@ -83,8 +84,8 @@ export function buildChatKnowledgeContext(bases: KnowledgeBase[], ids: string[],
   const catalog: object[] = []
   let remaining = 2600
   for (const base of available) {
-    const item = { 知识库: base.name.slice(0, 100), 条目数: base.entries.length,
-      描述: base.description.slice(0, 160), 摘要: getCurrentBaseSummary(base).slice(0, 350) }
+    const item = { 知识库: base.name.slice(0, 100), 条目数: base.entries.filter(entry => canUseKnowledgeEntry(entry)).length,
+      描述: base.description.slice(0, 160), 摘要: canUseKnowledgeBaseSummary(base) ? getCurrentBaseSummary(base).slice(0, 350) : '' }
     const length = JSON.stringify(item).length
     if (length > remaining) break
     catalog.push(item)

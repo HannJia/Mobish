@@ -30,6 +30,8 @@
       </template>
       <p v-else class="empty">还没有章节。</p>
 
+      <AdjacentChapterReview :key="novel.id" :novel="novel" :model="reviewModel" />
+
       <section v-if="staleRows.length" class="stale-banner" role="status">
         <V3Icon name="refresh" />
         <div>
@@ -83,6 +85,7 @@ import { buildChapterReviewInput, buildChapterReviewSubmission } from '@/service
 import { requestCoveredContentReview } from '@/services/chapterReview'
 import type { StoredReviewCoverage } from '@/services/chapterReviewCoverage'
 import V3Icon from '../components/V3Icon.vue'
+import AdjacentChapterReview from '../review/AdjacentChapterReview.vue'
 import { deriveReviewCenter, type ReviewCenterRow, type ReviewCenterSnapshot, type ReviewHeat, type ReviewQueueItem, type ReviewQueueLevel } from '../selectors/reviewCenter'
 
 defineOptions({ name: 'V3ReviewView' })

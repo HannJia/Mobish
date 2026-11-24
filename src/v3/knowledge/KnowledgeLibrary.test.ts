@@ -35,6 +35,22 @@ const stubs = {
 }
 
 describe('knowledge full-content selection', () => {
+  it('opens a newly created knowledge base directly and targets it for import', async () => {
+    const store = useKnowledgeStore()
+    store.createKB('已有知识库')
+    const w = shallowMount(KnowledgeBase, { global: { stubs, renderStubDefaultSlot: true } })
+    await w.get('.header-actions .pri').trigger('click')
+    await w.get('input[placeholder="如：仙侠世界设定"]').setValue('  新建资料库  ')
+    await w.findAll('button').find(button => button.text() === '创建')!.trigger('click')
+
+    const created = store.knowledgeBases.find(kb => kb.name === '新建资料库')
+    expect(created).toBeDefined()
+    expect(w.get('.page-title').text()).toBe('新建资料库')
+    expect(w.find('.kb-list').exists()).toBe(false)
+    await w.findAll('.detail-actions button').find(button => button.text() === '导入资料')!.trigger('click')
+    expect(w.findComponent(KnowledgeImportDialog).props()).toMatchObject({ show: true, kbId: created!.id })
+  })
+
   it('shares one request budget across imported entries and preserves completed results', async () => {
     useConfigStore().addModel({ name: '模型', baseUrl: 'http://test.invalid', apiKey: 'test', modelName: 'test', maxTokens: 1000, contextWindow: 64000, temperature: 0, topP: 1 })
     const store = useKnowledgeStore(), kb = store.createKB('导入批次')

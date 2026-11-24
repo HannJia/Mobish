@@ -221,6 +221,31 @@ describe('inspiration settings', () => {
     expect(prompt).toContain('没有读取任何知识库正文')
     expect(prompt).not.toContain('恢复县学')
   })
+
+  it('resolves citations to exact current sections and can read an adjacent section on follow-up', async () => {
+    const store = useKnowledgeStore()
+    const library = store.createKB('河运档案')
+    const entry = store.addEntry(library.id, {
+      title: '巡河记', content: '## 上游迁建\n渡船旧有码头。\n## 洪水记录\n洪水后改用木栈桥。',
+      category: '事件', summary: '', tags: [],
+    })!
+    vi.mocked(callAI).mockResolvedValue({ content: answerWithQuestions('记录显示改用木栈桥。〔资料1〕〔资料99〕') })
+    const message = { role: 'user' as const, content: '看《巡河记》的洪水记录' }
+    const signal = new AbortController().signal
+    const answer = await chatInspiration(model, [message], signal, () => {}, false, [library.id])
+    expect(answer.content).not.toContain('资料99')
+    expect(answer.knowledgeReferences).toHaveLength(1)
+    const reference = answer.knowledgeReferences![0]
+    expect(entry.content.slice(reference.start, reference.end)).toBe('洪水后改用木栈桥。')
+    const restored = parseInspirationSession({
+      id: 'reference-test', title: '洪水记录', updatedAt: new Date().toISOString(), knowledgeIds: [library.id],
+      messages: [message, { role: 'assistant', ...answer }],
+    })
+    await chatInspiration(model, [...restored.messages, { role: 'user', content: '第一份再往前看一节' }], signal, () => {}, false, [library.id])
+    const request = vi.mocked(callAI).mock.calls.slice(-1)[0][0].messages[0].content
+    expect(request).toContain('"原文":"渡船旧有码头。"')
+    expect(restored.messages[1].knowledgeReferences).toEqual(answer.knowledgeReferences)
+  })
   it('normalizes labels, retains known fields and never mutates the confirmation form', () => {
     const form = base()
     const result = parseInspirationSettings(JSON.stringify({

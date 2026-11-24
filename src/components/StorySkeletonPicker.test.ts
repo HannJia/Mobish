@@ -1,8 +1,13 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import StorySkeletonPicker from './StorySkeletonPicker.vue'
 import type { PlotSkeleton, SkeletonSourceSelection } from '@/types/reconstruction'
+import { useConfigStore } from '@/stores/config'
+import { callAI } from '@/services/ai'
+
+vi.mock('@/services/ai', async original => ({ ...await original<object>(), callAI: vi.fn() }))
 
 const skeleton = (key: string, over: Partial<PlotSkeleton> = {}): PlotSkeleton => ({
   id: 'sk-' + key, revisionId: 'rev-' + key, title: '方案' + key, premise: key + '的前提', logline: key + '的主线', promise: key + '的承诺', ending: key + '的结局',
@@ -73,6 +78,41 @@ describe('故事骨架并排比较', () => {
     await wrapper.get('button[aria-label="整列选用：方案甲"]').trigger('click')
     expect(wrapper.get('.mix-hint').text()).toContain('请先保存当前作者版本')
     expect(wrapper.findAll('button').find(button => button.text() === '组合为新的可编辑候选')!.attributes('disabled')).toBeDefined()
+  })
+
+  it('reviews the selected excerpts, applies the author decision and reopens the reason with the resulting candidate', async () => {
+    setActivePinia(createPinia())
+    const config = useConfigStore()
+    const getModel = vi.spyOn(config, 'getModelForTask').mockReturnValue({ apiKey: 'test', maxTokens: 2000 } as NonNullable<ReturnType<typeof config.getModelForTask>>)
+    vi.mocked(callAI).mockResolvedValue({ content: JSON.stringify({ conflicts: [
+      { left: 2, right: 5, conflict: '结局假定前提中的城门还开着。', options: ['把结局改为在城外会合。', '在前提中提前打开城门。'] },
+    ] }) })
+    const wrapper = mountPicker()
+    await wrapper.get('button[aria-label="整列选用：方案甲"]').trigger('click')
+    await cell(wrapper, '结局方向', '方案乙').trigger('click')
+    await wrapper.findAll('button').find(button => button.text() === '检查组合冲突')!.trigger('click')
+    await flushPromises()
+    const review = wrapper.get('section.mix-review')
+    expect(review.text()).toContain('乙的结局')
+    expect(review.text()).toContain('把结局改为在城外会合。')
+    const mix = wrapper.findAll('button').find(button => button.text() === '组合为新的可编辑候选')!
+    expect(mix.attributes('disabled')).toBeDefined()
+    await review.findAll('input[type="radio"]')[0].setValue(true)
+    await review.get('input[aria-label="取舍理由 1"]').setValue('闭门要推动第一幕。')
+    await mix.trigger('click')
+    const [sources, receipt] = wrapper.emitted('mix')![0] as [SkeletonSourceSelection[], { original: SkeletonSourceSelection[] }]
+    expect(sources[4].revisionId).toBe('rev-甲')
+    expect(receipt.original[4].revisionId).toBe('rev-乙')
+    const candidate = skeleton('混合')
+    candidate.beats.forEach((beat, index) => { beat.id = sources[index + 5].targetBeatId! })
+    await wrapper.setProps({ skeletons: [skeleton('甲'), skeleton('乙'), candidate], selectedId: candidate.id })
+    expect(wrapper.get('details.mix-review').text()).toContain('闭门要推动第一幕。')
+    wrapper.unmount()
+    const reopened = mountPicker({ skeletons: [candidate], selectedId: candidate.id })
+    expect(reopened.get('details.mix-review').text()).toContain('闭门要推动第一幕。')
+    reopened.unmount()
+    localStorage.clear()
+    getModel.mockRestore()
   })
 
   it('没有 revisionId 的历史方案不能被选作混合来源', () => {

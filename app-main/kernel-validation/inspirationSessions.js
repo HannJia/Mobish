@@ -31,6 +31,23 @@ function parseInspirationSession(raw) {
                 invalid();
             next.questions = [...message.questions];
         }
+        if (message.knowledgeReferences !== undefined) {
+            if (message.role !== 'assistant' || !Array.isArray(message.knowledgeReferences) || message.knowledgeReferences.length > 9)
+                invalid();
+            next.knowledgeReferences = message.knowledgeReferences.map(reference => {
+                if (!reference || typeof reference.label !== 'string' || !/^资料[1-9]$/.test(reference.label)
+                    || [reference.baseId, reference.entryId, reference.sourceVersion].some(field => typeof field !== 'string' || !field || field.length > 200)
+                    || typeof reference.baseName !== 'string' || reference.baseName.length > 120
+                    || typeof reference.entryTitle !== 'string' || reference.entryTitle.length > 180
+                    || !Array.isArray(reference.path) || reference.path.length > 5
+                    || reference.path.some(title => typeof title !== 'string' || title.length > 160)
+                    || !Number.isSafeInteger(reference.start) || reference.start < 0
+                    || !Number.isSafeInteger(reference.end) || reference.end <= reference.start || reference.end - reference.start > 1200)
+                    invalid();
+                const { label, baseId, entryId, sourceVersion, baseName, entryTitle, path, start, end } = reference;
+                return { label, baseId, entryId, sourceVersion, baseName, entryTitle, path: [...path], start, end };
+            });
+        }
         if (message.search !== undefined) {
             const search = message.search;
             if (!search || !['responses', 'anthropic', 'openrouter', 'chat-completions'].includes(search.protocol)

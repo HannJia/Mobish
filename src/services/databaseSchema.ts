@@ -377,12 +377,21 @@ export function assertCurrentSchema(database: Database): void {
   }
 }
 
+// Add entry metadata to existing V3 databases without changing the rest of their schema.
+const KNOWLEDGE_METADATA = 'CREATE TABLE IF NOT EXISTS knowledge_entry_metadata (id TEXT PRIMARY KEY, visibility TEXT, merged_sources TEXT)'
+
 export function initializeSchema(database: Database): boolean {
   const version = database.exec('PRAGMA user_version')[0]?.values[0]?.[0]
   const tables = database.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")[0]?.values || []
-  if (tables.length) { assertCurrentSchema(database); return false }
+  if (tables.length) {
+    assertCurrentSchema(database)
+    if (tables.some(([name]) => name === 'knowledge_entry_metadata')) return false
+    database.exec(KNOWLEDGE_METADATA)
+    return true
+  }
   if (version !== 0) throw new UnsupportedProjectSchemaError()
   database.exec(PROJECT_SCHEMA)
+  database.exec(KNOWLEDGE_METADATA)
   assertCurrentSchema(database)
   return true
 }

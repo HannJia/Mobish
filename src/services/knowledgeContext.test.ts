@@ -9,6 +9,7 @@ import { buildChatKnowledgeContext } from './softwareAssistantContext'
 import { buildWritingContext } from './context'
 import { buildSemanticRecords, retrieveSemanticEvidence, formatEvidence } from './semanticIndex'
 import { buildReviewContextVersion } from './reconstructionReviewVersion'
+import { buildInspirationKnowledgeContext, inspirationKnowledgeDirectory } from './inspirationKnowledge'
 
 beforeEach(() => setActivePinia(createPinia()))
 function fixture() {
@@ -24,6 +25,21 @@ function fixture() {
 }
 
 describe('knowledge derived-source consumers', () => {
+  it('keeps chapter-gated titles, excerpts and summaries out of requests until the target chapter', () => {
+    const { novel, base, entry, chapter } = fixture()
+    entry.visibility = { mode: 'from-chapter', chapter: chapter.chapterIndex + 1 }
+    const query = '钥匙去向'
+    const snapshot = [
+      buildBoundKnowledgeContext(novel, query), buildChatKnowledgeContext([base], [base.id], query),
+      JSON.stringify(buildInspirationKnowledgeContext([base], [base.id], query)),
+      JSON.stringify(inspirationKnowledgeDirectory([base], [base.id], query)),
+      JSON.stringify(buildSemanticRecords(novel, [base], chapter.chapterIndex - 1)),
+    ].join('\n')
+    expect(snapshot).not.toMatch(/钥匙去向|黑钥匙在旅馆|条目压缩标记|整库压缩标记/)
+    expect(buildWritingContext(novel, chapter).outlineContext).toMatch(/黑钥匙在旅馆|条目压缩标记/)
+    entry.visibility = { mode: 'never' }
+    expect(buildWritingContext(novel, chapter).outlineContext).not.toMatch(/黑钥匙在旅馆|条目压缩标记/)
+  })
   it('invalidates bound writing, review, chat and retrieval on equal-length raw edits without changing timestamps', () => {
     const { novel, base, entry, store, chapter } = fixture()
     const boundBefore = buildBoundKnowledgeContext(novel)

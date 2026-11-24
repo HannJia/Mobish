@@ -3,10 +3,8 @@
 
 /** 可以安全去掉的参数（去掉后服务商用自己的默认值）。 */
 const DROPPABLE = ['temperature', 'top_p', 'response_format', 'thinking', 'presence_penalty', 'frequency_penalty'] as const
-/** 每次请求最多因参数问题重试几次。 */
-export const MAX_PARAMETER_RETRIES = 3
-
-const NOT_PARAMETER_ERROR = /api[_ ]?key|unauthori[sz]ed|authentication|insufficient|quota|balance|余额|欠费|rate limit|content[_ ]?(filter|policy)|sensitive|审核|违规/i
+const NOT_PARAMETER_ERROR = /api[_ -]?key|unauthori[sz]ed|authentication|insufficient|quota|balance|额度|余额|欠费|rate[_ ]limit|content[_ ]?(filter|policy)|safety|sensitive|审核|违规|model[_ ]not[_ ]found|no such model|model.{0,60}(?:does not exist|not found)|模型.{0,20}(?:不存在|未找到)/i
+export const isTerminalProviderError = (text: string) => NOT_PARAMETER_ERROR.test(text)
 const UNSUPPORTED_HINT = /unsupported|not support|does not support|isn'?t supported|not allowed|invalid|unrecognized|unknown|extra (?:inputs|fields)|不支持|无效|未知|不允许/i
 
 /**
@@ -16,7 +14,7 @@ const UNSUPPORTED_HINT = /unsupported|not support|does not support|isn'?t suppor
 export function adjustBodyForParameterError(status: number, errorText: string, body: Record<string, unknown>): { body: Record<string, unknown>; dropped: string } | null {
   if (status !== 400 && status !== 422) return null
   const text = errorText.slice(0, 4000)
-  if (NOT_PARAMETER_ERROR.test(text) || !UNSUPPORTED_HINT.test(text)) return null
+  if (isTerminalProviderError(text) || !UNSUPPORTED_HINT.test(text)) return null
   if ('max_tokens' in body && /max_tokens/.test(text) && /max_completion_tokens/.test(text)) {
     const { max_tokens: value, ...rest } = body
     return { body: { ...rest, max_completion_tokens: value }, dropped: 'max_tokens' }
@@ -25,21 +23,4 @@ export function adjustBodyForParameterError(status: number, errorText: string, b
   if (!field) return null
   const { [field]: _removed, ...rest } = body
   return { body: rest, dropped: field }
-}
-
-/** 发送请求；遇到参数不受支持的 400 时去掉该参数重发，返回最终响应。 */
-export async function fetchWithParameterRetry(
-  send: (body: Record<string, unknown>) => Promise<Response>,
-  initialBody: Record<string, unknown>,
-): Promise<Response> {
-  let body = initialBody
-  for (let attempt = 0; ; attempt++) {
-    const response = await send(body)
-    if (response.ok || attempt >= MAX_PARAMETER_RETRIES || (response.status !== 400 && response.status !== 422)) return response
-    const text = await response.clone().text().catch(() => '')
-    const adjusted = adjustBodyForParameterError(response.status, text, body)
-    if (!adjusted) return response
-    console.warn(`模型不支持参数 ${adjusted.dropped}，已去掉后重试`)
-    body = adjusted.body
-  }
 }

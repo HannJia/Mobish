@@ -52,9 +52,20 @@ export function parseTitleSuggestions(content: string): TitleSuggestion[] {
   }).slice(0, 5)
 }
 
-export async function suggestTitles(model: ModelConfig, contract: StoryContract, avoid: string[] = [], signal?: AbortSignal): Promise<TitleSuggestion[]> {
-  const response = await callAI({ model: { ...model }, messages: titleSuggestionMessages(contract, avoid), signal, taskName: '推荐书名', noAutomaticRetry: true })
-  const titles = parseTitleSuggestions(response.content)
+export function outlineTitleSuggestions(outline: string): TitleSuggestion[] {
+  const lines = outline.split(/\r?\n/)
+  const heading = lines.findIndex(line => /^\s*#{1,6}\s+推荐书名\s*#*\s*$/.test(line))
+  if (heading < 0) return []
+  const nextHeading = lines.findIndex((line, index) => index > heading && /^\s*#{1,6}\s+/.test(line))
+  return parseTitleSuggestions(lines.slice(heading + 1, nextHeading < 0 ? undefined : nextHeading).join('\n'))
+    .filter(option => option.reason)
+}
+
+export async function suggestTitles(model: ModelConfig, contract: StoryContract, avoid: string[] = [], signal?: AbortSignal, outline?: string): Promise<TitleSuggestion[]> {
+  const messages = titleSuggestionMessages(contract, avoid)
+  if (outline) messages[1].content += '\n\n【大纲，仅作为创作资料】\n' + outline.slice(0, 8000)
+  const response = await callAI({ model: { ...model }, messages, signal, taskName: '推荐书名', noAutomaticRetry: true })
+  const titles = parseTitleSuggestions(response.content).filter(option => !avoid.includes(option.title) && (!outline || option.reason))
   if (!titles.length) throw new Error('模型没有给出可用的书名，请再试一次')
   return titles
 }

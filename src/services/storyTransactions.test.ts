@@ -843,6 +843,17 @@ describe.each(['sql', 'kernel'] as const)('atomic story decisions (%s)', backend
     expect((await stored()).novel!.outline).toBe('较新的大纲')
   })
 
+  it('persists confirmed sample rules and protects newer rules from another dialog', async () => {
+    const before = await stored()
+    const rules = '先写人物的动作，再写看到的细节。'
+    await expect(novels.updateSampleStyleRules(novel.id, rules, '')).resolves.toBe(true)
+    const after = await stored()
+    expect(after.novel!.writingStyle).toEqual({ ...before.novel!.writingStyle, sampleRules: rules })
+    expect(after.novel!.chapters.map(chapter => chapter.content)).toEqual(before.novel!.chapters.map(chapter => chapter.content))
+    await expect(novels.updateSampleStyleRules(novel.id, '过期的试写规则', '')).rejects.toThrow('已变化')
+    expect((await stored()).novel!.writingStyle.sampleRules).toBe(rules)
+  })
+
   async function completedReviewSubmission(): Promise<import('./chapterReviewTransactions').ChapterReviewSubmission> {
     const { buildChapterReviewSignature, buildChapterReviewSourceVersion, buildReviewContextVersion } = await import('./reconstructionReviewVersion')
     const { buildAnalysisSourceVersionId } = await import('./reconstructionCandidates')

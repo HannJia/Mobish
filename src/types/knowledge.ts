@@ -56,6 +56,17 @@ export interface KBEntry {
   updatedAt: string
   summarySource?: KnowledgeSummarySource
   summaryHistory?: KnowledgeSummaryHistory[]
+  visibility?: KnowledgeVisibility
+  mergedSources?: KnowledgeMergeSource[]
+}
+
+export type KnowledgeVisibility = { mode: 'never' } | { mode: 'from-chapter'; chapter: number }
+
+export interface KnowledgeMergeSource {
+  entryId: string
+  title: string
+  category: string
+  sourceVersionId: string
 }
 
 // 知识库

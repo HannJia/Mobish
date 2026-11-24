@@ -3,6 +3,7 @@ import type { KnowledgeBase, KnowledgeSummaryCoverage } from '@/types/knowledge'
 import { callAI, type ChatCompletionResult, type ChatMessage } from './ai'
 import { baseSourceVersion, entrySourceVersion } from './knowledgeSources'
 import { buildKnowledgeSummaryChunks, createKnowledgeSummaryCoverage, type KnowledgeSummaryChunk } from './knowledgeSummaryCoverage'
+import { canUseKnowledgeEntry } from './knowledgeVisibility'
 import { buildStoryMemorySummaryGraph, DEFAULT_SUMMARY_CONTEXT_WINDOW, summaryMessages as messagesFor, summaryLeafText as leafText, summaryMergeText as mergeText, summaryInputReservation as inputReservation, summaryRequestReservation } from './summaryGraph'
 import { startAiActivity, finishAiActivity } from './aiActivity'
 
@@ -52,6 +53,7 @@ export function planKnowledgeSummary(kb: KnowledgeBase, entryId?: string, level:
   if (!(level in OUTPUT_CHARS)) throw new Error('摘要详细程度无效')
   const entries = entryId ? kb.entries.filter(entry => entry.id === entryId) : kb.entries
   if (!entries.length || !entries.some(entry => entry.content.trim())) throw new Error('请先添加非空资料')
+  if (entries.some(entry => !canUseKnowledgeEntry(entry))) throw new Error('所选资料有 AI 使用权限限制，可以在本地手写摘要')
   const chunks = buildKnowledgeSummaryChunks(entries.map(entry => ({
     entryId: entry.id, sourceVersionId: entrySourceVersion(kb.id, entry),
     title: entry.title, category: entry.category, tags: [...entry.tags], content: entry.content,

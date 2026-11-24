@@ -326,7 +326,9 @@ describe('editable generated outline', () => {
     picker.vm.$emit('confirm')
     await vi.waitFor(() => expect(workspace.getCreationDraft(novel.id)?.approval.skeleton).toBe('approved'))
     expect(callAI).toHaveBeenCalledTimes(1)
-    const outline = ['推荐书名', '小说简介', '主线剧情走向', '主要角色表', '核心冲突', '分卷建议', '预估总字数分配', '全书伏笔'].map(title => '## ' + title + '\n展开内容').join('\n')
+    const currentTitle = workspace.getCreationDraft(novel.id)!.contract.title
+    const outline = '## 推荐书名\n1. 《城门旧信》— 突出开篇线索\n2. 《离城之后》— 呼应主角结局\n3. 《证词之夜》— 点明调查悬念\n'
+      + ['小说简介', '主线剧情走向', '主要角色表', '核心冲突', '分卷建议', '预估总字数分配', '全书伏笔'].map(title => '## ' + title + '\n展开内容').join('\n')
     vi.mocked(callAI).mockImplementationOnce(async input => {
       input.onChunk?.(outline)
       return { content: outline } as never
@@ -340,6 +342,19 @@ describe('editable generated outline', () => {
     expect(novel.outline).toBe('')
     expect(workspace.getCreationDraft(novel.id)?.outlineCandidate?.content).toContain('展开内容')
     expect(workspace.getCreationDraft(novel.id)?.approval.skeleton).toBe('approved')
+    const titleGroup = wrapper.get('[aria-label="大纲书名候选"]')
+    expect(titleGroup.text()).toContain('城门旧信')
+    expect(titleGroup.text()).toContain('突出开篇线索')
+    expect(workspace.getCreationDraft(novel.id)?.contract.title).toBe(currentTitle)
+    vi.mocked(callAI).mockResolvedValueOnce({ content: JSON.stringify({ titles: [{ title: '长街证人', reason: '把场景与悬念放在一起' }] }) })
+    await titleGroup.findAll('button').find(button => button.text() === '换一批')!.trigger('click')
+    await flushPromises()
+    expect(JSON.stringify(vi.mocked(callAI).mock.calls[2][0].messages)).toContain('城门旧信')
+    expect(titleGroup.text()).toContain('长街证人')
+    expect(workspace.getCreationDraft(novel.id)?.contract.title).toBe(currentTitle)
+    await titleGroup.findAll('button')[0].trigger('click')
+    expect(wrapper.getComponent(StoryContractEditor).props('contract').title).toBe('长街证人')
+    expect(workspace.getCreationDraft(novel.id)?.contract.title).toBe(currentTitle)
     wrapper.unmount()
   })
   it('loads an existing draft without making an AI request, then plans from saved edits', async () => {

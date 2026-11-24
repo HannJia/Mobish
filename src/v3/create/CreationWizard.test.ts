@@ -2,7 +2,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, shallowMount } from '@vue/test-utils'
-import type { ComponentPublicInstance } from 'vue'
+import V3Input from '@/v3/components/form/V3Input.vue'
+import V3Number from '@/v3/components/form/V3Number.vue'
 import CreateWizard from '@/v3/create/CreationWizard.vue'
 import InspirationChat from '@/components/InspirationChat.vue'
 import CreationEntrySource from '@/components/CreationEntrySource.vue'
@@ -102,10 +103,9 @@ describe('independent writing and settings choices', () => {
     wrapper.unmount()
   })
 
-  it('keeps organized settings in discussion and enters detailed settings only after completion', async () => {
+  it('keeps organized settings in discussion and goes directly to the contract step on apply', async () => {
     const wrapper = shallowMount(CreateWizard, options)
     await choose(wrapper, 'manual', 'inspiration')
-    await wrapper.findAll('button').find(button => button.text().includes('展开灵感对话'))!.trigger('click')
     const chat = wrapper.findComponent(InspirationChat)
     expect(wrapper.classes()).toContain('discussing-inspiration')
     chat.vm.$emit('draft-change', proposal('ai'))
@@ -117,13 +117,13 @@ describe('independent writing and settings choices', () => {
     await flushPromises()
     expect(chat.props('active')).toBe(false)
     expect(wrapper.classes()).not.toContain('discussing-inspiration')
-    expect(wrapper.get('#wizard-page-1').isVisible()).toBe(true)
-    expect(success).toHaveBeenCalledWith('已进入详细设定，请检查并补充')
+    expect(wrapper.get('.creation-entry-panel h2').text()).toBe('作品契约')
+    expect(wrapper.find('#wizard-steps').exists()).toBe(false)
     expect(useNovelStore().novels).toHaveLength(0)
     wrapper.unmount()
   })
 
-  it('V3 起点只选择方式，下一步填写灵感并保存为创建输入', async () => {
+  it('opens inspiration immediately and commits metadata, full discussion and chosen title with the contract', async () => {
     const store = useNovelStore()
     const wrapper = shallowMount(CreateWizard, { ...options, props: { appearance: 'v3' } })
     expect(wrapper.find('#origin-idea').exists()).toBe(false)
@@ -132,21 +132,23 @@ describe('independent writing and settings choices', () => {
     expect(wrapper.find('.origin-seed').exists()).toBe(false)
     await wrapper.get('#start-creation-btn').trigger('click')
     expect(store.novels).toHaveLength(0)
-    expect(wrapper.findComponent(InspirationChat).props('active')).toBe(false)
-    wrapper.getComponent<ComponentPublicInstance>('[aria-label="一句话灵感"]').vm
-      .$emit('update:value', '合成灵感：渡口的守灯人正在等待一封旧信。')
+    const chat = wrapper.findComponent(InspirationChat)
+    expect(chat.props('active')).toBe(true)
+    expect(wrapper.find('.creation-entry-panel').exists()).toBe(false)
+    const idea = '合成灵感：渡口的守灯人正在等待一封旧信。'
+    const discussion = [{ role: 'user', content: idea }, { role: 'assistant', content: '第一幕从旧信送达开始。' }]
+    chat.vm.$emit('apply', { ...proposal('manual'), workingTitle: '渡口守灯人', storyTimeOrigin: { day: 0, label: '旧信送达' },
+      titleSuggestions: [{ title: '灯下旧信', reason: '突出开篇意象' }] }, discussion)
     await flushPromises()
     expect(wrapper.findComponent(CreationEntrySource).exists()).toBe(false)
-    await wrapper.findAll('button').find(button => button.text() === '发送灵感并开始讨论')!.trigger('click')
-    expect(wrapper.findComponent(InspirationChat).props()).toMatchObject({ active: true, initialIdea: '合成灵感：渡口的守灯人正在等待一封旧信。',
-      startRequest: { id: 1, idea: '合成灵感：渡口的守灯人正在等待一封旧信。' } })
-    await wrapper.findAll('button').find(button => button.text() === '保留讨论，返回创建输入')!.trigger('click')
-    expect(wrapper.findComponent(CreationEntrySource).exists()).toBe(false)
-    expect(wrapper.getComponent<ComponentPublicInstance>('[aria-label="一句话灵感"]').props()).toMatchObject({ value: '合成灵感：渡口的守灯人正在等待一封旧信。' })
+    expect(wrapper.findAllComponents(V3Input).find(field => field.attributes('aria-label') === '新作品名称')?.props('value')).toBe('渡口守灯人')
+    expect(wrapper.findAllComponents(V3Number).find(field => field.attributes('aria-label') === '创建起始故事日')?.props('value')).toBe(0)
+    await wrapper.get('.entry-title-options button').trigger('click')
     await wrapper.get('#entry-create-btn').trigger('click')
     await flushPromises()
     expect(store.novels).toHaveLength(1)
-    expect(useReconstructionWorkspaceStore().getCreationDraft(store.novels[0].id)?.initialInput).toMatchObject({ method: 'inspiration', idea: '合成灵感：渡口的守灯人正在等待一封旧信。' })
+    expect(store.novels[0]).toMatchObject({ title: '灯下旧信', storyClock: { origin: { day: 0, label: '旧信送达' } }, inspirationHistory: discussion })
+    expect(useReconstructionWorkspaceStore().getCreationDraft(store.novels[0].id)?.initialInput).toMatchObject({ method: 'inspiration', idea, includeDiscussion: true })
     expect(useReconstructionWorkspaceStore().getCreationDraft(store.novels[0].id)?.approval.contract).toBeUndefined()
     wrapper.unmount()
   })
@@ -233,10 +235,8 @@ describe('independent writing and settings choices', () => {
     await choose(wrapper, writing, setup)
     const chat = wrapper.findComponent(InspirationChat)
     expect(chat.props('form').writingMode).toBe(writing)
-    expect(chat.props('active')).toBe(false)
+    expect(chat.props('active')).toBe(setup === 'inspiration')
     if (setup === 'inspiration') {
-      await wrapper.findAll('button').find(button => button.text().includes('展开灵感对话'))!.trigger('click')
-      expect(chat.props('active')).toBe(true)
       // A stale or model-produced mode must never override the author's choice.
       chat.vm.$emit('apply', proposal(writing === 'ai' ? 'manual' : 'ai'), [{ role: 'user', content: '九十年代创业' }])
     } else {
@@ -247,9 +247,12 @@ describe('independent writing and settings choices', () => {
     expect(store.novels).toHaveLength(0)
     expect(chat.props('active')).toBe(false)
     expect(chat.props('form').writingMode).toBe(writing)
-    await wrapper.find('#wizard-next-btn').trigger('click')
-    await wrapper.find('#wizard-next-btn').trigger('click')
-    await wrapper.find('#wizard-create-btn').trigger('click')
+    if (setup === 'inspiration') await wrapper.get('#entry-create-btn').trigger('click')
+    else {
+      await wrapper.get('#wizard-next-btn').trigger('click')
+      await wrapper.get('#wizard-next-btn').trigger('click')
+      await wrapper.get('#wizard-create-btn').trigger('click')
+    }
     await flushPromises()
     expect(store.novels).toHaveLength(1)
     expect(useReconstructionWorkspaceStore().getCreationDraft(store.novels[0].id)?.contract.approval).toBe('draft')
@@ -269,7 +272,6 @@ describe('independent writing and settings choices', () => {
     const wrapper = shallowMount(CreateWizard, options)
     await choose(wrapper, 'ai', 'inspiration')
     const chat = wrapper.findComponent(InspirationChat)
-    await wrapper.findAll('button').find(button => button.text().includes('展开灵感对话'))!.trigger('click')
     chat.vm.$emit('apply', proposal('ai'), [{ role: 'user', content: '已经确认的灵感' }])
     await flushPromises()
     await wrapper.findAll('button').find(button => button.text() === '更换搭配')!.trigger('click')

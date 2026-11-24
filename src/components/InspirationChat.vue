@@ -25,7 +25,7 @@
             </div>
           </div>
         </header>
-        <details ref="historyDetails" class="inspiration-options" @toggle="optionsOpen = ($event.target as HTMLDetailsElement).open"><summary><V3Icon name="chevR" size="s" class="options-arrow" /><span>对话选项 · 历史与参考资料</span><small>{{ optionsOpen ? '点击收起' : '点击展开' }}</small></summary>
+        <details ref="historyDetails" class="inspiration-options" @toggle="toggleOptions"><summary class="m-btn"><V3Icon name="chevR" size="s" class="options-arrow" /><span>历史与参考资料</span><small>{{ optionsOpen ? '收起' : '展开' }}</small></summary>
     <div class="inspiration-search-toolbar">
       <span>{{ webSearch ? '允许按需搜索近期事件和背景；查询词可能外发并额外计费。' : '未启用网页搜索；灵感对话仍需调用已配置 API。' }}</span>
       <V3Select
@@ -50,6 +50,7 @@
     </div>
 
         </details>
+        <p v-if="showOptionsHint && !optionsOpen" class="inspiration-options-hint">展开「历史与参考资料」可以继续以前的讨论。</p>
     <aside v-if="latestPrompt" class="inspiration-sticky-prompt" aria-label="本轮问题">
       <div class="inspiration-sticky-header">
         <strong>本轮问题</strong>
@@ -68,8 +69,19 @@
         <strong>{{ item.role === 'user' ? '我' : 'AI' }}</strong>
         <div v-html="renderMd(item.role === 'assistant' ? formatChatReply(item.content, item.search) : item.content)"></div>
         <ChatSearchEvidence :record="item.search" />
-        <button type="button" class="m-btn ghost xs" v-if="item.role === 'assistant'" :disabled="busy" @click="openKnowledgeDraft(item.content, item.search)">
-          <V3Icon name="check" size="s" />存入知识库
+        <details v-if="item.knowledgeReferences?.length" class="inspiration-knowledge-references">
+          <summary>本轮引用 {{ item.knowledgeReferences.length }} 处原文</summary>
+          <ul>
+            <li v-for="reference in item.knowledgeReferences" :key="reference.label">
+              <button type="button" class="m-btn ghost xs" @click="openedReference = reference">
+                {{ reference.label }} · {{ reference.entryTitle }}{{ reference.path.length ? ' › ' + reference.path.join(' › ') : '' }}
+              </button>
+            </li>
+          </ul>
+        </details>
+        <button v-if="saveReminder?.index === index" type="button" class="m-btn inspiration-save-reminder" :disabled="busy"
+          @click="openSuggestedKnowledgeDraft(item)">
+          <V3Icon name="book" size="s" />这轮讨论可以存入知识库：{{ saveReminder.title }} · 查看草稿
         </button>
       </article>
       <article v-if="streamReplyText" data-streaming-assistant class="inspiration-message assistant">
@@ -92,12 +104,14 @@
         <strong>已带入一句话灵感</strong><p>{{ pendingIdea }}</p><small>发送时会与下方草稿一起带入讨论。</small>
       </aside>
       <V3Input v-model:value="input" type="textarea" :rows="3" :maxlength="4000" :disabled="busy"
-        placeholder="我想写一个怎样的故事？" aria-label="小说灵感"
+        :placeholder="history.length ? '继续说说你的想法…' : '一句话说说你的想法：一个人物、一个冲突或一个场景'" aria-label="小说灵感"
         @keydown="handleInputKeydown" @compositionstart="composing = true"
         @compositionend="composing = false" @blur="composing = false" />
       <div v-if="error" role="alert" class="inspiration-error">{{ error }}</div>
       <div class="inspiration-actions">
         <p class="inspiration-input-hint">回车发送 · 上档键＋回车换行</p>
+        <button v-if="!history.length && !busy" type="button" class="m-btn" :disabled="!canExtract"
+          @click="extract">跳过讨论，直接整理设定</button>
         <button type="button" class="m-btn" v-if="retryAvailable && !busy && !pendingIdea" @click="respond">重试回复</button>
         <div class="inspiration-send-group">
           <button type="button" class="inspiration-search-toggle" :class="{ enabled: webSearch }" :aria-pressed="webSearch"
@@ -133,6 +147,12 @@
     </div>
     <SaveChatKnowledge :key="selectedSessionId || 'new'" v-model:show="showKnowledgeDraft" :content="knowledgeDraft" :preferred-ids="knowledgeIds"
       @saved="knowledgeSaved" />
+    <V3Modal :show="Boolean(openedReference)" title="知识库原文" size="wide"
+      :description="openedReference ? [openedReference.baseName, openedReference.entryTitle, ...openedReference.path].join(' › ') : ''"
+      @update:show="openedReference = null">
+      <p v-if="referenceExcerpt" class="inspiration-reference-excerpt">{{ referenceExcerpt.before }}<mark>{{ referenceExcerpt.excerpt }}</mark>{{ referenceExcerpt.after }}</p>
+      <p v-else>这处原文已更新或移除。请让 AI 重新查阅当前资料。</p>
+    </V3Modal>
 
   </section>
 </template>
@@ -142,6 +162,7 @@ import { errorText } from '@/services/userFacingError'
 import { useMessage } from '@/v3/feedback'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import V3Icon from '@/v3/components/V3Icon.vue'
+import V3Modal from '@/v3/components/V3Modal.vue'
 import V3Input from '@/v3/components/form/V3Input.vue'
 import V3Select from '@/v3/components/form/V3Select.vue'
 import { useConfigStore } from '@/stores/config'
@@ -157,6 +178,7 @@ import {
   INSPIRATION_COMPACT_AT,
   INSPIRATION_CONTEXT_BUDGET,
   type InspirationMessage,
+  type InspirationSettingsDraft,
 } from '@/services/inspiration'
 import type { CreateWizardForm } from '@/types/novel'
 import { renderMd } from '@/utils/markdown'
@@ -168,27 +190,32 @@ import { knowledgeDraftWithSources } from '@/services/softwareAssistantContext'
 import type { ChatSearchRecord } from '@/types/chat'
 import { useInspirationSessionsStore } from '@/stores/inspirationSessions'
 import type { InspirationSession } from '@/services/inspirationSessions'
+import { inspirationKnowledgeExcerpt, type InspirationKnowledgeReference } from '@/services/inspirationKnowledge'
+import { stopInspirationKnowledgeIndexing } from '@/services/inspirationKnowledgeVectors'
 
 const props = defineProps<{
   form: CreateWizardForm
   active: boolean
   initialIdea?: string
+  initialSessionId?: string
   startRequest?: { id: number; idea: string }
   /** 创建入口选的知识库；提供时与入口共用同一份选择 */
   sharedKnowledgeIds?: string[]
 }>()
 const emit = defineEmits<{
-  apply: [form: CreateWizardForm, history: InspirationMessage[]]
+  apply: [form: InspirationSettingsDraft, history: InspirationMessage[]]
   'history-change': [history: InspirationMessage[]]
-  'draft-change': [form: CreateWizardForm]
+  'draft-change': [form: InspirationSettingsDraft]
   'knowledge-change': [ids: string[]]
 }>()
 const config = useConfigStore()
 const knowledge = useKnowledgeStore()
+const openedReference = ref<InspirationKnowledgeReference | null>(null)
+const referenceExcerpt = computed(() => openedReference.value && inspirationKnowledgeExcerpt(knowledge.knowledgeBases, openedReference.value))
 const sessionsStore = useInspirationSessionsStore()
 const history = ref<InspirationMessage[]>([])
 const initialForm: CreateWizardForm = JSON.parse(JSON.stringify(props.form))
-const discussionSettings = ref<CreateWizardForm>(JSON.parse(JSON.stringify(props.form)))
+const discussionSettings = ref<InspirationSettingsDraft>(JSON.parse(JSON.stringify(props.form)))
 const hasSettingsDraft = ref(false)
 const settingsMessageCount = ref<number>()
 let restoreSettingsOnOpen = false
@@ -197,6 +224,17 @@ const selectedSessionId = ref<string | null>(null)
 const historyElement = ref<HTMLElement | null>(null)
 const historyDetails = ref<HTMLDetailsElement | null>(null)
 const optionsOpen = ref(false)
+const optionsHintKey = 'mobish.inspiration.options-seen'
+const showOptionsHint = ref(false)
+onMounted(() => {
+  try { showOptionsHint.value = localStorage.getItem(optionsHintKey) !== '1' } catch { /* unavailable */ }
+})
+function toggleOptions(event: Event) {
+  optionsOpen.value = (event.target as HTMLDetailsElement).open
+  if (!optionsOpen.value || !showOptionsHint.value) return
+  showOptionsHint.value = false
+  try { localStorage.setItem(optionsHintKey, '1') } catch { /* unavailable */ }
+}
 const compactPanel = ref<'conversation' | 'settings'>('conversation')
 async function openHistory() {
   compactPanel.value = 'conversation'
@@ -207,8 +245,7 @@ async function openHistory() {
 const input = ref('')
 const pendingIdea = ref('')
 const importedIdea = ref('')
-const canExtract = computed(() => history.value.some(item => item.role === 'user') || !!pendingIdea.value
-  || !!importedIdea.value && input.value.trim() === importedIdea.value)
+const canExtract = computed(() => history.value.some(item => item.role === 'user') || !!pendingIdea.value || !!input.value.trim())
 const selectedKnowledgeIds = ref<string[] | null>(null)
 const knowledgeIds = computed<string[]>({
   get: () => props.sharedKnowledgeIds ? props.sharedKnowledgeIds.filter(id => knowledge.getKB(id))
@@ -230,12 +267,16 @@ function closeKnowledgePicker(event: MouseEvent) {
 }
 onMounted(() => document.addEventListener('click', closeKnowledgePicker))
 onBeforeUnmount(() => document.removeEventListener('click', closeKnowledgePicker))
+watch(() => [props.active, knowledgeIds.value.join('\n'), config.embedding.enabled, config.embedding.baseUrl, config.embedding.modelName, config.embedding.apiKey], stopInspirationKnowledgeIndexing, { flush: 'sync' })
+onBeforeUnmount(stopInspirationKnowledgeIndexing)
 const knowledgeNames = computed(() => knowledgeIds.value.map(id => knowledge.getKB(id)?.name).filter(Boolean).join('、'))
 function toggleKnowledge(id: string, checked: boolean) {
   knowledgeIds.value = checked ? [...new Set([...knowledgeIds.value, id])] : knowledgeIds.value.filter(item => item !== id)
 }
 const showKnowledgeDraft = ref(false)
 const knowledgeDraft = ref('')
+const saveReminder = ref<{ index: number; title: string }>()
+let savingSuggestedReply = false
 const composing = ref(false)
 const streamText = ref('')
 const streamReplyText = computed(() => inspirationReplyText(streamText.value))
@@ -321,15 +362,17 @@ const sessionOptions = computed(() => savedSessions.value.map(session => ({
   value: session.id,
 })))
 
-if (savedSessions.value[0]) {
-  selectedSessionId.value = savedSessions.value[0].id
-  history.value = cloneHistory(savedSessions.value[0].messages)
-  selectedKnowledgeIds.value = Array.isArray(savedSessions.value[0].knowledgeIds)
-    ? savedSessions.value[0].knowledgeIds!.filter(id => typeof id === 'string') : null
-  input.value = savedSessions.value[0].draft
-  webSearch.value = savedSessions.value[0].webSearch
-  conversationContext.value = savedSessions.value[0].context
-  restoreDiscussionSettings(savedSessions.value[0].settingsDraft, savedSessions.value[0].settingsMessageCount)
+const initialSession = props.initialSessionId
+  ? savedSessions.value.find(session => session.id === props.initialSessionId)
+  : savedSessions.value[0]
+if (initialSession) {
+  selectedSessionId.value = initialSession.id
+  history.value = cloneHistory(initialSession.messages)
+  selectedKnowledgeIds.value = initialSession.knowledgeIds ? [...initialSession.knowledgeIds] : null
+  input.value = initialSession.draft
+  webSearch.value = initialSession.webSearch
+  conversationContext.value = initialSession.context
+  restoreDiscussionSettings(initialSession.settingsDraft, initialSession.settingsMessageCount)
 }
 
 function restoreDiscussionSettings(snapshot?: string, messageCount?: number) {
@@ -342,7 +385,7 @@ function restoreDiscussionSettings(snapshot?: string, messageCount?: number) {
   restoreSettingsOnOpen = true
 }
 
-function updateDiscussionSettings(form: CreateWizardForm) {
+function updateDiscussionSettings(form: InspirationSettingsDraft) {
   discussionSettings.value = { ...JSON.parse(JSON.stringify(form)), writingMode: props.form.writingMode }
   hasSettingsDraft.value = true
   emit('draft-change', JSON.parse(JSON.stringify(discussionSettings.value)))
@@ -400,6 +443,7 @@ function loadSession(id: string | null) {
   try {
   stop()
   showKnowledgeDraft.value = false
+  saveReminder.value = undefined
   if (!id) {
     selectedSessionId.value = null
     history.value = []
@@ -433,15 +477,30 @@ function activateDiscussionSettings() {
     restoreSettingsOnOpen = false
     discussionSettings.value.writingMode = props.form.writingMode
     emit('draft-change', JSON.parse(JSON.stringify(discussionSettings.value)))
-  } else discussionSettings.value = JSON.parse(JSON.stringify(props.form))
+  } else {
+    const { titleSuggestions, storyTimeOrigin } = discussionSettings.value
+    discussionSettings.value = { ...JSON.parse(JSON.stringify(props.form)), titleSuggestions, storyTimeOrigin }
+  }
 }
 
 function openKnowledgeDraft(content: string, search?: ChatSearchRecord) {
+  savingSuggestedReply = false
   knowledgeDraft.value = knowledgeDraftWithSources(content, search)
   showKnowledgeDraft.value = true
 }
 
+function openSuggestedKnowledgeDraft(item: InspirationMessage) {
+  const references = item.knowledgeReferences?.map(reference =>
+    [reference.baseName, reference.entryTitle, ...reference.path].join(' › ')) || []
+  const content = [`# ${saveReminder.value?.title}`, item.content,
+    references.length ? ['参考知识库原文', ...references.map(reference => '- ' + reference)].join('\n') : ''].filter(Boolean).join('\n\n')
+  openKnowledgeDraft(content, item.search)
+  savingSuggestedReply = true
+}
+
 function knowledgeSaved(result: { kbId: string; kbName: string; title: string }) {
+  if (savingSuggestedReply) saveReminder.value = undefined
+  savingSuggestedReply = false
   if (selectedKnowledgeIds.value && !selectedKnowledgeIds.value.includes(result.kbId)) {
     selectedKnowledgeIds.value = [...selectedKnowledgeIds.value, result.kbId]
   }
@@ -571,9 +630,10 @@ async function respond() {
     }, requestWebSearch.value, [...knowledgeIds.value], conversationContext.value, JSON.parse(JSON.stringify(discussionSettings.value)))
     if (controller === request && !request.signal.aborted && props.active) {
       // 改用搜索服务的说明只提示一次，不写入对话记录。
-      const { fallback, ...reply } = result
+      const { fallback, saveTitle, ...reply } = result
       if (fallback) useMessage().info(fallback)
       history.value.push({ role: 'assistant', ...reply })
+      saveReminder.value = saveTitle ? { index: history.value.length - 1, title: saveTitle } : undefined
       persistCurrentHistory()
       streamText.value = ''
       await scrollToReplyStart(request, replyIndex)
@@ -585,14 +645,10 @@ async function respond() {
   }
 }
 async function extract() {
-  if (busy.value || !props.active) return
+  if (busy.value || !props.active || !canExtract.value) return
   const model = config.getModelForTask('outline')
   if (!model?.apiKey.trim()) { error.value = '请先在设置中配置大纲模型及有效的 API 密钥。'; return }
-  commitPendingIdea()
-  if (importedIdea.value && input.value.trim() === importedIdea.value && !history.value.some(item => item.role === 'user' && item.content.includes(importedIdea.value))) {
-    history.value.push({ role: 'user', content: importedIdea.value })
-    input.value = ''
-  }
+  commitExtractionInput()
   persistCurrentHistory()
   const request = new AbortController()
   controller = request
@@ -601,7 +657,7 @@ async function extract() {
   extractionProgress.value = '正在整理设定…'
   void scrollToReplyStart(request, history.value.length)
   try {
-    const base = JSON.parse(JSON.stringify(discussionSettings.value)) as CreateWizardForm
+    const base = JSON.parse(JSON.stringify(discussionSettings.value)) as InspirationSettingsDraft
     const snapshot = JSON.parse(JSON.stringify(history.value)) as InspirationMessage[]
     const form = await extractInspirationSettings({ ...model }, snapshot, base, request.signal, (completed, total) => {
       if (controller === request) extractionProgress.value = `正在整理设定：已完成 ${completed}/${total} 步…`
@@ -625,8 +681,19 @@ async function extract() {
   }
 }
 
+function commitExtractionInput() {
+  const content = input.value.trim()
+  commitPendingIdea(content)
+  if (!content) return
+  if (content !== importedIdea.value || !history.value.some(item => item.role === 'user' && item.content.includes(content))) {
+    history.value.push({ role: 'user', content })
+  }
+  input.value = ''
+}
+
 function finish() {
-  if (!props.active || busy.value) return
+  if (!props.active || busy.value || (!hasSettingsDraft.value && !canExtract.value)) return
+  commitExtractionInput()
   persistCurrentHistory()
   emit('apply', JSON.parse(JSON.stringify(discussionSettings.value)), cloneHistory(history.value))
 }
@@ -634,15 +701,22 @@ function finish() {
 onMounted(() => { void scrollToLatestMessage() })
 watch(() => JSON.stringify(props.form), () => {
   if (!props.active || restoreSettingsOnOpen || restoring) return
-  if (inspirationSettingsSnapshot(props.form) === inspirationSettingsSnapshot(discussionSettings.value)
+  const { titleSuggestions, storyTimeOrigin } = discussionSettings.value
+  const next = { ...JSON.parse(JSON.stringify(props.form)), titleSuggestions, storyTimeOrigin }
+  if (inspirationSettingsSnapshot(next) === inspirationSettingsSnapshot(discussionSettings.value)
     && props.form.writingMode === discussionSettings.value.writingMode) return
-  discussionSettings.value = JSON.parse(JSON.stringify(props.form))
+  discussionSettings.value = next
   hasSettingsDraft.value = true
   persistCurrentHistory()
 })
 watch([input, webSearch], persistCurrentHistory, { flush: 'sync' })
-watch([() => props.active, () => props.initialIdea], ([active]) => {
-  if (active) { activateDiscussionSettings(); carryInitialIdea(); void scrollToLatestMessage() }
+watch([() => props.active, () => props.initialIdea], ([active], previous) => {
+  if (active) {
+    if (!previous?.[0] && props.sharedKnowledgeIds && selectedKnowledgeIds.value && !props.sharedKnowledgeIds.length) {
+      emit('knowledge-change', [...selectedKnowledgeIds.value])
+    }
+    activateDiscussionSettings(); carryInitialIdea(); void scrollToLatestMessage()
+  }
   else { stop(); showKnowledgeDraft.value = false }
 }, { immediate: true })
 let handledStartRequest = 0
@@ -659,6 +733,12 @@ onBeforeUnmount(() => { persistCurrentHistory(); stop() })
 .inspiration-carried-idea { margin-bottom: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--panel-2); font-size: 12px; }
 .inspiration-carried-idea p { margin: 6px 0; max-height: 130px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .inspiration-carried-idea small { color: var(--ink-3); }
+.inspiration-options-hint { margin: -6px 0 8px; color: var(--ink-3); font-size: 12px; }
+.inspiration-message .inspiration-save-reminder {
+  margin-top: 8px; height: auto; min-height: 32px; text-align: left; white-space: normal;
+  border-color: #bd652b; background: color-mix(in srgb, #ed8d42 17%, var(--paper)); color: var(--ink);
+}
+.inspiration-message .inspiration-save-reminder:hover { border-color: #a54e1d; background: color-mix(in srgb, #ed8d42 28%, var(--paper)); }
 .inspiration-chat { display: flex; flex-direction: column; flex: 1; min-height: 0; max-width: 960px; width: 100%; margin: 0 auto; }
 .inspiration-search-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 0; flex-shrink: 0; color: var(--ink-3); font-size: 12px; }
 .inspiration-session-select { margin-left: auto; width: min(300px, 100%); }
@@ -695,6 +775,11 @@ onBeforeUnmount(() => { persistCurrentHistory(); stop() })
 .inspiration-message.assistant > strong { color: var(--dai); font-family: var(--f-serif); }
 .inspiration-message :deep(p + p) { margin-top: 10px; }
 .inspiration-message :deep(ul), .inspiration-message :deep(ol) { padding-left: 22px; }
+.inspiration-knowledge-references { margin: 10px 0; color: var(--ink-2); font-size: var(--fs-sm); }
+.inspiration-knowledge-references summary { cursor: pointer; }
+.inspiration-knowledge-references button { text-align: left; white-space: normal; }
+.inspiration-reference-excerpt { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.inspiration-reference-excerpt mark { background: var(--zhu-soft); color: var(--ink); }
 .inspiration-composer { flex: 0 0 auto; margin: 4px 0 12px; padding: 12px 14px; border: 1px solid var(--line-2);
   border-radius: var(--r-l); background: var(--paper); }
 .inspiration-progress { padding-left: 4px; color: var(--dai); }

@@ -356,7 +356,7 @@ export function buildWritingContext(
   let knowledgeContext = ''
   if (novel.knowledgeBaseIds && novel.knowledgeBaseIds.length > 0) {
     const keywords = splitKeywords([relevanceSource, ...relevantChars.map(c => c.name)].join('\n')).slice(0, 30)
-    const relevantEntries = selectKnowledgeEntries(knowledge, novel.knowledgeBaseIds, keywords, 8)
+    const relevantEntries = selectKnowledgeEntries(knowledge, novel.knowledgeBaseIds, keywords, 8, chapterIdx + 1)
     // 按标题分段检索：命中的小节给原文片段；没有命中时沿用摘要或开头
     const hits = retrieveKnowledgeSections(relevantEntries.map(entry => ({ source: entry, entry })), keywords, { maxSections: 5, perEntry: 2 })
     const entries = hits.length

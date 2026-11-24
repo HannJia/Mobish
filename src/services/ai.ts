@@ -4,10 +4,11 @@ import { useConfigStore, type ModelConfig } from '@/stores/config'
 import type { WritingSkillTask } from '@/types/skill'
 import { finishAiActivity, startAiActivity } from '@/services/aiActivity'
 import { structuredRequestFields, type StructuredOutputMode } from './aiStructuredRequest'
-import { safeAiUsage } from './aiDiagnostics'
+import { assertStructuredOutputComplete, safeAiErrorMessage, validateStructuredJson } from './aiDiagnostics'
 import { isLocalModelUrl } from './modelProviders'
-import { fetchWithParameterRetry } from './aiParameterRetry'
+import { adjustBodyForParameterError, isTerminalProviderError } from './aiParameterRetry'
 import { explainAiError } from './aiErrorExplain'
+import { AI_PROTOCOL_LABELS, aiHeaders, aiObject, aiRequest, decodeAiEvent, decodeAiReply, resolveAiProtocol, type AiProtocol } from './aiProtocols'
 import { createParser } from 'eventsource-parser'
 
 export interface ChatMessage {
@@ -97,8 +98,7 @@ export interface AvailableModel {
 
 const NON_STREAM_TIMEOUT = 120_000  // 非流式 120 秒
 const STREAM_TIMEOUT = 300_000      // 流式 300 秒
-const MAX_RETRIES = 3
-const RETRY_BASE_DELAY = 1000       // 首次重试延迟 1 秒
+const MAX_REQUEST_ATTEMPTS = 3
 
 /** Normalize both `https://provider.example` and `https://provider.example/v1`. */
 export function openAiV1BaseUrl(baseUrl: string): string {
@@ -106,28 +106,6 @@ export function openAiV1BaseUrl(baseUrl: string): string {
   if (!normalized) return ''
   // 官方接口地址可能以其他版本号结尾（智谱 /api/paas/v4、火山方舟 /api/v3、Gemini /v1beta/openai），这类地址原样使用。
   return /\/v\d+(?:beta|alpha)?$/i.test(normalized) || /\/openai$/i.test(normalized) ? normalized : `${normalized}/v1`
-}
-
-function isRetryableError(err: unknown): boolean {
-  if (err instanceof DOMException && err.name === 'AbortError') return false
-  if (err instanceof TypeError) return true // 网络错误
-  if (err instanceof Error) {
-    const msg = err.message.toLowerCase()
-    return msg.includes('socket') || msg.includes('network') || msg.includes('econnreset')
-      || msg.includes('fetch') || msg.includes('502') || msg.includes('503') || msg.includes('429')
-  }
-  return false
-}
-
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return Promise.reject(signal.reason || new DOMException('请求已取消', 'AbortError'))
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms)
-    signal?.addEventListener('abort', () => {
-      clearTimeout(timer)
-      reject(signal.reason || new DOMException('请求已取消', 'AbortError'))
-    }, { once: true })
-  })
 }
 
 // 合并用户 signal 和超时 signal
@@ -152,161 +130,211 @@ function mergeSignals(userSignal?: AbortSignal, timeoutMs?: number) {
   return { signal: controller.signal, dispose }
 }
 
-// 非流式调用（带重试）
-async function chatCompletion(options: ChatCompletionOptions): Promise<ChatCompletionResult> {
-  const { model, messages, signal, maxTokens } = options
-  const url = `${openAiV1BaseUrl(model.baseUrl)}/chat/completions`
-
-  let lastError: unknown
-  const attempts = options.noAutomaticRetry ? 1 : MAX_RETRIES
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    if (attempt > 0) {
-      const delay = RETRY_BASE_DELAY * Math.pow(2, attempt - 1)
-      console.warn(`API 重试 ${attempt}/${MAX_RETRIES}，等待 ${delay}ms...`)
-      await sleep(delay, signal)
-    }
-
-    const request = mergeSignals(signal, options.timeoutMs ?? NON_STREAM_TIMEOUT)
-    try {
-      request.signal.throwIfAborted()
-      const response = await fetchWithParameterRetry(body => fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${model.apiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal: request.signal,
-      }), {
-        model: model.modelName,
-        messages: serializeChatMessages(messages),
-        max_tokens: maxTokens || model.maxTokens,
-        temperature: model.temperature,
-        top_p: model.topP,
-        stream: false,
-        ...structuredRequestFields(model, options.structuredOutput),
-        ...disableThinkingFields(model, options.disableThinking),
-      })
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        const err = new Error(`API 请求失败 (${response.status}): ${errorText}`)
-        if (response.status === 429 || response.status >= 500) {
-          lastError = err
-          continue
-        }
-        throw err
-      }
-
-      const data = await response.json()
-      return {
-        content: typeof data.choices?.[0]?.message?.content === 'string' ? data.choices[0].message.content : '',
-        finishReason: typeof data.choices?.[0]?.finish_reason === 'string' ? data.choices[0].finish_reason : undefined,
-        usage: safeAiUsage(data.usage),
-      }
-    } catch (err) {
-      lastError = err
-      if (!isRetryableError(err)) throw err
-    } finally {
-      request.dispose()
-    }
+class AiHttpError extends Error {
+  constructor(readonly status: number, readonly detail: string) {
+    super(`API 请求失败 (${status}): ${detail}`)
   }
-
-  throw lastError
 }
 
-// 流式调用（SSE）— 不重试，但有超时保护
-async function chatCompletionStream(options: ChatCompletionOptions): Promise<ChatCompletionResult> {
-  const { model, messages, onChunk, signal, maxTokens, shouldStop } = options
-  const url = `${openAiV1BaseUrl(model.baseUrl)}/chat/completions`
-  const request = mergeSignals(signal, options.timeoutMs ?? STREAM_TIMEOUT)
-  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
-  try {
-    request.signal.throwIfAborted()
-    const response = await fetchWithParameterRetry(body => fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${model.apiKey}` },
-      body: JSON.stringify(body),
-      signal: request.signal,
-    }), {
-      model: model.modelName, messages: serializeChatMessages(messages),
-      max_tokens: maxTokens || model.maxTokens, temperature: model.temperature,
-      top_p: model.topP, stream: true,
-      ...structuredRequestFields(model, options.structuredOutput),
-      ...disableThinkingFields(model, options.disableThinking),
-    })
-    if (!response.ok) throw new Error(`API 请求失败 (${response.status}): ${await response.text()}`)
-    reader = response.body?.getReader()
-    if (!reader) throw new Error('无法获取响应流')
+class AiStreamError extends Error {}
 
+async function readErrorDetail(response: Response): Promise<string> {
+  const reader = response.body?.getReader()
+  if (!reader) return (await response.text()).slice(0, 4000)
+  const decoder = new TextDecoder()
+  let bytes = 0
+  let detail = ''
+  try {
+    while (bytes < 4000) {
+      const { done, value } = await reader.read()
+      if (done) break
+      detail += decoder.decode(value.subarray(0, 4000 - bytes), { stream: true })
+      bytes += value.length
+    }
+    return detail + decoder.decode()
+  } finally {
+    void reader.cancel().catch(() => {})
+    reader.releaseLock()
+  }
+}
+
+async function readAiReply(response: Response, protocol: AiProtocol): Promise<ChatCompletionResult> {
+  const payload = await response.json().catch(() => null)
+  const result = decodeAiReply(protocol, payload)
+  if (result) return result
+  const error = aiObject(aiObject(payload).error)
+  if (typeof error.message === 'string') throw new AiHttpError(400, `${String(error.code ?? error.type ?? '')} ${error.message}`)
+  throw new Error('模型返回了无效数据，或内容与当前接口格式不匹配。请在模型设置中重新测试对话。')
+}
+
+async function readAiStream(
+  response: Response, protocol: AiProtocol, signal: AbortSignal, options: ChatCompletionOptions,
+): Promise<ChatCompletionResult> {
+  if (/application\/json/i.test(response.headers?.get('content-type') ?? '')) return readAiReply(response, protocol)
+  const reader = response.body?.getReader()
+  if (!reader) throw new AiStreamError('无法获取模型响应流')
+  try {
     const decoder = new TextDecoder()
-    let fullContent = ''
+    let content = ''
     let finishReason: string | undefined
     let usage: ChatCompletionResult['usage']
     let done = false
+    const emit = (delta: string) => {
+      content += delta
+      options.onChunk?.(delta)
+      if (options.shouldStop?.()) { finishReason = 'client_stop'; done = true }
+    }
     const parser = createParser({
       maxBufferSize: 8 * 1024 * 1024,
       onEvent(event) {
         if (done) return
-        if (event.data.trim() === '[DONE]') { done = true; return }
-        let parsed
-        try { parsed = JSON.parse(event.data) } catch { throw new Error('模型返回了无效的流式数据，未将部分内容视为完整结果') }
-        if (parsed.error) throw new Error('模型接口在输出过程中返回错误，已停止接收')
-        const choice = parsed.choices?.find((item: { index?: number }) => item.index === 0) || parsed.choices?.[0]
-        if (typeof choice?.finish_reason === 'string') finishReason = choice.finish_reason
-        if (parsed.usage) usage = safeAiUsage(parsed.usage) ?? usage
-        const delta = choice?.delta?.content
-        if (typeof delta === 'string' && delta) {
-          fullContent += delta
-          onChunk?.(delta)
-          if (shouldStop?.()) { finishReason = 'client_stop'; done = true }
+        if (event.data.trim() === '[DONE]') {
+          if (protocol === 'chat-completions' || finishReason) done = true
+          return
         }
+        let payload: unknown
+        try { payload = JSON.parse(event.data) } catch {
+          throw new AiStreamError('模型返回了无效的流式数据，未将部分内容视为完整结果')
+        }
+        const parsed = decodeAiEvent(protocol, event.event, payload, usage)
+        if (parsed.failed) {
+          const error = aiObject(aiObject(payload).error ?? aiObject(aiObject(payload).response).error)
+          if (typeof error.message === 'string') throw new AiHttpError(400, `${String(error.code ?? error.type ?? '')} ${error.message}`)
+          throw new Error('模型接口在输出过程中返回错误，已停止接收')
+        }
+        finishReason = parsed.finishReason ?? finishReason
+        usage = parsed.usage
+        if ('summary' in parsed && parsed.summary !== undefined && finishReason !== 'content_filter') {
+          if (!parsed.summary.startsWith(content)) throw new AiStreamError('模型的流式正文与最终正文不一致。')
+          const remaining = parsed.summary.slice(content.length)
+          if (remaining) emit(remaining)
+        } else if (parsed.delta) emit(parsed.delta)
+        done ||= parsed.done
       },
-      onError() { throw new Error('模型返回的事件流格式异常，未将部分内容视为完整结果') },
+      onError(error) {
+        if (error.type === 'unknown-field') return
+        throw new AiStreamError('模型返回的事件流格式异常，未将部分内容视为完整结果')
+      },
     })
     while (!done) {
-      request.signal.throwIfAborted()
-      const chunk = await reader.read()
+      signal.throwIfAborted()
+      const chunk = await reader.read().catch(() => {
+        signal.throwIfAborted()
+        throw new AiStreamError('模型连接提前结束，未收到输出完成标记；已接收内容保留')
+      })
       if (chunk.done) {
-        parser.feed(decoder.decode())
         // Some relays omit the blank line after their final data event.
-        parser.feed('\n\n')
+        parser.feed(decoder.decode() + '\n\n')
         break
       }
       parser.feed(decoder.decode(chunk.value, { stream: true }))
     }
+    signal.throwIfAborted()
+    if (!done && !(protocol === 'chat-completions' && finishReason)) {
+      throw new AiStreamError('模型连接提前结束，未收到输出完成标记；已接收内容保留')
+    }
+    return { content, finishReason: finishReason || 'stop', ...(usage ? { usage } : {}) }
+  } finally {
+    void reader.cancel().catch(() => {})
+    reader.releaseLock()
+  }
+}
+
+function modelBaseUrl(model: Pick<ModelConfig, 'baseUrl'>): string {
+  const normal = openAiV1BaseUrl(model.baseUrl)
+  let url: URL
+  try { url = new URL(normal) } catch { throw new Error('API 地址无效，请检查模型设置中的 API Base URL。') }
+  if (!['https:', 'http:'].includes(url.protocol) || /^https?:\/\/[^/]*@/i.test(normal) || url.username || url.password || /[?#]/.test(normal)) {
+    throw new Error('API 地址必须是有效的 HTTP(S) 基地址，且不能包含凭据、查询参数或片段。')
+  }
+  if (/\/v1beta$/i.test(url.pathname)) throw new Error('Gemini 原生接口暂用兼容地址，请在 API Base URL 末尾加 /openai。')
+  return url.href.replace(/\/$/, '')
+}
+
+async function chatCompletion(options: ChatCompletionOptions, probe = false): Promise<ChatCompletionResult> {
+  const { model, messages, signal, maxTokens } = options
+  const protocol = resolveAiProtocol(model)
+  const requestData = aiRequest(protocol, model, serializeChatMessages(messages), maxTokens || model.maxTokens, {
+    ...structuredRequestFields(model, options.structuredOutput),
+    ...disableThinkingFields(model, options.disableThinking),
+  })
+  const url = modelBaseUrl(model) + requestData.path
+  let stream = Boolean(options.stream && options.onChunk)
+  const request = mergeSignals(signal, options.timeoutMs ?? (stream ? STREAM_TIMEOUT : NON_STREAM_TIMEOUT))
+  const requestStreamingUsage = protocol === 'chat-completions' && new URL(url).hostname === 'api.openai.com'
+  let body: Record<string, unknown> = requestData.body
+  if (probe) {
+    delete body.temperature
+    delete body.top_p
+  }
+  let parameterRetried = false
+  let delivered = false
+  const publish = (text: string) => {
+    delivered = true
+    options.onChunk?.(text)
+  }
+  try {
+    for (let attempt = 1; ; attempt++) {
+      request.signal.throwIfAborted()
+      const response = await fetch(url, {
+        method: 'POST', headers: aiHeaders(protocol, model.apiKey.trim()), signal: request.signal,
+        body: JSON.stringify({ ...body, stream, ...(stream && requestStreamingUsage ? { stream_options: { include_usage: true } } : {}) }),
+        ...(protocol === 'anthropic' ? { redirect: 'error' } : {}),
+      })
+      request.signal.throwIfAborted()
+      const canRetry = !options.noAutomaticRetry && attempt < MAX_REQUEST_ATTEMPTS
+      if (!response.ok) {
+        const detail = await readErrorDetail(response)
+        const adjusted = canRetry && !parameterRetried ? adjustBodyForParameterError(response.status, detail, body) : null
+        if (!adjusted) throw new AiHttpError(response.status, detail)
+        parameterRetried = true
+        body = adjusted.body
+        continue
+      }
+      try {
+        const result = stream
+          ? await readAiStream(response, protocol, request.signal, { ...options, onChunk: publish })
+          : await readAiReply(response, protocol)
+        request.signal.throwIfAborted()
+        if (!delivered && result.content && options.stream && options.onChunk) publish(result.content)
+        return result
+      } catch (error) {
+        if (!canRetry || !stream || (delivered && !options.structuredOutput) || !(error instanceof AiStreamError)) throw error
+        stream = false
+      }
+    }
+  } catch (error) {
     request.signal.throwIfAborted()
-    if (!done && !finishReason) throw new Error('模型连接提前结束，未收到输出完成标记；已接收内容保留')
-    return { content: fullContent, finishReason: finishReason || 'stop', ...(usage ? { usage } : {}) }
+    throw error
   } finally {
     request.dispose()
-    if (reader) {
-      try { await reader.cancel() } catch { /* The stream may already be aborted. */ }
-      reader.releaseLock()
-    }
   }
 }
 
 /** Fetch the models exposed by an OpenAI-compatible provider. */
 export async function listAvailableModels(
-  model: Pick<ModelConfig, 'baseUrl' | 'apiKey'>,
+  model: Pick<ModelConfig, 'baseUrl' | 'apiKey' | 'apiProtocol' | 'kind'>,
   signal?: AbortSignal,
 ): Promise<AvailableModel[]> {
-  const baseUrl = openAiV1BaseUrl(model.baseUrl)
-  if (!baseUrl) throw new Error('请先填写 API Base URL')
+  if (!model.baseUrl.trim()) throw new Error('请先填写 API Base URL')
+  const baseUrl = modelBaseUrl(model)
   if (!model.apiKey.trim() && !isLocalModelUrl(model.baseUrl)) throw new Error('请先填写 API 密钥')
 
   let payload: unknown
   const request = mergeSignals(signal, 30_000)
   try {
     request.signal.throwIfAborted()
+    const protocol = model.kind === 'embedding' ? 'chat-completions' : resolveAiProtocol(model)
+    const headers = aiHeaders(protocol, model.apiKey.trim())
+    delete headers['Content-Type']
     const response = await fetch(`${baseUrl}/models`, {
       method: 'GET',
-      headers: { Authorization: `Bearer ${model.apiKey.trim()}` },
+      headers,
+      ...(protocol === 'anthropic' ? { redirect: 'error' } : {}),
       signal: request.signal,
     })
     if (!response.ok) {
-      const detail = (await response.text()).trim().slice(0, 300)
+      const detail = safeAiErrorMessage((await readErrorDetail(response)).trim(), [model.apiKey.trim()]).slice(0, 300)
       throw new Error(`获取模型失败（${response.status}）${detail ? `：${detail}` : ''}`)
     }
     try { payload = await response.json() } catch { throw new Error('获取模型失败：服务返回的内容不是合法 JSON') }
@@ -375,27 +403,41 @@ export async function callAI(options: ChatCompletionOptions): Promise<ChatComple
       // without entering either HTTP path.
       enrichedOptions.signal?.throwIfAborted()
     }
-    const result = enrichedOptions.stream && enrichedOptions.onChunk
-      ? await chatCompletionStream(enrichedOptions)
-      : await chatCompletion(enrichedOptions)
+    const deferredChunk = enrichedOptions.structuredOutput ? enrichedOptions.onChunk : undefined
+    const result = await chatCompletion(deferredChunk ? { ...enrichedOptions, onChunk: () => {} } : enrichedOptions)
     if (lifecycle) {
       lifecycleAfterAttempted = true
       lifecycleOutcome = 'success'
       await lifecycle.afterRequest({ result })
     }
+    if (result.finishReason === 'content_filter') throw new Error('模型因内容审核拒绝回复。请检查输入后再试。')
+    if (enrichedOptions.structuredOutput) {
+      const task = enrichedOptions.taskName || '模型结构化结果'
+      assertStructuredOutputComplete(result, task)
+      validateStructuredJson(result.content, task)
+      if (enrichedOptions.stream) deferredChunk?.(result.content)
+    }
     return result
   } catch (error) {
     let finalError = error
+    let lifecycleFailed = false
+    if (!options.signal?.aborted && error instanceof AiHttpError) {
+      const detail = safeAiErrorMessage(error, [options.model.apiKey.trim()])
+      finalError = new Error(`模型接口返回错误 (${error.status})。${explainAiError(detail, 'request').hint}`)
+    } else if (!options.signal?.aborted && error instanceof TypeError && /fetch|network|socket|econn/i.test(error.message)) {
+      finalError = new TypeError(`${explainAiError('failed to fetch', 'request').hint}（${safeAiErrorMessage(error, [options.model.apiKey.trim()])}）`)
+    }
     if (lifecycleAdmitted && lifecycle && !lifecycleAfterAttempted) {
       lifecycleAfterAttempted = true
       lifecycleOutcome = 'error'
       try {
-        await lifecycle.afterRequest({ error })
+        await lifecycle.afterRequest({ error: finalError })
       } catch (lifecycleError) {
         finalError = lifecycleError
+        lifecycleFailed = true
       }
     }
-    const visibleError = options.redactErrors && !options.signal?.aborted && lifecycleOutcome !== 'success' && finalError === error
+    const visibleError = options.redactErrors && !options.signal?.aborted && lifecycleOutcome !== 'success' && !lifecycleFailed
       ? new Error('图片识别接口请求失败，请检查模型、额度和连接。') : finalError
     finishAiActivity(activity, visibleError)
     throw visibleError
@@ -405,23 +447,39 @@ export async function callAI(options: ChatCompletionOptions): Promise<ChatComple
 }
 
 // 测试 API 连接
-export async function testConnection(model: ModelConfig): Promise<{ ok: boolean; message: string; detail?: string; latency?: number }> {
+export async function testConnection(model: ModelConfig): Promise<{ ok: boolean; message: string; detail?: string; latency?: number; detectedProtocol?: AiProtocol }> {
   const start = Date.now()
+  const preferred = resolveAiProtocol(model)
+  const candidates: AiProtocol[] = model.apiProtocol || preferred === 'anthropic' ? [preferred] : ['chat-completions', 'responses', 'anthropic']
+  const activity = startAiActivity('AI 连接测试')
   try {
-    const result = await callAI({
-      model,
-      messages: [
-        { role: 'user', content: '请回复"连接成功"四个字。' },
-      ],
-    })
-    const latency = Date.now() - start
-    return {
-      ok: true,
-      message: `连接成功！模型响应：${result.content.substring(0, 50)}（延迟 ${latency}ms）`,
-      latency,
+    for (const [index, protocol] of candidates.entries()) {
+      try {
+        const result = await chatCompletion({ model: { ...model, apiProtocol: protocol },
+          messages: [{ role: 'user', content: '请回复“连接成功”四个字。' }], maxTokens: 64, timeoutMs: 15_000,
+          noAutomaticRetry: true, disableThinking: true }, true)
+        if (!result.content.trim() || result.finishReason && !['stop', 'length'].includes(result.finishReason)) throw new Error('模型未返回可显示的对话回复。')
+        const latency = Date.now() - start
+        const detectedProtocol = model.apiProtocol ? undefined : protocol
+        return { ok: true, latency, detectedProtocol,
+          message: `连接成功（${latency} ms）${detectedProtocol ? `，已自动识别为 ${AI_PROTOCOL_LABELS[detectedProtocol]} 格式` : ''}` }
+      } catch (error) {
+        if (index === candidates.length - 1 || !(error instanceof AiHttpError) || !canProbeAnotherProtocol(error)) throw error
+      }
     }
+    throw new Error('未找到可用的对话协议。')
   } catch (err: unknown) {
-    const { hint, detail } = explainAiError(err instanceof Error ? err.message : String(err))
+    const { hint, detail } = explainAiError(safeAiErrorMessage(err, [model.apiKey.trim()]))
+    finishAiActivity(activity, new Error(hint))
     return { ok: false, message: `连接失败：${hint}`, detail }
+  } finally {
+    if (activity.status === 'running') finishAiActivity(activity)
   }
+}
+
+function canProbeAnotherProtocol(error: AiHttpError): boolean {
+  if (isTerminalProviderError(error.detail)) return false
+  if (error.status === 404 || error.status === 405) return true
+  return (error.status === 400 || error.status === 422) &&
+    /(?:endpoint|protocol|接口|格式|route|api format).{0,80}(?:unsupported|not support|不支持|not found)|(?:unsupported|does not support|不支持).{0,80}(?:endpoint|protocol|接口|格式|route|api format)/i.test(error.detail)
 }

@@ -3,6 +3,7 @@ import { useKnowledgeStore, type KBEntry } from '@/stores/knowledge'
 import type { KnowledgeBase } from '@/types/knowledge'
 import { getCurrentBaseSummary } from './knowledgeSources'
 import { knowledgeReferenceInput } from './knowledgeSelection'
+import { canUseKnowledgeBaseSummary } from './knowledgeVisibility'
 import { formatSectionHit, knowledgeOutlineText, retrieveKnowledgeSections } from './knowledgeSections'
 
 function splitKeywords(text: string): string[] {
@@ -75,7 +76,7 @@ export function buildBoundKnowledgeContext(
     const store = useKnowledgeStore()
     const boundIds = new Set(novel.knowledgeBaseIds || [])
     const summaries = store.knowledgeBases
-      .filter(base => boundIds.has(base.id))
+      .filter(base => boundIds.has(base.id) && canUseKnowledgeBaseSummary(base))
       .flatMap(base => {
         const summary = getCurrentBaseSummary(base)
         return summary ? ['• ' + base.name + '：' + summary.slice(0, Math.max(entryLimit * 2, 1200))] : []

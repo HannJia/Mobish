@@ -45,6 +45,15 @@ export function assertStructuredOutputComplete(result: ChatCompletionResult, tas
   }
 }
 
+/** Validate the entire JSON object so a nested fragment cannot pass after truncation. */
+export function validateStructuredJson(content: string, task: string): void {
+  const trimmed = content.trim()
+  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed)
+  let value: unknown
+  try { value = JSON.parse(fenced?.[1] ?? trimmed) } catch { /* Report a task-specific error below. */ }
+  if (!isRecord(value)) throw new Error(`${task}未返回完整的 JSON 对象，未采用部分结果。`)
+}
+
 export function safeAiErrorMessage(error: unknown, secrets: string[] = []): string {
   let text = error instanceof Error ? error.message : String(error ?? '')
   for (const secret of secrets) if (secret) text = text.split(secret).join('[已隐藏]')

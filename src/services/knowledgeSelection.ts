@@ -1,11 +1,12 @@
 import type { KBEntry, KnowledgeBase } from '@/types/knowledge'
 import { baseSourceVersion, getCurrentBaseSummary, getCurrentEntrySummary } from './knowledgeSources'
+import { canUseKnowledgeEntry, canUseKnowledgeBaseSummary } from './knowledgeVisibility'
 
 const byId = (left: { id: string }, right: { id: string }) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0
 
 /** Explicit data only. Equal-score choices must survive SQL reload order changes. */
-export function selectKnowledgeEntries(bases: KnowledgeBase[], ids: string[], keywords: string[], maximum = 5): KBEntry[] {
-  const all = ids.flatMap(id => (bases.find(base => base.id === id)?.entries || []).slice().sort(byId)
+export function selectKnowledgeEntries(bases: KnowledgeBase[], ids: string[], keywords: string[], maximum = 5, chapterNumber?: number): KBEntry[] {
+  const all = ids.flatMap(id => (bases.find(base => base.id === id)?.entries || []).filter(entry => canUseKnowledgeEntry(entry, chapterNumber)).sort(byId)
     .map(entry => ({ ...entry, summary: getCurrentEntrySummary(id, entry) })))
   if (!keywords.length) return all.slice(0, maximum)
   const scored = all.map(entry => {
@@ -27,7 +28,9 @@ export function selectKnowledgeEntries(bases: KnowledgeBase[], ids: string[], ke
 export function knowledgeReferenceInput(bases: KnowledgeBase[], ids: string[]) {
   return ids.map(id => {
     const base = bases.find(base => base.id === id)
-    return [id, base ? baseSourceVersion(base) : null, base ? getCurrentBaseSummary(base) : '']
+    const parts = [id, base ? baseSourceVersion(base) : null, base && canUseKnowledgeBaseSummary(base) ? getCurrentBaseSummary(base) : '']
+    const restrictions = base?.entries.filter(entry => entry.visibility).sort(byId).map(entry => [entry.id, entry.visibility])
+    return restrictions?.length ? [...parts, restrictions] : parts
   })
 }
 

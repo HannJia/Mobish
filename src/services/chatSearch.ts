@@ -2,6 +2,7 @@ import { callAI, openAiV1BaseUrl, type ChatMessage } from '@/services/ai'
 import { useConfigStore, type ModelConfig } from '@/stores/config'
 import type { ChatSearchProtocol, ChatSearchRecord, ChatSource } from '@/types/chat'
 import { finishAiActivity, startAiActivity } from './aiActivity'
+import { resolveAiProtocol } from './aiProtocols'
 import { autoSearchAdapter, type ChatSearchAdapter } from './modelProviders'
 import { readSearchPayload, SearchResponseError as SearchError } from './searchResponse'
 import { effectiveWebSearchLabel, isWebSearchServiceConfigured, searchContextMessage, searchWebWithFallback, WEB_SEARCH_PROVIDERS, WebSearchServiceError } from './webSearchService'
@@ -279,13 +280,13 @@ async function chatWithSearchService(options: AssistantChatOptions, builtInFailu
     model, messages: withContext, signal, stream: options.stream ?? true, onChunk: options.onChunk,
     timeoutMs: options.timeoutMs, noAutomaticRetry: options.noAutomaticRetry,
   })
-  return { content: result.content, search: { protocol: 'chat-completions', status: sources.length ? 'searched' : 'not-used', sources },
+  return { content: result.content, search: { protocol: resolveAiProtocol(model), status: sources.length ? 'searched' : 'not-used', sources },
     ...(fallback ? { fallback } : {}) }
 }
 
 /** 内置搜索出错（配置错误除外）或没有搜索证据时，能否改用独立搜索服务。 */
 function shouldFallBack(error: unknown): boolean {
-  return error instanceof SearchError && error.code !== 'INVALID_URL'
+  return error instanceof SearchError && !['INVALID_URL', 'HTTP_401', 'HTTP_402', 'HTTP_403', 'HTTP_429'].includes(error.code)
 }
 
 export async function chatWithOptionalSearch(options: AssistantChatOptions): Promise<SearchChatResult> {

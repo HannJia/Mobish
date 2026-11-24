@@ -43,10 +43,10 @@ export const useCloudPreferencesStore = defineStore('cloudPreferences', () => {
   const currentScope = () => sync.session ? JSON.stringify([sync.session.endpoint, sync.session.user.id]) : ''
   const stateKey = () => 'mojian-v3-cloud-preferences:' + scope
   const archiveKey = () => 'mojian-v3-cloud-preference-archives:' + scope
-  // 独立搜索服务和本机联网方式只保存在本机，不参与云端配置比较。
+  // 独立搜索服务、本机联网方式和对话协议不参与云端配置比较。
   const syncedConfig = () => {
     const { webSearchService: _localSearch, ...data } = config.exportConfig()
-    return { ...data, models: data.models.map(({ searchAdapter: _localAdapter, ...model }) => model) }
+    return { ...data, models: data.models.map(({ searchAdapter: _localAdapter, apiProtocol: _localProtocol, ...model }) => model) }
   }
   const localSnapshot = () => ({ config: syncedConfig(), theme: theme.currentTheme })
   const localDigest = () => hashPayload(canonicalJson(localSnapshot())) as Promise<string>

@@ -60,6 +60,7 @@
         <button type="button" class="m-btn sm ghost" @click="selectedKBId = ''"><V3Icon name="chevR" size="s" class="back-icon" />返回列表</button>
         <div class="detail-actions">
           <button type="button" class="m-btn sm" @click="openImport()">导入资料</button>
+          <button v-if="(selectedKB?.entries.length || 0) > 1" type="button" class="m-btn sm" @click="openMerge">合并条目</button>
           <button v-if="featureFlags.knowledgeAiSummary" type="button" class="m-btn sm" :aria-busy="summarizingKB" :disabled="baseSummaryBusy" @click="summarizeSelectedKB">{{ summarizingKB ? '正在整理…' : '整理摘要' }}</button>
           <button type="button" class="m-btn sm pri" @click="openAddEntry"><V3Icon name="plus" size="s" />添加条目</button>
         </div>
@@ -125,6 +126,7 @@
         <section ref="entryListPanel" class="kb-entries paper-panel" aria-label="条目列表">
           <div class="filter-bar">
             <V3Input v-model:value="searchQuery" class="entry-search" placeholder="搜索条目..." clearable aria-label="搜索条目" />
+            <V3Select v-if="usedTags.length" v-model:value="tagFilter" :options="tagOptions" aria-label="按标签筛选" />
             <span class="entry-count">{{ filteredEntries.length }} 条</span>
           </div>
           <div v-if="usedCategories.length > 1" class="kb-category-chips" role="group" aria-label="条目分类">
@@ -150,6 +152,7 @@
                 </div>
               </div>
               <p class="entry-preview">{{ entryPreview(entry) }}</p>
+              <p v-if="entry.tags.length" class="entry-preview">{{ entry.tags.join(' · ') }}</p>
             </div>
           </div>
           <p class="kb-drop-hint">可以把 .txt / .md / .html / .docx / .epub / .pdf 文件直接拖到这里导入</p>
@@ -162,10 +165,12 @@
               <h3>{{ selectedEntry.title }}</h3>
               <span class="entry-detail-cat">{{ categoryLabel(selectedEntry.category) }}</span>
               <span class="entry-size">{{ selectedEntry.content.length.toLocaleString('zh-CN') }} 字</span>
+              <span v-if="selectedEntry.visibility" class="entry-size">{{ selectedEntry.visibility.mode === 'never' ? '仅供作者查看' : `第 ${selectedEntry.visibility.chapter} 章起可供 AI 使用` }}</span>
             </div>
             <div class="entry-detail-tools">
               <button v-if="entryOutline.length > 1 && !outlineInView" type="button" class="m-btn sm" @click="scrollToOutline"><V3Icon name="layers" size="s" />目录</button>
               <button v-if="!entryListInView" type="button" class="m-btn sm" @click="scrollToEntryList"><V3Icon name="chevR" size="s" class="back-up-icon" />返回条目列表</button>
+              <button v-if="canUseKnowledgeEntry(selectedEntry) && selectedEntry.content.trim()" type="button" class="m-btn sm" @click="showCanonDraft = true">提取设定</button>
               <button type="button" class="m-btn sm" @click="editEntry(selectedEntry)">编辑</button>
             </div>
           </div>
@@ -176,6 +181,10 @@
             </nav>
           </details>
           <div ref="detailContent" class="entry-detail-content" v-html="renderMd(selectedEntry.content)"></div>
+          <details v-if="selectedEntry.mergedSources?.length" class="entry-outline">
+            <summary>合并来源</summary>
+            <ul><li v-for="(source, index) in selectedEntry.mergedSources" :key="index">{{ source.title }} · {{ categoryLabel(source.category) }}</li></ul>
+          </details>
           <section class="entry-summary-editor">
             <div class="entry-summary-heading">
               <h4>条目摘要</h4>
@@ -252,6 +261,12 @@
         </div>
         <V3Field label="内容"><V3Input v-model:value="entryForm.content" type="textarea" :rows="8" placeholder="条目内容（支持 Markdown）" :disabled="entryFormBusy" /></V3Field>
         <V3Field label="标签（逗号分隔）"><V3Input v-model:value="entryForm.tagsText" placeholder="如：剑法,武技" :disabled="entryFormBusy" /></V3Field>
+        <div class="kb-form-row">
+          <V3Field label="AI 使用权限"><V3Select v-model:value="entryForm.visibility" :options="visibilityOptions" :disabled="entryFormBusy" /></V3Field>
+          <V3Field v-if="entryForm.visibility === 'from-chapter'" label="从第几章开始">
+            <V3Number :value="entryForm.chapter" :min="1" :precision="0" :disabled="entryFormBusy" @update:value="value => { if (value !== null) entryForm.chapter = value }" />
+          </V3Field>
+        </div>
       </div>
       <template #footer>
         <button type="button" class="m-btn" :disabled="entryFormBusy" @click="setEntryModalShow(false)">取消</button>
@@ -259,12 +274,39 @@
       </template>
     </V3Modal>
 
+    <V3Modal :show="Boolean(mergeBaseId)" title="合并条目" :closable="!merging" @update:show="open => { if (!open && !merging) mergeBaseId = '' }">
+      <div class="kb-form">
+        <V3Field label="合并后的标题"><V3Input v-model:value="mergeTitle" :disabled="merging" /></V3Field>
+        <div class="entry-list" role="group" aria-label="选择要合并的条目">
+          <label v-for="entry in mergeOptions" :key="entry.id" class="merge-option">
+            <input type="checkbox" :checked="mergeSelection.includes(entry.id)" :disabled="merging" @change="toggleMerge(entry.id)" />{{ entry.title }}
+          </label>
+        </div>
+        <ol v-if="mergeSelection.length" class="merge-order" aria-label="正文合并顺序">
+          <li v-for="(id, index) in mergeSelection" :key="id">
+            {{ mergeOptions.find(entry => entry.id === id)?.title }}
+            <button type="button" class="m-btn xs" :disabled="merging || index === 0" @click="moveMerge(index, -1)">上移</button>
+            <button type="button" class="m-btn xs" :disabled="merging || index === mergeSelection.length - 1" @click="moveMerge(index, 1)">下移</button>
+          </li>
+        </ol>
+        <p v-if="mergeSelection.length > 1">原条目将由合并后的条目替换。分类沿用首条，标签合并，AI 使用权限沿用最严格的一项。</p>
+      </div>
+      <template #footer>
+        <button type="button" class="m-btn" :disabled="merging" @click="mergeBaseId = ''">取消</button>
+        <button type="button" class="m-btn pri" :disabled="merging || mergeSelection.length < 2 || !mergeTitle.trim()" @click="saveMerge">{{ merging ? '正在合并…' : '确认合并' }}</button>
+      </template>
+    </V3Modal>
+
     <KnowledgeImportDialog v-model:show="showImportModal" :kb-id="selectedKBId" :initial-file="droppedFile" @imported="afterImport" />
+    <KnowledgeCanonDraft v-if="showCanonDraft && selectedEntry" v-model:show="showCanonDraft" :kb-id="selectedKBId" :entry="selectedEntry" :preferred-novel-id="novelId" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { errorText } from '@/services/userFacingError'
+import type { KnowledgeVisibility } from '@/types/knowledge'
+import { canUseKnowledgeEntry } from '@/services/knowledgeVisibility'
+import KnowledgeCanonDraft from './KnowledgeCanonDraft.vue'
 import { ref, shallowRef, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDialog, useMessage } from '@/v3/feedback'
@@ -309,6 +351,7 @@ const selectedKBId = ref('')
 const selectedKB = computed(() => kbStore.getKB(selectedKBId.value))
 const searchQuery = ref('')
 const categoryFilter = ref<string | null>(null)
+const tagFilter = ref('')
 const libraryQuery = ref('')
 const librarySort = ref<'recent' | 'name'>('recent')
 const librarySortOptions = [{ label: '最近编辑', value: 'recent' }, { label: '名称', value: 'name' }]
@@ -334,6 +377,7 @@ const selectedEntry = computed(() => {
 const showCreateModal = ref(false)
 const showEntryModal = ref(false)
 const showImportModal = ref(false)
+const showCanonDraft = ref(false)
 const droppedFile = shallowRef<File | null>(null)
 const pageDragging = ref(false)
 const baseSummaryOpen = ref(false)
@@ -378,6 +422,9 @@ const entryOutline = computed(() => selectedEntry.value
   : [])
 // 只列出当前知识库里实际用到的分类
 const usedCategories = computed(() => [...new Set(selectedKB.value?.entries.map(entry => entry.category) || [])])
+const usedTags = computed(() => [...new Set(selectedKB.value?.entries.flatMap(entry => entry.tags) || [])].sort((a, b) => a.localeCompare(b, 'zh-CN')))
+const tagOptions = computed(() => [{ value: '', label: '全部标签' }, ...usedTags.value.map(tag => ({ value: tag, label: tag }))])
+watch(usedTags, tags => { if (!tags.includes(tagFilter.value)) tagFilter.value = '' })
 
 watch(showImportModal, open => { if (!open) droppedFile.value = null })
 function openImport(file: File | null = null) {
@@ -420,7 +467,18 @@ function categoryLabel(cat: string) {
 }
 
 const createForm = ref({ name: '', description: '' })
-const entryForm = ref({ title: '', category: '其他', content: '', tagsText: '' })
+const visibilityOptions = [
+  { value: 'always', label: '可供 AI 使用' },
+  { value: 'never', label: '仅供作者查看' },
+  { value: 'from-chapter', label: '指定章节起可供 AI 使用' },
+]
+const emptyEntryForm = () => ({ title: '', category: '其他', content: '', tagsText: '', visibility: 'always', chapter: 1 })
+const entryForm = ref(emptyEntryForm())
+const mergeBaseId = ref('')
+const mergeOptions = ref<Array<{ id: string; title: string; revision: string }>>([])
+const mergeSelection = ref<string[]>([])
+const mergeTitle = ref('')
+const merging = ref(false)
 const summarizingEntryIds = ref(new Set<string>())
 const summarizingKB = ref(false)
 const entrySummarySavingIds = ref(new Set<string>())
@@ -509,11 +567,13 @@ const filteredEntries = computed(() => {
   if (categoryFilter.value) {
     list = list.filter(e => e.category === categoryFilter.value)
   }
+  if (tagFilter.value) list = list.filter(entry => entry.tags.includes(tagFilter.value))
   if (searchQuery.value.trim()) {
     const q = searchQuery.value.toLowerCase()
     list = list.filter(e =>
       e.title.toLowerCase().includes(q) ||
-      e.content.toLowerCase().includes(q)
+      e.content.toLowerCase().includes(q) ||
+      e.tags.some(tag => tag.toLowerCase().includes(q))
     )
   }
   return list
@@ -565,6 +625,7 @@ watch([filteredEntries, selectedKBId], ([entries, kbId]) => {
 }, { immediate: true })
 
 function selectKB(id: string) {
+  tagFilter.value = ''
   selectedKBId.value = id
   const kb = kbStore.getKB(id)
   summaryLevel.value = kb?.summaryLevel || 'standard'
@@ -572,6 +633,20 @@ function selectKB(id: string) {
   baseSummaryError.value = ''
   baseSummaryErrorKind.value = ''
 }
+
+watch(() => {
+  const kbId = route.query?.base
+  const entryId = route.query?.entry
+  const base = typeof kbId === 'string' ? kbStore.getKB(kbId) : undefined
+  return base && typeof entryId === 'string' && base.entries.some(entry => entry.id === entryId)
+    ? [base.id, entryId] : null
+}, target => {
+  if (!target) return
+  searchQuery.value = ''
+  categoryFilter.value = null
+  selectKB(target[0])
+  selectEntry(target[1])
+}, { immediate: true })
 
 function beginEntrySummaryEdit(entryId: string) {
   const entry = kbStore.getKB(selectedKBId.value)?.entries.find(item => item.id === entryId)
@@ -623,7 +698,12 @@ function formatDateTime(iso: string) {
 }
 
 function doCreateKB() {
-  kbStore.createKB(createForm.value.name.trim(), createForm.value.description.trim())
+  const name = createForm.value.name.trim()
+  if (!name) return
+  const kb = kbStore.createKB(name, createForm.value.description.trim())
+  searchQuery.value = ''
+  categoryFilter.value = null
+  selectKB(kb.id)
   createForm.value = { name: '', description: '' }
   showCreateModal.value = false
   msg.success('知识库已创建')
@@ -661,7 +741,7 @@ function confirmRemoveEntry(entry: KBEntry) {
 
 function openAddEntry() {
   editingEntryId.value = ''
-  entryForm.value = { title: '', category: '其他', content: '', tagsText: '' }
+  entryForm.value = emptyEntryForm()
   showEntryModal.value = true
 }
 
@@ -672,6 +752,8 @@ function editEntry(entry: KBEntry) {
     category: entry.category,
     content: entry.content,
     tagsText: entry.tags.join('、'),
+    visibility: entry.visibility?.mode || 'always',
+    chapter: entry.visibility?.mode === 'from-chapter' ? entry.visibility.chapter : 1,
   }
   showEntryModal.value = true
 }
@@ -679,11 +761,18 @@ function editEntry(entry: KBEntry) {
 async function saveEntry() {
   if (entryFormBusy.value) return
   const kbId = selectedKBId.value
+  const { visibility: mode, chapter } = entryForm.value
+  if (mode === 'from-chapter' && (!Number.isSafeInteger(chapter) || chapter < 1)) {
+    msg.error('请输入大于 0 的整数章节号')
+    return
+  }
+  const visibility: KnowledgeVisibility | undefined = mode === 'never' ? { mode } : mode === 'from-chapter' ? { mode, chapter } : undefined
   const data = {
     title: entryForm.value.title.trim(),
     category: entryForm.value.category,
     content: entryForm.value.content,
-    tags: entryForm.value.tagsText.split(/[,，、]/).map(s => s.trim()).filter(Boolean),
+    tags: [...new Set(entryForm.value.tagsText.split(/[,，、]/).map(s => s.trim()).filter(Boolean))],
+    visibility,
   }
   entryFormBusy.value = true
   let saved = false
@@ -707,6 +796,51 @@ async function saveEntry() {
   }
   if (saved) {
     setEntryModalShow(false)
+  }
+}
+
+function openMerge() {
+  const kb = selectedKB.value
+  if (!kb) return
+  mergeOptions.value = kb.entries.map(entry => ({ id: entry.id, title: entry.title, revision: JSON.stringify(entry) }))
+  mergeSelection.value = []
+  mergeTitle.value = ''
+  mergeBaseId.value = kb.id
+}
+
+function toggleMerge(id: string) {
+  if (mergeSelection.value.includes(id)) mergeSelection.value = mergeSelection.value.filter(item => item !== id)
+  else {
+    mergeSelection.value.push(id)
+    if (!mergeTitle.value.trim()) mergeTitle.value = mergeOptions.value.find(entry => entry.id === id)?.title || ''
+  }
+}
+
+function moveMerge(index: number, step: number) {
+  const order = [...mergeSelection.value]
+  const [id] = order.splice(index, 1)
+  order.splice(index + step, 0, id)
+  mergeSelection.value = order
+}
+
+async function saveMerge() {
+  const kbId = mergeBaseId.value
+  const entries = mergeSelection.value.flatMap(id => mergeOptions.value.filter(entry => entry.id === id))
+  merging.value = true
+  try {
+    const id = await kbStore.mergeEntries(kbId, entries, mergeTitle.value)
+    mergeBaseId.value = ''
+    if (selectedKBId.value === kbId) {
+      categoryFilter.value = null
+      searchQuery.value = ''
+      tagFilter.value = ''
+      selectEntry(id)
+    }
+    msg.success('合并后的条目已保存')
+  } catch (error) {
+    msg.error(errorText(error, '合并条目失败'))
+  } finally {
+    merging.value = false
   }
 }
 
@@ -1196,6 +1330,9 @@ function toggleBind(kbId: string) {
 
 /* 条目列表 */
 .entry-list { display: flex; flex-direction: column; gap: 8px; max-height: min(46vh, 520px); overflow-y: auto; padding-right: 4px; overscroll-behavior: contain; }
+.merge-option { display: flex; align-items: center; gap: 9px; }
+.merge-order { margin: 0; padding-left: 24px; }
+.merge-order li { margin-block: 5px; }
 
 .entry-card {
   flex-shrink: 0;

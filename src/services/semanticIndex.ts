@@ -16,6 +16,7 @@ import type { CanonMutationRecord } from '@/types/reconstruction'
 import type { MemoryKnowledgeEdge } from '@/types/characterMemory'
 import { entrySourceVersion, getCurrentEntrySummary } from './knowledgeSources'
 import { knowledgeSections } from './knowledgeSections'
+import { canUseKnowledgeEntry } from './knowledgeVisibility'
 import type { Novel, Chapter, Character, EventLogEntry, DataPanelItem, ChapterPlanHorizon, ChapterPlanStatus, StoryArcType, StoryArcStatus, StoryArcNode } from '@/types/novel'
 import type { KnowledgeBase } from '@/stores/knowledge'
 import type { EmbeddingConfig } from '@/stores/config'
@@ -577,7 +578,11 @@ export function buildSemanticRecords(novel: Novel, knowledgeBases: KnowledgeBase
   const boundIds = new Set(novel.knowledgeBaseIds || [])
   for (const kb of knowledgeBases) {
     if (!boundIds.has(kb.id)) continue
-    for (const entry of kb.entries || []) records.push(...knowledgeRecords(novel.id, kb, entry))
+    for (const entry of kb.entries || []) {
+      if (canUseKnowledgeEntry(entry, beforeChapterIndex === undefined ? undefined : beforeChapterIndex + 1)) {
+        records.push(...knowledgeRecords(novel.id, kb, entry))
+      }
+    }
   }
   appendEvidenceRecords(novel, records, beforeChapterIndex)
   records.push(...eventCausalitySemanticRecords(novel, canonMutations, beforeChapterIndex))

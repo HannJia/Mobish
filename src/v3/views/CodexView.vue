@@ -24,6 +24,11 @@
         <div v-if="!characters.length" class="empty m-panel">截至所选章节还没有人物资料。</div>
       </section>
 
+      <template v-else-if="activeTab === 'appearances'">
+        <ChapterAppearances v-if="currentChapter" :novel-id="novelId" :chapter="currentChapter" :characters="canonicalEntities.characters"
+          :plans="appearancePlans" :knowledge-ids="appearanceKnowledgeIds" :evidence-location="evidenceLocation" @knowledge="showAppearanceKnowledge" />
+      </template>
+
       <section v-else-if="activeTab === 'relations'" aria-label="有向关系网">
         <template v-if="relations.edges.length"><div class="relation-scroll" tabindex="0" aria-label="人物关系图，可横向滚动"><div ref="graphEl" class="relation-graph" :style="{ minWidth: graphMinWidth + 'px' }"><svg :viewBox="`0 0 ${graphWidth} ${GRAPH_HEIGHT}`" aria-hidden="true"><defs><marker id="codex-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--ink-3)" /></marker></defs><g v-for="edge in graphEdges" :key="edge.key"><path :d="edge.path" class="relationship-line" marker-end="url(#codex-arrow)" /><text :x="edge.labelX" :y="edge.labelY" text-anchor="middle" dominant-baseline="middle" class="relationship-label">{{ edge.relation }}</text></g></svg><button v-for="node in graphNodes" :key="node.character.id" type="button" class="relation-node" :class="{ selected: selectedCharacter?.id === node.character.id }" :style="{ left: node.x + '%', top: node.y + '%' }" :aria-label="'查看' + node.character.name + '的人物详情'" @click="selectCharacter(node.character.id)"><CharacterAvatar :character="node.character" :size="68" /><strong>{{ node.character.name }}</strong></button></div></div><p class="relation-legend">箭头 A → B 表示 A 对 B 的关系。</p><details class="relation-records"><summary>关系记录与来源 · {{ relations.edges.length }}</summary><article v-for="edge in relations.edges" :key="edge.source.id + ':' + edge.target.id + ':' + edge.dimension" class="relation-row"><div class="relation-source"><b>{{ edge.source.name }}</b><span>→</span><b>{{ edge.target.name }}</b></div><strong>{{ edge.relation || '关系未命名' }}</strong><small>{{ edge.dimensionLabel }} · {{ edge.origin === 'chapter' ? '正文确认' : '作者资料' }}</small><p v-if="edge.description">{{ edge.description }}</p><blockquote v-for="evidence in edge.evidence" :key="evidence.id">{{ evidence.quote }}<router-link v-if="evidenceLocation(evidence)" :to="evidenceLocation(evidence)!">查看来源原文</router-link></blockquote></article></details></template>
         <div v-else class="empty m-panel">截至所选章还没有有效关系记录。</div>
@@ -63,6 +68,8 @@ import { getCharacterStateProjection, knowledgeStateLabels } from '@/services/re
 import { getRelationshipProjection } from '@/services/relationshipProjection'
 import { projectCanonicalEntities } from '@/services/entityProvenance'
 import { buildAnalysisSourceVersionId } from '@/services/reconstructionCandidates'
+import { getAppearancePlans } from '@/services/characterAppearances'
+import ChapterAppearances from '@/v3/characters/ChapterAppearances.vue'
 import CharacterAvatar from '@/components/CharacterAvatar.vue'
 import V3Icon from '@/v3/components/V3Icon.vue'
 import type { EventLogEntry, StoryArc } from '@/types/novel'
@@ -70,14 +77,14 @@ import type { CanonMutationRecord, EvidenceRef, KnowledgeState } from '@/types/r
 import type { MemoryKnowledgeEdge } from '@/types/characterMemory'
 
 defineOptions({ name: 'V3CodexView' })
-type CodexTab = 'knowledge' | 'characters' | 'relations' | 'timeline' | 'resources'
+type CodexTab = 'knowledge' | 'characters' | 'appearances' | 'relations' | 'timeline' | 'resources'
 type KnowledgeCell = { states: MemoryKnowledgeEdge[]; issues: Array<{ record: CanonMutationRecord; issue: string }>; label: string; tone: string; symbol: string; since?: number }
 const route = useRoute(), router = useRouter(), novels = useNovelStore(), workspace = useReconstructionWorkspaceStore()
 const novelId = computed(() => typeof route.params.novelId === 'string' ? route.params.novelId : '')
 const novel = computed(() => novels.getNovel(novelId.value))
 const loading = ref(true), error = ref(''), activeTab = ref<CodexTab>('knowledge'), detailOpen = ref(false)
 const selectedCharacterId = ref(''), selectedFactId = ref(''), projectionIndex = ref<number>()
-const tabs: Array<{ id: CodexTab; label: string }> = [{ id: 'knowledge', label: '知情矩阵' }, { id: 'characters', label: '人物' }, { id: 'relations', label: '关系网' }, { id: 'timeline', label: '时间线' }, { id: 'resources', label: '资料与回顾' }]
+const tabs: Array<{ id: CodexTab; label: string }> = [{ id: 'knowledge', label: '知情矩阵' }, { id: 'characters', label: '人物' }, { id: 'appearances', label: '出场对照' }, { id: 'relations', label: '关系网' }, { id: 'timeline', label: '时间线' }, { id: 'resources', label: '资料与回顾' }]
 const knowledgeStates: KnowledgeState[] = ['knows', 'suspects', 'does_not_know', 'false_belief']
 const stateSymbols: Record<KnowledgeState, string> = { knows: '●', suspects: '◐', does_not_know: '○', false_belief: '×' }
 const chapters = computed(() => [...(novel.value?.chapters || [])].sort((a, b) => a.chapterIndex - b.chapterIndex))
@@ -108,6 +115,9 @@ function factKey(state: MemoryKnowledgeEdge) {
 }
 const canonicalEntities = computed(() => novel.value ? projectCanonicalEntities(novel.value, atIndex.value + 1) : { characters: [], events: [], arcs: [], issues: [] })
 const characters = computed(() => canonicalEntities.value.characters.filter(character => !chapters.value.length || character.firstAppearChapter <= atIndex.value))
+const appearanceKnowledgeIds = computed(() => new Set(characters.value.map(character => character.id)))
+const appearancePlans = computed(() => novel.value && currentChapter.value
+  ? getAppearancePlans(novel.value, currentChapter.value, workspace.getCreationDraft(novelId.value)) : [])
 // 没有章节时不存在“第 -1 章”边界；省略边界才会保留作者填写的基础关系。
 const relations = computed(() => novel.value ? getRelationshipProjection(novel.value, records.value, chapters.value.length ? atIndex.value : undefined, 'through') : { edges: [], invalid: [] })
 const facts = computed(() => {
@@ -247,6 +257,15 @@ function updateQuery() { void router.replace({ query: { ...route.query, tab: act
 function selectTab(tab: CodexTab) { activeTab.value = tab; updateQuery() }
 function selectChapter(index: number) { if (!chapters.value.some(chapter => chapter.chapterIndex === index)) return; projectionIndex.value = index; updateQuery() }
 function selectCharacter(id: string) { selectedCharacterId.value = id; detailOpen.value = true; updateQuery() }
+function showAppearanceKnowledge(id: string) {
+  activeTab.value = 'knowledge'
+  const usefulFact = facts.value.find(fact => {
+    const cell = cellFor(id, fact.key)
+    return cell.states.length || cell.issues.length
+  })
+  selectedFactId.value = usefulFact?.key || ''
+  selectCharacter(id)
+}
 function selectCell(characterId: string, factId: string) { selectedCharacterId.value = characterId; selectedFactId.value = factId; detailOpen.value = true; updateQuery() }
 watch(() => route.query, query => {
   if (tabs.some(tab => tab.id === query?.tab)) activeTab.value = query.tab as CodexTab

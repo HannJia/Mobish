@@ -268,7 +268,8 @@ const storyTimeOrigin = object({ id, day: number, label: text, confirmedAt: date
 const book = object({
     id, ...strings('title genre subGenre genreLabel subGenreLabel outline synopsis'), tags: list(text, 1000),
     targetWordCountMin: number, targetWordCountMax: number, currentWordCount: integer,
-    writingStyle: object(strings('narrativePov toneStyle descriptionDensity dialogueStyle combatStyle pacingControl emotionExpression')),
+    writingStyle: object({ ...strings('narrativePov toneStyle descriptionDensity dialogueStyle combatStyle pacingControl emotionExpression'),
+        sampleRules: optional(text) }),
     writingMode: optional(oneOf('manual', 'ai')), coverId: optional(text), chatWebSearchEnabled: optional(boolean), storyClock: optional(object({
         currentDay: number, label: text, lastChapterIndex: optional(number), updatedAt: date,
         origin: optional(storyTimeOrigin), history: optional(list(storyTimeRecord, 100000)), confirmationSequence: optional(integer),
@@ -329,7 +330,18 @@ const knowledge = object({ id, name: text, description: text, createdAt: date, .
     summary: optional(text), summaryLevel: optional(summaryLevel),
     summaryUpdatedAt: optional((value, path) => { if (value !== '')
         summaryDate(value, path); }),
-    entries: list(object({ id, ...strings('category title content summary'), tags: list(text), ...times, ...knowledgeSummaryFields })) });
+    entries: list(object({ id, ...strings('category title content summary'), tags: list(text), ...times, ...knowledgeSummaryFields,
+        visibility: optional((value, path) => {
+            const visibility = value;
+            if (visibility?.mode === 'never')
+                object({ mode: oneOf('never') })(value, path);
+            else
+                object({ mode: oneOf('from-chapter'), chapter: (chapter, chapterPath) => {
+                        if (typeof chapter !== 'number' || !Number.isSafeInteger(chapter) || chapter < 1)
+                            fail(chapterPath);
+                    } })(value, path);
+        }),
+        mergedSources: optional(list(object({ entryId: id, title: text, category: text, sourceVersionId: id }))), })) });
 function checkTree(value, path, depth = 0) {
     if (depth > 40)
         fail(`${path}（嵌套过深）`);

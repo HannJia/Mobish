@@ -63,12 +63,38 @@
       <div class="mix-side">
         <span v-if="mixCounts" class="mix-counts">{{ mixCounts }}</span>
         <span v-if="mixHint" class="mix-hint" role="status">{{ mixHint }}</span>
-        <button type="button" class="m-btn pri" :disabled="busy || !canMix || dirty" @click="mix">组合为新的可编辑候选</button>
+        <button v-if="isMixed" type="button" class="m-btn" :disabled="busy || checkingMix || !canMix || dirty" @click="checkMix">
+          {{ checkingMix ? '正在核对冲突…' : '检查组合冲突' }}
+        </button>
+        <button type="button" class="m-btn pri" :disabled="busy || checkingMix || !canMix || dirty || !reviewComplete" @click="mix">组合为新的可编辑候选</button>
       </div>
+      <p v-if="mixError" class="mix-hint" role="alert">{{ mixError }}</p>
+      <section v-if="mixConflicts" class="mix-review" aria-label="组合冲突检查">
+        <p v-if="!mixConflicts.length" role="status">AI 未在这次组合中发现明确冲突。</p>
+        <fieldset v-for="(conflict, index) in mixConflicts" :key="index" :disabled="busy">
+          <legend>{{ conflict.conflict }}</legend>
+          <div v-for="(source, position) in [conflict.left, conflict.right]" :key="source" class="mix-review-option">
+            <label>
+              <input v-model="mixDecisions[index].keep" type="radio" :name="'mix-conflict-' + index" :value="source">
+              <strong>保留 {{ reviewedExcerpts[source].label }}</strong>
+            </label>
+            <blockquote>{{ reviewedExcerpts[source].text }}</blockquote>
+            <p>{{ conflict.options[position] }}</p>
+          </div>
+          <label>取舍理由 <input v-model="mixDecisions[index].reason" maxlength="500" :aria-label="'取舍理由 ' + (index + 1)" /></label>
+        </fieldset>
+      </section>
     </div>
 
     <div v-if="selected" class="skeleton-edit" :key="selected.id">
       <h4>编辑：{{ selected.title || '未命名方案' }}</h4><p v-if="dirty" class="dirty-note" role="status">输入已暂存；请保存作者版本后再切换或确认。</p>
+      <details v-if="selectedReview?.review.conflicts.length" class="mix-review">
+        <summary>查看组合来源与取舍理由</summary>
+        <ul><li v-for="(excerpt, index) in selectedReview.excerpts" :key="index">{{ excerpt.label }} · {{ excerpt.text }}</li></ul>
+        <ul><li v-for="(decision, index) in selectedReview.review.decisions" :key="index">
+          {{ selectedReview.review.conflicts[index].conflict }} · 保留 {{ selectedReview.excerpts[decision.keep].label }} · {{ decision.reason }}
+        </li></ul>
+      </details>
       <label v-for="field in fields" :key="field.key">{{ field.label }}<textarea :value="selected[field.key]" :aria-label="field.label" :disabled="busy" :rows="field.key === 'title' ? 1 : 3" @input="update(field.key, ($event.target as HTMLTextAreaElement).value)"></textarea></label>
       <h4>关键节点</h4>
       <div v-for="(beat, index) in selected.beats" :key="beat.id" class="beat-edit">
@@ -83,16 +109,59 @@
   </section>
 </template>
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import type { PlotSkeleton, SkeletonField, SkeletonSourceSelection, StoryBeat } from '@/types/reconstruction'
 import { skeletonCompletionIssues } from '@/services/creationDraft'
+import { useConfigStore } from '@/stores/config'
+import { errorText } from '@/services/userFacingError'
+import { mixExcerpts, reviewStoryMix, type MixConflict, type MixExcerpt, type MixReview } from '@/services/storyCreationMix'
+
 const props = defineProps<{ skeletons: PlotSkeleton[]; selectedId?: string; confirmedId?: string; busy?: boolean; dirty?: boolean; hasOutline?: boolean }>()
-const emit = defineEmits<{ select: [id: string]; edit: [skeleton: PlotSkeleton]; confirm: []; save: []; create: []; regenerate: []; mix: [sources: SkeletonSourceSelection[]] }>()
+const emit = defineEmits<{ select: [id: string]; edit: [skeleton: PlotSkeleton]; confirm: []; save: []; create: []; regenerate: []; mix: [sources: SkeletonSourceSelection[], review?: MixReview] }>()
 const selected = computed(() => props.skeletons.find(item => item.id === props.selectedId))
 const fields = [{ key: 'title', label: '方案名称' }, { key: 'premise', label: '故事前提' }, { key: 'logline', label: '一句话主线' }, { key: 'promise', label: '读者承诺' }, { key: 'ending', label: '结局方向' }] as const
 const kinds: { value: StoryBeat['kind']; label: string }[] = [{ value: 'opening', label: '开端' }, { value: 'inciting', label: '引发事件' }, { value: 'turning_point', label: '转折' }, { value: 'midpoint', label: '中点' }, { value: 'low_point', label: '低谷' }, { value: 'climax', label: '高潮' }, { value: 'resolution', label: '结局' }, { value: 'custom', label: '其他' }]
 const fieldSources = reactive<Record<SkeletonField, string>>({ title: '', premise: '', logline: '', promise: '', ending: '' })
 const beatSources = ref<SkeletonSourceSelection[]>([])
+const mixSources = computed<SkeletonSourceSelection[]>(() =>
+  [...fields.map(field => ({ field: field.key, revisionId: fieldSources[field.key] })), ...beatSources.value])
+const isMixed = computed(() => new Set(mixSources.value.map(source => source.revisionId).filter(Boolean)).size > 1)
+const mixConflicts = ref<MixConflict[]>()
+const mixDecisions = ref<Array<{ keep: number; reason: string }>>([])
+const reviewedExcerpts = ref<MixExcerpt[]>([])
+const mixError = ref('')
+const checkingMix = ref(false)
+const reviewComplete = computed(() => mixDecisions.value.every(decision => decision.keep >= 0 && decision.reason.trim()))
+type SavedReview = { review: MixReview; excerpts: MixExcerpt[] }
+const selectedReview = ref<SavedReview>()
+let pendingReview: { saved: SavedReview; beatIds: string[] } | undefined
+let mixCheck: AbortController | undefined
+watch(mixSources, () => {
+  mixCheck?.abort()
+  mixConflicts.value = undefined
+  mixDecisions.value = []
+  mixError.value = ''
+})
+watch(() => props.selectedId, id => {
+  selectedReview.value = undefined
+  if (!id) return
+  const key = 'mobish.skeleton-mix-review.' + id
+  const candidate = selected.value
+  if (pendingReview && candidate && candidate.beats.length === pendingReview.beatIds.length
+    && candidate.beats.every((beat, index) => beat.id === pendingReview!.beatIds[index])) {
+    selectedReview.value = pendingReview.saved
+    try { localStorage.setItem(key, JSON.stringify(pendingReview.saved)) } catch {
+      mixError.value = '取舍理由暂时只能在当前页面查看。'
+    }
+  } else {
+    try {
+      const saved = localStorage.getItem(key)
+      if (saved) selectedReview.value = JSON.parse(saved) as SavedReview
+    } catch { /* local review unavailable */ }
+  }
+  pendingReview = undefined
+}, { immediate: true })
+onBeforeUnmount(() => mixCheck?.abort())
 const missingFields = computed(() => fields.filter(field => !props.skeletons.some(item => item.revisionId === fieldSources[field.key])).length)
 const canMix = computed(() => missingFields.value === 0 && beatSources.value.length > 0)
 const canConfirm = computed(() => selected.value && !skeletonCompletionIssues(selected.value).length)
@@ -134,9 +203,64 @@ function toggleBeat(item: PlotSkeleton, beatId: string) {
 }
 function moveMixedBeat(index: number, delta: number) { const [source] = beatSources.value.splice(index, 1); beatSources.value.splice(index + delta, 0, source) }
 function beatLabel(source: SkeletonSourceSelection) { const skeleton = props.skeletons.find(item => item.revisionId === source.revisionId); return (skeleton?.title || '历史方案') + ' / ' + (skeleton?.beats.find(item => item.id === source.beatId)?.title || '历史节点') }
-function mix() { emit('mix', [...fields.map(field => ({ field: field.key, revisionId: fieldSources[field.key] })), ...beatSources.value]) }
+async function checkMix() {
+  const config = useConfigStore()
+  const model = config.getModelForTask('outline') || config.getModelForTask('chat')
+  if (!model?.apiKey.trim()) { mixError.value = '请先在设置中配置大纲或对话模型。'; return }
+  const request = new AbortController()
+  mixCheck = request
+  checkingMix.value = true
+  mixError.value = ''
+  try {
+    const excerpts = mixExcerpts(props.skeletons, mixSources.value)
+    const conflicts = await reviewStoryMix(model, excerpts, request.signal)
+    if (request.signal.aborted) return
+    reviewedExcerpts.value = excerpts
+    mixConflicts.value = conflicts
+    mixDecisions.value = conflicts.map(() => ({ keep: -1, reason: '' }))
+  } catch (error) {
+    if (!request.signal.aborted) mixError.value = errorText(error, '冲突检查失败')
+  } finally {
+    if (mixCheck === request) {
+      mixCheck = undefined
+      checkingMix.value = false
+    }
+  }
+}
+function mix() {
+  const sources = mixSources.value
+  if (!mixConflicts.value?.length) { emit('mix', sources); return }
+  const keep = new Set(mixDecisions.value.map(decision => decision.keep))
+  const replace = new Map<number, number>()
+  mixConflicts.value.forEach(({ left, right }, index) => {
+    const winner = mixDecisions.value[index].keep
+    replace.set(winner === left ? right : left, winner)
+  })
+  if ([...replace.keys()].some(index => keep.has(index))) {
+    mixError.value = '同一来源同时被保留和替换，请核对各项取舍。'
+    return
+  }
+  const revised = sources.flatMap((source, index) => {
+    const replacement = replace.get(index)
+    if (replacement === undefined) return [source]
+    if (source.field === 'beat') return []
+    return [{ ...source, revisionId: sources[replacement].revisionId }]
+  })
+  if (!revised.some(source => source.field === 'beat')) { mixError.value = '取舍后至少要保留一个关键节点。'; return }
+  const review: MixReview = { original: sources.map(source => ({ ...source })), conflicts: mixConflicts.value,
+    decisions: mixDecisions.value.map(decision => ({ ...decision, reason: decision.reason.trim() })) }
+  pendingReview = { saved: { review, excerpts: reviewedExcerpts.value },
+    beatIds: revised.filter(source => source.field === 'beat').map(source => source.targetBeatId!) }
+  emit('mix', revised, review)
+}
 </script>
 <style scoped>
+.mix-review { grid-column: 1 / -1; display: grid; gap: 8px; }
+.mix-review fieldset { min-width: 0; border: 1px solid var(--line); padding: 10px; }
+.mix-review-option { padding: 6px 0; }
+.mix-review-option blockquote { margin: 4px 0; padding-left: 12px; border-left: 2px solid var(--line); white-space: pre-wrap; }
+.mix-review label { display: flex; align-items: center; gap: 6px; }
+.mix-review label input:not([type="radio"]) { flex: 1; min-width: 0; }
 .skeleton-picker {
   width: 100%; box-sizing: border-box; color: var(--ink); }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

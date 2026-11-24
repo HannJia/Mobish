@@ -27,4 +27,11 @@ describe('native V3 routes', () => {
     expect(routes.every(route => !route.path.startsWith('/workspace') && !route.path.startsWith('/legacy'))).toBe(true)
     expect(routes.every(route => route.meta.shell === 'v3')).toBe(true)
   })
+
+  it('resolves independent breakdown, citation and discussion links without a novel', () => {
+    expect(router.resolve('/breakdown').name).toBe('BookBreakdown')
+    const evidence = router.resolve('/breakdown/record?card=first&evidence=0')
+    expect(evidence).toMatchObject({ name: 'BookBreakdown', params: { jobId: 'record' }, query: { card: 'first', evidence: '0' } })
+    expect(router.resolve('/breakdown/discuss/session').name).toBe('BookBreakdownDiscussion')
+  })
 })

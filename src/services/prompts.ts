@@ -102,7 +102,8 @@ function formatStyle(novel: Novel): string {
     `战斗描写：${map[ws.combatStyle] || ws.combatStyle}`,
     `节奏控制：${map[ws.pacingControl] || ws.pacingControl}`,
     `情感表达：${map[ws.emotionExpression] || ws.emotionExpression}`,
-  ].join('\n')
+    ws.sampleRules ? `作者确认的本书写法：\n${ws.sampleRules}` : '',
+  ].filter(Boolean).join('\n')
 }
 
 function chapterWordLimitRule(novel: Novel): string {

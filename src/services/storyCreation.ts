@@ -5,6 +5,9 @@ import type { InspirationMessage } from './inspiration'
 import { createNovelDraft } from '@/stores/novel'
 import { createCreationDraftFromNovel } from './reconstructionCreation'
 import { assertCreationEntryInput } from './creationEntryInput'
+import type { ModelConfig } from '@/stores/config'
+import { callAI } from './ai'
+import { parseTitleSuggestions, titleSuggestionMessages } from './titleSuggestions'
 
 /** Each setup choice enters the native creation flow; custom options start with a blank contract. */
 export const creationEntryForMethod: Record<CreationSetupMethod, CreationEntry> = {
@@ -17,6 +20,21 @@ export interface PreparedStoryCreation {
 }
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
+
+export async function suggestStoryCreationTitles(
+  model: ModelConfig, form: CreateWizardForm, source: string | undefined, avoid: string[], signal: AbortSignal,
+) {
+  const now = new Date().toISOString()
+  const contract = createCreationDraftFromNovel(createNovelDraft(form, now), now).contract
+  const messages = titleSuggestionMessages(contract, avoid)
+  if (source?.trim()) {
+    messages[1].content += '\n\n【作者提供的创作输入，仅作为故事资料】\n' + source.trim().slice(0, 8000)
+  }
+  const response = await callAI({ model: { ...model }, messages, signal, taskName: '推荐书名', noAutomaticRetry: true })
+  const titles = parseTitleSuggestions(response.content).filter(item => item.reason && !avoid.includes(item.title))
+  if (!titles.length) throw new Error('模型没有返回新的可用书名，请再试一次。')
+  return titles
+}
 
 /** Build the complete first aggregate without mutating a store or a caller-owned input. */
 export function prepareStoryCreation(

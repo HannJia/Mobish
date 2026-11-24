@@ -14,6 +14,18 @@ const router = createRouter({
     },
 
     {
+      path: '/breakdown/discuss/:sessionId',
+      name: 'BookBreakdownDiscussion',
+      component: () => import('@/v3/breakdown/BreakdownDiscussionView.vue'),
+      meta: { title: '灵感对话', shell: 'v3', area: 'breakdown' },
+    },
+    {
+      path: '/breakdown/:jobId?',
+      name: 'BookBreakdown',
+      component: () => import('@/v3/breakdown/BookBreakdownView.vue'),
+      meta: { title: '拆书', shell: 'v3', area: 'breakdown' },
+    },
+    {
       path: '/create',
       name: 'CreateWizard',
       component: () => import('@/v3/views/CreateView.vue'),

@@ -76,6 +76,16 @@
     <!-- 操作按钮 -->
     <div class="generate-actions" v-if="!showContractEditor && isDone">
       <p>作品名称：{{ creationDraft?.contract.title }}（可在作品契约中修改）</p>
+      <div v-if="creationDraft?.outlineCandidate?.source === 'model' || outlineTitles.length" class="outline-title-options" role="group" aria-label="大纲书名候选">
+        <button v-for="option in outlineTitles" :key="option.title" type="button" class="m-btn"
+          :disabled="outlineActionsBusy" @click="chooseOutlineTitle(option.title)">
+          <strong>{{ option.title }}</strong><small>{{ option.reason }}</small>
+        </button>
+        <button type="button" class="m-btn" :disabled="outlineActionsBusy || titleBusy" @click="refreshOutlineTitles">
+          {{ titleBusy ? '正在推荐书名…' : outlineTitles.length ? '换一批' : 'AI 推荐书名' }}
+        </button>
+        <p v-if="titleError" role="alert">{{ titleError }}</p>
+      </div>
       <button type="button" class="m-btn lg" :disabled="acceptingOutline || editingOutline || editingContract || !skeletonConfirmed" @click="regenerate">重新生成</button>
       <button type="button" class="m-btn pri lg" :aria-busy="acceptingOutline" :disabled="acceptingOutline || generationBusy || contractBusy || editingOutline || editingContract || !skeletonConfirmed || !visibleOutlineContent || creationDraft?.outlineCandidate?.complete === false" @click="acceptOutline">确认并规划分卷</button>
     </div>
@@ -113,6 +123,7 @@ import { startAiActivity, finishAiActivity, activeAiCount, type AiActivity } fro
 import { registerDraftSaver, type DraftFlushToken } from '@/services/appLifecycle'
 import { skeletonCompletionIssues } from '@/services/creationDraft'
 import { buildOutlinePrompt } from '@/services/prompts'
+import { outlineTitleSuggestions, suggestTitles, type TitleSuggestion } from '@/services/titleSuggestions'
 import { renderMd } from '@/utils/markdown'
 import { buildConfirmedSkeletonConstraint, buildPlotSkeletonPrompt } from '@/services/reconstructionCreation'
 import type { CreationEdit } from '@/services/creationTransactions'
@@ -322,6 +333,44 @@ function cancelGeneration() { abortController?.abort(new DOMException('作者停
 // Markdown 渲染
 const visibleOutlineContent = computed(() => sanitizeOutlineContent(streamContent.value))
 const renderedContent = computed(() => renderMd(visibleOutlineContent.value))
+const refreshedTitles = ref<TitleSuggestion[]>()
+const outlineTitles = computed(() => refreshedTitles.value || outlineTitleSuggestions(visibleOutlineContent.value))
+const titleBusy = ref(false)
+const titleError = ref('')
+let titleRequest: AbortController | undefined
+const outlineActionsBusy = computed(() => generationBusy.value || contractBusy.value || acceptingOutline.value || editingOutline.value)
+watch(visibleOutlineContent, () => {
+  titleRequest?.abort()
+  refreshedTitles.value = undefined
+  titleError.value = ''
+})
+
+async function refreshOutlineTitles() {
+  const contract = creationDraft.value?.contract
+  if (!contract || outlineActionsBusy.value || titleBusy.value) return
+  const model = configStore.getModelForTask('outline') || configStore.getModelForTask('chat')
+  if (!model) { titleError.value = '请先在设置中配置大纲或对话模型。'; return }
+  titleRequest = new AbortController()
+  const { signal } = titleRequest
+  titleBusy.value = true
+  titleError.value = ''
+  try {
+    const avoid = [...new Set([contract.title, ...outlineTitles.value.map(option => option.title)])]
+    const titles = await suggestTitles(model, contract, avoid, signal, visibleOutlineContent.value)
+    if (!signal.aborted) refreshedTitles.value = titles
+  } catch (error) {
+    if (!signal.aborted) titleError.value = safeAiErrorMessage(error, configStore.models.map(item => item.apiKey))
+  } finally { titleBusy.value = false }
+}
+
+function chooseOutlineTitle(title: string) {
+  const contract = contractInput.value || creationDraft.value?.contract
+  if (!contract || outlineActionsBusy.value) return
+  openContractEditor()
+  if (title !== contract.title) {
+    changeContractInput({ ...contract, title, cardConfirmations: contract.cardConfirmations?.filter(card => card.cardId !== 'audience') })
+  }
+}
 
 async function storeContract(contract: StoryContract, confirm: boolean) {
   if (initializing.value || !creationDraft.value || contractBusy.value || contractExploring.value || generationBusy.value || acceptingOutline.value) return
@@ -687,12 +736,17 @@ onMounted(async () => {
 onUnmounted(() => {
   disposed = true
   abortController?.abort()
+  titleRequest?.abort()
   if (!pendingEditors.size && !pendingAttempts.size && !generationBusy.value && !contractExploring.value) unregisterDraftSaver()
 })
 
 </script>
 
 <style scoped>
+.outline-title-options { display: grid; gap: 8px; }
+.outline-title-options button { height: auto; padding-block: 6px; text-align: left; }
+.outline-title-options button:has(small) { align-items: flex-start; flex-direction: column; }
+.outline-title-options small { color: var(--ink-3); }
 
 .recovery-panel { width:100%; max-width:1100px; padding:20px; box-sizing:border-box; }
 .recovery-panel button { margin:6px; }

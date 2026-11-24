@@ -5,6 +5,8 @@ import { createPinia, disposePinia, setActivePinia } from 'pinia'
 import { useRoute } from 'vue-router'
 import CodexView from './CodexView.vue'
 import { useNovelStore } from '@/stores/novel'
+import { useConfigStore, type ModelConfig } from '@/stores/config'
+import * as aiService from '@/services/ai'
 import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspace'
 import { characterStateFixture, knowledgeCandidate, relationshipCandidate, stateTestTime as now } from '@/test/characterStateFixture'
 import { acceptCandidateChange } from '@/services/reconstructionReview'
@@ -100,6 +102,34 @@ beforeEach(() => {
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; disposePinia(pinia); vi.restoreAllMocks() })
 
 describe('V3 典籍原型布局与真实按章投影', () => {
+  it('按章并排核对计划与正文，原句定位随正文版本失效', async () => {
+    const data = fixture()
+    const chapter = data.novel.chapters[0]
+    chapter.sceneNotes = [{ id: 'plan-scene', title: '独候', content: '安排苏禾到场。', source: 'user', createdAt: now, updatedAt: now }]
+    vi.spyOn(useConfigStore(), 'getModelForTask').mockReturnValue({ modelName: 'fixture' } as ModelConfig)
+    vi.spyOn(aiService, 'callAI').mockResolvedValueOnce({ content: JSON.stringify({ appearances: [
+      { characterId: 'person-0', kind: 'direct', quote: '林澈以为城主已经死了。' },
+      { characterId: 'person-1', kind: 'mentioned', quote: '林澈仍然信任苏禾。' },
+    ] }) }).mockResolvedValueOnce({ content: JSON.stringify({ appearances: [
+      { characterId: 'person-1', kind: 'direct', quote: '安排苏禾到场。' },
+    ] }) })
+    route.query = { atChapter: '1', tab: 'appearances' }
+    const view = await mountCodex()
+    await view.get('.appearance-header button').trigger('click')
+    await flushPromises()
+    const row = view.findAll('.appearance-table tbody tr').find(item => item.text().includes('苏禾'))!
+    const columns = row.findAll('td')
+    expect(columns[0].text()).toContain('亲自到场')
+    expect(columns[0].text()).toContain('安排苏禾到场。')
+    expect(columns[1].text()).toContain('被提及')
+    const quote = columns[1].getComponent(RouterLinkStub).props('to')
+    expect(quote).toEqual({ path: `/write/${data.novel.id}/${chapter.id}`, query: {
+      evidenceVersion: buildAnalysisSourceVersionId(chapter.content), evidenceStart: '11', evidenceEnd: String(chapter.content.length),
+    } })
+    chapter.content += '此后下了雨。'
+    await flushPromises()
+    expect(view.find('.appearance-evidence').exists()).toBe(false)
+  })
   it('默认打开知情矩阵，空作品不编造人物、命题或认知历史', async () => {
     const novels = useNovelStore(), created = novels.addNovel({ workingTitle: '空典籍', genre: 'fantasy', subGenre: 'xuanhuan', tags: [], targetWordCountMin: 20, targetWordCountMax: 30, writingStyle: novels.defaultWritingStyle(), settings: novels.defaultSettings() })
     route.params.novelId = created.id

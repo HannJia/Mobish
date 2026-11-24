@@ -5,6 +5,8 @@ import { computed, defineComponent, ref, type Ref } from 'vue'
 import { createPinia, disposePinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
+import { useConfigStore, type ModelConfig } from '@/stores/config'
+import * as aiService from '@/services/ai'
 import { buildAnalysisSourceVersionId } from '@/services/reconstructionCandidates'
 import type { useChapterSession } from './useChapterSession'
 import type { useChapterAi } from './useChapterAi'
@@ -321,6 +323,38 @@ describe('V3 写作台原型交互', () => {
     await wrapper.get('.write-main').trigger('scroll')
     expect(wrapper.find('.selection-tools').exists()).toBe(false)
     expect(state.ai.generateSelection).not.toHaveBeenCalled()
+  })
+  it('选文提炼、编辑后试写，只有确认当前对照才保存规则', async () => {
+    vi.spyOn(useConfigStore(), 'getModelForTask').mockReturnValue({ modelName: 'fixture' } as ModelConfig)
+    const request = vi.spyOn(aiService, 'callAI')
+      .mockResolvedValueOnce({ content: JSON.stringify({ rules: '短句写动作。' }) })
+      .mockResolvedValue({ content: JSON.stringify({ rewrite: '灯没熄。他把信放下。' }) })
+    const save = vi.spyOn(useNovelStore(), 'updateSampleStyleRules').mockResolvedValue(true)
+    await mountDesk()
+    const original = state.session.content.value
+    wrapper.getComponent(EditorDouble).vm.$emit('selection', { start: 0, end: 7, text: original.slice(0, 7),
+      rect: { left: 100, right: 200, top: 220, bottom: 250 } })
+    await flushPromises()
+    await button('提炼写法').trigger('click')
+    await button('AI 提炼规则').trigger('click')
+    await flushPromises()
+    const fields = wrapper.get('[role="dialog"]').findAll('textarea')
+    expect(fields[0].element.value).toBe('短句写动作。')
+    await fields[0].setValue('先写动作，再写感受。')
+    await fields[1].setValue('灯还亮着。他放下了信。')
+    await button('生成对照预览').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[aria-label="原文和试写对照"]').text()).toContain('灯没熄。他把信放下。')
+    expect(save).not.toHaveBeenCalled()
+    await fields[0].setValue('动作和感受分开写。')
+    expect(button('确认应用写法').attributes('disabled')).toBeDefined()
+    await button('生成对照预览').trigger('click')
+    await flushPromises()
+    await button('确认应用写法').trigger('click')
+    await flushPromises()
+    expect(save).toHaveBeenCalledExactlyOnceWith(state.session.novel.value!.id, '动作和感受分开写。', '')
+    expect(request).toHaveBeenCalledTimes(3)
+    expect(state.session.content.value).toBe(original)
   })
   it('正文浮签直接显示在页边，可暂存；拒绝只调用拒绝事务；上下文过期后禁止采纳', async () => {
     const original = state.session.content.value

@@ -127,6 +127,7 @@ export function useChapterAi(options: ChapterAiOptions) {
       writingContext = await augmentWritingContextWithVectorMemory(novel, { ...chapter, content: baseContent }, writingContext,
         config.embedding, () => workspace.getStoryMemories(novel.id), () => workspace.getCanonMutations(novel.id))
       const replacement = await requestSelectionReplacement({ model, snapshot, authorInstruction,
+        styleRules: novel.writingStyle.sampleRules,
         factCard: buildChapterFactCard(novel, { ...chapter, content: baseContent }, writingContext),
         guidance: writingContext.chapterGuidance, signal: undefined })
       ensureCurrent(baseContent, baseContext)

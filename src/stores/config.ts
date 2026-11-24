@@ -5,6 +5,7 @@ import { createBuiltInSkills, upgradeSavedBuiltInSkill } from '@/data/skills'
 import { normalizeAiWorkflowMode, type AiWorkflowMode } from '@/services/aiWorkflow'
 import type { ChatSearchProtocol } from '@/types/chat'
 import type { ChatSearchAdapter } from '@/services/modelProviders'
+import type { AiProtocol } from '@/services/aiProtocols'
 import { DEFAULT_WEB_SEARCH_SERVICE, WEB_SEARCH_PROVIDERS, type WebSearchServiceConfig } from '@/services/webSearchService'
 
 // API 模型配置
@@ -21,6 +22,7 @@ export interface ModelConfig {
   chatSearchProtocol?: ChatSearchProtocol // 仅影响书内/灵感对话的联网请求
   /** 本机选择的联网方式（通义、智谱、Gemini 或独立搜索服务）；不参与云端配置同步，其他设备按接口地址自动识别。 */
   searchAdapter?: ChatSearchAdapter
+  apiProtocol?: AiProtocol // 仅本机生效，自动模式不设置此字段
   kind?: 'chat' | 'embedding' // 模型用途类型；省略时默认为 chat
   connectionTest?: ModelConnectionTestRecord // 仅本机连接测试记录，不参与云端配置同步
 }
@@ -404,6 +406,10 @@ export const useConfigStore = defineStore('config', () => {
     const candidate = JSON.parse(JSON.stringify(data)) as ConfigData
     // 云端配置不含独立搜索服务，恢复时保留本机设置。
     if (candidate.webSearchService === undefined) candidate.webSearchService = { ...webSearchService }
+    for (const model of candidate.models) {
+      const local = models.value.find(item => item.id === model.id && item.baseUrl === model.baseUrl && item.modelName === model.modelName)
+      if (local?.apiProtocol && model.apiProtocol === undefined && model.kind !== 'embedding') model.apiProtocol = local.apiProtocol
+    }
     const before = JSON.stringify(exportConfig())
     const write = async () => {
       if (!stillCurrent() || JSON.stringify(exportConfig()) !== before) throw new Error('本机配置已变化，请重新比较后恢复。')
@@ -469,6 +475,7 @@ export const useConfigStore = defineStore('config', () => {
         || (Object.prototype.hasOwnProperty.call(updates, 'baseUrl') && updates.baseUrl !== model.baseUrl)
         || (Object.prototype.hasOwnProperty.call(updates, 'apiKey') && updates.apiKey !== model.apiKey)
         || (Object.prototype.hasOwnProperty.call(updates, 'modelName') && updates.modelName !== model.modelName)
+        || (Object.prototype.hasOwnProperty.call(updates, 'apiProtocol') && updates.apiProtocol !== model.apiProtocol)
       if (connectionChanged) invalidateModelConnection(id)
       Object.assign(model, updates)
       if (connectionChanged) delete model.connectionTest
@@ -496,10 +503,11 @@ export const useConfigStore = defineStore('config', () => {
     }
   }
 
-  async function recordModelConnectionTest(attempt: ModelConnectionTestAttempt, record: ModelConnectionTestRecord): Promise<boolean> {
+  async function recordModelConnectionTest(attempt: ModelConnectionTestAttempt, record: ModelConnectionTestRecord, protocol?: AiProtocol): Promise<boolean> {
     if (record.environment !== attempt.environment || !isCurrentModelConnectionTest(attempt)) return false
     const model = models.value.find(item => item.id === attempt.modelId)
     if (!model) return false
+    if (protocol && record.status === 'ok' && !model.apiProtocol && model.kind !== 'embedding') model.apiProtocol = protocol
     model.connectionTest = { ...record }
     if (!isCurrentModelConnectionTest(attempt)) return false
     await saveConfig()

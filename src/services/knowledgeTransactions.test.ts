@@ -108,6 +108,25 @@ describe.each(['sql', 'kernel'] as const)('knowledge summary transactions (%s)',
     expect(getCurrentBaseSummary(reloaded)).toBe('城门保管钥匙。')
   })
 
+  it('atomically merges the chosen order, preserving tags, provenance and the strongest restriction', async () => {
+    store.updateEntry(kb.id, 'entry', { visibility: { mode: 'from-chapter', chapter: 8 }, tags: ['钥匙'] })
+    const earlier = store.addEntry(kb.id, {
+      title: '行程', content: '妹妹提早离开。', summary: '', tags: ['人物'], category: '人物', visibility: { mode: 'never' },
+    })!
+    await store.flushPendingSaves()
+    const draft = [earlier, kb.entries.find(entry => entry.id === 'entry')!]
+      .map(entry => ({ id: entry.id, revision: JSON.stringify(entry) }))
+    const id = await store.mergeEntries(kb.id, draft, '旅馆记录')
+    const saved = await reload()
+    expect(saved.entries).toHaveLength(1)
+    expect(saved.entries[0]).toMatchObject({
+      id, title: '旅馆记录', category: '人物', tags: ['人物', '钥匙'], visibility: { mode: 'never' },
+      content: '## 行程\n\n妹妹提早离开。\n\n## 黑钥匙\n\n黑钥匙留在旅馆。',
+      mergedSources: [{ entryId: earlier.id, title: '行程' }, { entryId: 'entry', title: '黑钥匙' }],
+    })
+    expect(store.getRelevantEntries([kb.id], ['行程'], 5, 20)).toEqual([])
+  })
+
   it('keeps a confirmed base summary valid when persistence reorders imported entries', async () => {
     const imported = store.addEntry(kb.id, {
       title: '导入的旧资料', content: '旧资料记录了渡口的位置。', category: '地点', summary: '', tags: [],
