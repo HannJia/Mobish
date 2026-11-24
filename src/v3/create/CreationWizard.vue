@@ -1,18 +1,19 @@
 <template>
   <div class="wizard-layout" :class="{ 'choosing-options': choosingCreationOptions, 'discussing-inspiration': showInspiration }" id="create-wizard-page">
-    <!-- 顶部固定区 -->
-    <div v-if="!choosingCreationOptions || previousCreationState" class="wizard-top">
-      <!-- 向导头部 -->
-      <div class="wizard-header">
-        <button class="back-btn" @click="handleBack" id="wizard-back-btn">
-          <V3Icon name="chevR" class="back-icon" />
-          <span>{{ choosingCreationOptions && previousCreationState ? '取消更换，返回编辑' : '返回书架' }}</span>
-        </button>
-        <span v-if="!choosingCreationOptions && setupMethod" class="creation-combination" role="status">{{ form.writingMode === 'ai' ? 'AI 模式' : '作者主笔' }} · {{ setupMethod === 'inspiration' ? '灵感对话' : creationSetupLabels[setupMethod] }}</span>
-        <button v-if="!choosingCreationOptions" type="button" class="m-btn ghost" :disabled="creating" @click="openCreationOptions">更换搭配</button>
-        <button v-if="!choosingCreationOptions && setupMethod === 'inspiration' && reviewingInspiration" type="button"
+    <Teleport defer to="#v3-crumb" :disabled="!shellHeader">
+      <button v-if="shellHeader || !choosingCreationOptions || previousCreationState" type="button" class="back-btn" @click="handleBack" id="wizard-back-btn">
+        <V3Icon name="arrowR" class="back-icon" size="s" />
+        <span>{{ choosingCreationOptions && previousCreationState ? '取消更换，返回编辑' : '返回书架' }}</span>
+      </button>
+    </Teleport>
+    <Teleport defer to="#v3-tools" :disabled="!shellHeader">
+      <div v-if="!choosingCreationOptions" class="wizard-combination-tools">
+        <span v-if="setupMethod" class="creation-combination" role="status">{{ form.writingMode === 'ai' ? 'AI 模式' : '作者主笔' }} · {{ setupMethod === 'inspiration' ? '灵感对话' : creationSetupLabels[setupMethod] }}</span>
+        <button type="button" class="m-btn ghost" :disabled="creating" @click="openCreationOptions">更换搭配</button>
+        <button v-if="setupMethod === 'inspiration' && reviewingInspiration" type="button"
           class="m-btn ghost" :disabled="creating" @click="reviewingInspiration = false">返回灵感对话</button>
       </div>
+    </Teleport>
 
       <!-- 步骤指示器 -->
       <div v-if="showSettings" class="steps-indicator" id="wizard-steps">
@@ -33,7 +34,6 @@
         </div>
         <div class="step-line" :style="{ width: `${currentStep * 50}%` }"></div>
       </div>
-    </div><!-- /wizard-top -->
 
     <!-- 可滚动内容区 -->
     <creation-mode-picker v-if="choosingCreationOptions"
@@ -601,6 +601,7 @@ import type { InspirationMessage, InspirationSettingsDraft } from '@/services/in
 import type { TitleSuggestion } from '@/services/titleSuggestions'
 
 
+defineProps<{ shellHeader?: boolean }>()
 const router = useRouter()
 const novelStore = useNovelStore()
 const configStore = useConfigStore()
@@ -1547,12 +1548,11 @@ async function handleCreate() {
 .creation-writing-mode { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding-bottom: 20px; }
 .wizard-layout > :deep(.inspiration-chat) { padding: 0 24px; box-sizing: border-box; }
 @media (max-width: 1440px) {
-  .wizard-top, .wizard-footer { padding-left: 24px; padding-right: 24px; }
+  .wizard-footer { padding-left: 24px; padding-right: 24px; }
   .wizard-body { padding: 0 24px 80px; }
   .form-sections { max-width: 960px; }
 }
 @media (max-width: 768px) {
-  .wizard-top { padding: 20px 20px 0; }
   .wizard-body { padding: 0 20px 24px; }
   .wizard-footer { padding: 16px 0; margin-top: 24px; }
   .steps-indicator { padding: 16px 20px; gap: 24px; }
@@ -1563,7 +1563,6 @@ async function handleCreate() {
   .word-count-row { flex-wrap: wrap; }
 }
 @media (max-width: 390px) {
-  .wizard-top { padding: 16px 16px 0; }
   .wizard-body { padding: 0 16px 20px; }
   .wizard-footer { padding: 12px 0; flex-wrap: wrap; }
   .steps-indicator { padding: 12px 16px; gap: 16px; }
@@ -1608,7 +1607,7 @@ async function handleCreate() {
   border: 1px solid var(--line-2);
   padding: 8px 18px; border-radius: var(--r-m); min-height: 40px; }
 @media (max-width: 1000px) { .wizard-body { grid-template-columns: minmax(0, 1fr); } .wizard-overview { grid-column: 1; grid-row: auto; position: static; } .steps-indicator { justify-content: flex-start; } }
-@media (max-width: 650px) { .wizard-top { padding: 20px 16px 0; } .wizard-body { padding: 0 16px; } .wizard-header .page-title { font-size: 28px; } .steps-indicator { gap: 16px; padding: 0 0 20px; flex-wrap: wrap; } .step-item { gap: 8px; } .form-section, .wizard-current-settings { padding: 20px; } }
+@media (max-width: 650px) { .wizard-body { padding: 0 16px; } .steps-indicator { gap: 16px; padding: 0 0 20px; flex-wrap: wrap; } .step-item { gap: 8px; } .form-section, .wizard-current-settings { padding: 20px; } }
 .wizard-layout {
   flex-direction: column;
   display: flex; height: auto; min-height: 0; overflow: visible; background: transparent; }
@@ -1616,12 +1615,15 @@ async function handleCreate() {
 @media (max-width: 850px) {
   .wizard-layout.discussing-inspiration > :deep(.inspiration-chat) { padding: 0; }
 }
-.wizard-top { margin: 0 auto; width: 100%;
-  flex-shrink: 0;
-  box-sizing: border-box; max-width: none; padding: 0; }
-.wizard-header { flex-wrap: wrap;
-  align-items: center;
-  display: flex; gap: 12px; margin-bottom: 18px; }.wizard-header .page-title { font-size: 36px; display: none; }.back-btn {
+.wizard-combination-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 760px) {
+  :global(.v3 .top:has(#wizard-back-btn) .cmdk > span) { display: none; }
+  .back-btn, .wizard-combination-tools .m-btn { padding-inline: 6px; }
+}
+@media (max-width: 540px) {
+  .creation-combination { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+}
+.back-btn {
   transition: all var(--motion-fast);
   cursor: pointer;
   font-size: 14px;
@@ -1631,7 +1633,7 @@ async function handleCreate() {
   padding: 6px 12px;
   gap: 6px;
   align-items: center;
-  display: flex; color: var(--ink-3); }
+  display: flex; color: var(--ink-2); white-space: nowrap; }
 .steps-indicator { margin-bottom: 0; border: 0; background: none;
   display: flex;
   align-items: center;

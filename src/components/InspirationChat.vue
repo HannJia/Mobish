@@ -2,87 +2,80 @@
   <section class="inspiration-chat">
     <div class="inspiration-panel-switch" role="group" aria-label="灵感工作区视图">
       <button type="button" :aria-pressed="compactPanel === 'conversation'" @click="compactPanel = 'conversation'">灵感对话</button>
-      <button type="button" :aria-pressed="compactPanel === 'settings'" @click="compactPanel = 'settings'">已整理的设定</button>
+      <button type="button" :aria-pressed="compactPanel === 'settings'" @click="showSettingsPanel">已整理的设定</button>
     </div>
-    <div class="inspiration-workspace" :class="{ 'show-settings': compactPanel === 'settings' }">
+    <div class="inspiration-workspace" :class="{ 'show-settings': compactPanel === 'settings', 'settings-collapsed': settingsCollapsed }">
       <main class="inspiration-conversation paper-panel">
         <header class="inspiration-heading">
-          <div><h2>从一个想法开始</h2><p>和墨笔生花一起梳理灵感，把模糊的想法变成清晰的故事。</p></div>
-          <div ref="headingKnowledge" class="heading-knowledge" @keydown.esc.stop="knowledgePickerOpen = false">
-            <button type="button" class="heading-knowledge-btn" :class="{ on: knowledgeIds.length }" :aria-expanded="knowledgePickerOpen"
-              data-heading-knowledge @click="knowledgePickerOpen = !knowledgePickerOpen">
-              <V3Icon name="book" size="s" />
-              <span>{{ knowledgeIds.length ? '参考知识库：' + knowledgeNames : '未挂载知识库' }}</span>
-              <V3Icon name="chevD" size="s" />
+          <h2>灵感对话</h2>
+          <div ref="headingTools" class="heading-tools" @keydown.esc="closeHeaderMenu">
+            <button type="button" class="heading-tool" :aria-expanded="headerMenu === 'history'" :disabled="busy"
+              data-inspiration-history @click="toggleHeaderMenu('history')">
+              <V3Icon name="history" size="s" /><span>历史会话</span><V3Icon name="chevD" size="s" class="tool-chevron" />
             </button>
-            <div v-if="knowledgePickerOpen" class="heading-knowledge-pop" role="dialog" aria-label="选择参考知识库">
+            <button type="button" class="heading-tool" :class="{ on: knowledgeIds.length }" :aria-expanded="headerMenu === 'knowledge'"
+              :title="knowledgeNames || '未挂载知识库'" data-heading-knowledge @click="toggleHeaderMenu('knowledge')">
+              <V3Icon name="book" size="s" />
+              <span>参考知识库{{ knowledgeNames ? '：' + knowledgeNames : '' }}</span>
+              <V3Icon name="chevD" size="s" class="tool-chevron" />
+            </button>
+            <button v-if="settingsCollapsed" type="button" class="heading-tool show-settings-tool" data-open-settings @click="showSettingsPanel">
+              <V3Icon name="arrowR" size="s" class="open-settings-arrow" /><span>已整理的设定</span>
+            </button>
+            <div v-if="headerMenu === 'history'" class="heading-pop" role="group" aria-label="历史灵感会话">
+              <button type="button" class="m-btn" @click="loadSession(null)"><V3Icon name="plus" size="s" />新建会话</button>
+              <p v-if="!savedSessions.length" class="heading-knowledge-empty">还没有保存的会话。</p>
+              <button v-for="session in savedSessions" :key="session.id" type="button" class="history-session" :data-history-session="session.id"
+                :aria-current="selectedSessionId === session.id ? 'true' : undefined" @click="loadSession(session.id)">
+                <span>{{ session.title }}</span>
+                <small>{{ session.messages.length }} 条消息 · {{ sessionTime(session.updatedAt) }}</small>
+              </button>
+            </div>
+            <div v-if="headerMenu === 'knowledge'" class="heading-pop heading-knowledge-pop" role="group" aria-label="选择参考知识库">
               <div v-if="!knowledge.knowledgeBases.length" class="heading-knowledge-empty">还没有知识库，可以在左侧“知识库”中导入资料。</div>
               <label v-for="option in knowledgeOptions" :key="option.value" class="m-check">
                 <input type="checkbox" :checked="knowledgeIds.includes(option.value)" :disabled="busy"
                   @change="toggleKnowledge(option.value, ($event.target as HTMLInputElement).checked)">{{ option.label }}
               </label>
-              <small>灵感对话会参考所选知识库；创建作品时同一份选择会自动挂载。</small>
+              <small v-if="sharedKnowledgeIds">所选资料也会挂载到新作品。</small>
+              <button type="button" class="m-btn" :disabled="busy" @click="openKnowledgeDraft('')">
+                <V3Icon name="plus" size="s" />新建知识条目
+              </button>
             </div>
           </div>
         </header>
-        <details ref="historyDetails" class="inspiration-options" @toggle="toggleOptions"><summary class="m-btn"><V3Icon name="chevR" size="s" class="options-arrow" /><span>历史与参考资料</span><small>{{ optionsOpen ? '收起' : '展开' }}</small></summary>
-    <div class="inspiration-search-toolbar">
-      <span>{{ webSearch ? '允许按需搜索近期事件和背景；查询词可能外发并额外计费。' : '未启用网页搜索；灵感对话仍需调用已配置 API。' }}</span>
-      <V3Select
-        class="inspiration-session-select"
-        :value="selectedSessionId"
-        :options="sessionOptions"
-        clearable
-        placeholder="历史会话（最近 5 条）"
-        aria-label="历史灵感会话"
-        :disabled="busy"
-        @update:value="loadSession"
-      />
-    </div>
-    <div class="inspiration-knowledge-toolbar">
-      <label for="inspiration-knowledge">参考知识库</label>
-      <V3Select id="inspiration-knowledge" v-model:value="knowledgeIds" multiple clearable
-        :options="knowledgeOptions" :disabled="busy" placeholder="不读取知识库"
-        aria-label="灵感参考知识库" />
-      <button type="button" class="m-btn sm" :disabled="busy" @click="openKnowledgeDraft('')">
-        <V3Icon name="plus" size="s" />新建知识条目
-      </button>
-    </div>
-
-        </details>
-        <p v-if="showOptionsHint && !optionsOpen" class="inspiration-options-hint">展开「历史与参考资料」可以继续以前的讨论。</p>
-    <aside v-if="latestPrompt" class="inspiration-sticky-prompt" aria-label="本轮问题">
-      <div class="inspiration-sticky-header">
-        <strong>本轮问题</strong>
-        <div class="inspiration-sticky-actions">
-          <button type="button" :aria-expanded="promptExpanded" aria-controls="inspiration-current-prompt"
-            @click="promptExpanded = !promptExpanded">{{ promptExpanded ? '收起' : '展开' }}</button>
-          <button type="button" @click="jumpToLatestPrompt">回看原消息</button>
-        </div>
-      </div>
-      <p id="inspiration-current-prompt" class="inspiration-sticky-text" :class="{ expanded: promptExpanded }">{{ latestPrompt }}</p>
-    </aside>
+    <div class="inspiration-reading">
+      <nav v-if="turns.length" class="inspiration-turns" aria-label="对话轮次" @mouseleave="hoveredTurn = null">
+        <button v-for="(turn, ordinal) in turns" :key="turn.index" type="button"
+          :aria-current="activeTurn === turn.index ? 'true' : undefined" :aria-label="`第 ${ordinal + 1} 轮：${turn.preview}`"
+          @mouseenter="hoveredTurn = turn.index" @focus="focusedTurn = turn.index" @blur="focusedTurn = null"
+          @click="jumpToTurn(turn.index)"><span aria-hidden="true"></span></button>
+      </nav>
+      <p v-if="turnPreview" class="inspiration-turn-preview" aria-hidden="true">{{ turnPreview }}</p>
     <div ref="historyElement" class="inspiration-history" tabindex="0" aria-live="polite" aria-label="灵感对话">
       <div v-if="!history.length && !busy" class="inspiration-empty-guide"><V3Icon name="bulb" size="l" /><h3>写下故事的第一点灵感</h3><p>人物、场景、一句台词，都可以成为起点。</p><div><button v-for="prompt in ['先帮我构思一个主角', '一起确定故事的背景', '从一个核心冲突开始']" :key="prompt" type="button" @click="input = input.trim() ? input + '\n' + prompt : prompt">{{ prompt }}</button></div></div>
       <article v-for="(item, index) in history" :key="index" :data-message-index="index"
         class="inspiration-message" :class="item.role">
-        <strong>{{ item.role === 'user' ? '我' : 'AI' }}</strong>
+        <strong>{{ item.role === 'user' ? '我' : isSaveReceipt(item) ? '软件' : 'AI' }}</strong>
         <div v-html="renderMd(item.role === 'assistant' ? formatChatReply(item.content, item.search) : item.content)"></div>
         <ChatSearchEvidence :record="item.search" />
-        <details v-if="item.knowledgeReferences?.length" class="inspiration-knowledge-references">
-          <summary>本轮引用 {{ item.knowledgeReferences.length }} 处原文</summary>
-          <ul>
+        <div v-if="item.knowledgeReferences?.length || saveReminder?.index === index" class="inspiration-reply-actions">
+          <button v-if="item.knowledgeReferences?.length" type="button" class="m-btn inspiration-reference-toggle"
+            :aria-expanded="expandedReferences.has(index)" @click="toggleReferences(index)">
+            <V3Icon name="chevR" size="s" />本轮引用 {{ item.knowledgeReferences.length }} 处原文
+          </button>
+          <button v-if="saveReminder?.index === index" type="button" class="m-btn inspiration-save-reminder" :disabled="busy"
+            @click="openSuggestedKnowledgeDraft(item)">
+            <V3Icon name="book" size="s" /><span>这轮讨论可以存入知识库：{{ saveReminder.title }} · 查看草稿</span>
+          </button>
+          <ul v-if="item.knowledgeReferences?.length && expandedReferences.has(index)" class="inspiration-knowledge-references">
             <li v-for="reference in item.knowledgeReferences" :key="reference.label">
-              <button type="button" class="m-btn ghost xs" @click="openedReference = reference">
+              <button type="button" class="m-btn ghost" @click="openedReference = reference">
                 {{ reference.label }} · {{ reference.entryTitle }}{{ reference.path.length ? ' › ' + reference.path.join(' › ') : '' }}
               </button>
             </li>
           </ul>
-        </details>
-        <button v-if="saveReminder?.index === index" type="button" class="m-btn inspiration-save-reminder" :disabled="busy"
-          @click="openSuggestedKnowledgeDraft(item)">
-          <V3Icon name="book" size="s" />这轮讨论可以存入知识库：{{ saveReminder.title }} · 查看草稿
-        </button>
+        </div>
       </article>
       <article v-if="streamReplyText" data-streaming-assistant class="inspiration-message assistant">
         <strong>AI</strong><div v-html="renderMd(streamReplyText)"></div>
@@ -98,6 +91,7 @@
           {{ question }}<span aria-hidden="true">↗</span>
         </button>
       </div>
+    </div>
     </div>
     <div class="inspiration-composer">
       <aside v-if="pendingIdea" class="inspiration-carried-idea" aria-label="已带入的一句话灵感">
@@ -142,8 +136,9 @@
     </div>
 
       </main>
-      <InspirationSettingsSummary :form="discussionSettings" :busy="busy" :extracting="extracting" :can-extract="canExtract" :can-finish="hasSettingsDraft || canExtract" :settings-status="settingsStatus"
-        @draft-change="updateDiscussionSettings" @extract="extract" @finish="finish" @history="openHistory" />
+      <InspirationSettingsSummary v-show="!settingsCollapsed" :form="discussionSettings" :busy="busy" :extracting="extracting"
+        :can-extract="canExtract" :can-finish="hasSettingsDraft || canExtract" :settings-status="settingsStatus"
+        @draft-change="updateDiscussionSettings" @extract="extract" @finish="finish" @collapse="collapseSettingsPanel" />
     </div>
     <SaveChatKnowledge :key="selectedSessionId || 'new'" v-model:show="showKnowledgeDraft" :content="knowledgeDraft" :preferred-ids="knowledgeIds"
       @saved="knowledgeSaved" />
@@ -164,7 +159,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import V3Icon from '@/v3/components/V3Icon.vue'
 import V3Modal from '@/v3/components/V3Modal.vue'
 import V3Input from '@/v3/components/form/V3Input.vue'
-import V3Select from '@/v3/components/form/V3Select.vue'
 import { useConfigStore } from '@/stores/config'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import {
@@ -222,25 +216,17 @@ let restoreSettingsOnOpen = false
 const savedSessions = computed(() => sessionsStore.sessions)
 const selectedSessionId = ref<string | null>(null)
 const historyElement = ref<HTMLElement | null>(null)
-const historyDetails = ref<HTMLDetailsElement | null>(null)
-const optionsOpen = ref(false)
-const optionsHintKey = 'mobish.inspiration.options-seen'
-const showOptionsHint = ref(false)
-onMounted(() => {
-  try { showOptionsHint.value = localStorage.getItem(optionsHintKey) !== '1' } catch { /* unavailable */ }
-})
-function toggleOptions(event: Event) {
-  optionsOpen.value = (event.target as HTMLDetailsElement).open
-  if (!optionsOpen.value || !showOptionsHint.value) return
-  showOptionsHint.value = false
-  try { localStorage.setItem(optionsHintKey, '1') } catch { /* unavailable */ }
-}
 const compactPanel = ref<'conversation' | 'settings'>('conversation')
-async function openHistory() {
+const settingsCollapsed = ref(false)
+function showSettingsPanel() {
+  settingsCollapsed.value = false
+  compactPanel.value = 'settings'
+}
+async function collapseSettingsPanel() {
+  settingsCollapsed.value = true
   compactPanel.value = 'conversation'
-  if (historyDetails.value) historyDetails.value.open = true
   await nextTick()
-  historyDetails.value?.querySelector<HTMLInputElement>('.inspiration-session-select input')?.focus()
+  headingTools.value?.querySelector<HTMLButtonElement>('[data-open-settings]')?.focus()
 }
 const input = ref('')
 const pendingIdea = ref('')
@@ -260,13 +246,24 @@ const knowledgeIds = computed<string[]>({
 const knowledgeOptions = computed(() => knowledge.knowledgeBases.map(base => ({
   label: `${base.name}（${base.entries.length} 条）`, value: base.id,
 })))
-const knowledgePickerOpen = ref(false)
-const headingKnowledge = ref<HTMLElement | null>(null)
-function closeKnowledgePicker(event: MouseEvent) {
-  if (knowledgePickerOpen.value && !headingKnowledge.value?.contains(event.target as Node)) knowledgePickerOpen.value = false
+const headerMenu = ref<'history' | 'knowledge' | null>(null)
+const headingTools = ref<HTMLElement | null>(null)
+function toggleHeaderMenu(menu: 'history' | 'knowledge') {
+  headerMenu.value = headerMenu.value === menu ? null : menu
 }
-onMounted(() => document.addEventListener('click', closeKnowledgePicker))
-onBeforeUnmount(() => document.removeEventListener('click', closeKnowledgePicker))
+function closeHeaderMenu(event: KeyboardEvent) {
+  if (!headerMenu.value) return
+  event.stopPropagation()
+  headingTools.value?.querySelector<HTMLButtonElement>(
+    headerMenu.value === 'history' ? '[data-inspiration-history]' : '[data-heading-knowledge]',
+  )?.focus()
+  headerMenu.value = null
+}
+function dismissHeaderMenu(event: MouseEvent) {
+  if (headerMenu.value && !headingTools.value?.contains(event.target as Node)) headerMenu.value = null
+}
+onMounted(() => document.addEventListener('click', dismissHeaderMenu))
+onBeforeUnmount(() => document.removeEventListener('click', dismissHeaderMenu))
 watch(() => [props.active, knowledgeIds.value.join('\n'), config.embedding.enabled, config.embedding.baseUrl, config.embedding.modelName, config.embedding.apiKey], stopInspirationKnowledgeIndexing, { flush: 'sync' })
 onBeforeUnmount(stopInspirationKnowledgeIndexing)
 const knowledgeNames = computed(() => knowledgeIds.value.map(id => knowledge.getKB(id)?.name).filter(Boolean).join('、'))
@@ -280,10 +277,12 @@ let savingSuggestedReply = false
 const composing = ref(false)
 const streamText = ref('')
 const streamReplyText = computed(() => inspirationReplyText(streamText.value))
+function isSaveReceipt(item: InspirationMessage) {
+  return item.role === 'assistant' && /^【(?:软件保存回执|保存成功)】/.test(item.content)
+}
 const latestDiscussionIndex = computed(() => {
   for (let index = history.value.length - 1; index >= 0; index--) {
-    const item = history.value[index]
-    if (item.role !== 'assistant' || !item.content.startsWith('【软件保存回执】')) return index
+    if (!isSaveReceipt(history.value[index])) return index
   }
   return -1
 })
@@ -309,14 +308,25 @@ const conversationContext = ref<InspirationSession['context']>()
 const webSearch = ref(false)
 const requestWebSearch = ref(false)
 const retryAvailable = computed(() => history.value[history.value.length - 1]?.role === 'user')
-const promptExpanded = ref(false)
-const latestPromptIndex = computed(() => {
-  for (let index = history.value.length - 1; index >= 0; index--) {
-    if (history.value[index].role === 'user') return index
-  }
-  return -1
-})
-const latestPrompt = computed(() => history.value[latestPromptIndex.value]?.content || '')
+const turns = computed(() => history.value.flatMap((item, index) => {
+  if (item.role !== 'user') return []
+  const text = item.content.trim().replace(/\s+/g, ' ')
+  return [{ index, preview: text.length > 92 ? text.slice(0, 91) + '…' : text }]
+}))
+const selectedTurn = ref<number | null>(null)
+const hoveredTurn = ref<number | null>(null)
+const focusedTurn = ref<number | null>(null)
+const latestTurn = computed(() => turns.value[turns.value.length - 1]?.index)
+const activeTurn = computed(() => selectedTurn.value ?? latestTurn.value)
+const turnPreview = computed(() => turns.value.find(
+  turn => turn.index === (hoveredTurn.value ?? focusedTurn.value),
+)?.preview)
+watch(latestTurn, () => { selectedTurn.value = null })
+const expandedReferences = ref(new Set<number>())
+function toggleReferences(index: number) {
+  if (expandedReferences.value.has(index)) expandedReferences.value.delete(index)
+  else expandedReferences.value.add(index)
+}
 const contextLength = computed(() =>
   inspirationContextLength(history.value, conversationContext.value, discussionSettings.value),
 )
@@ -356,11 +366,6 @@ function sessionTime(value: string): string {
   if (Number.isNaN(date.getTime())) return ''
   return date.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
-
-const sessionOptions = computed(() => savedSessions.value.map(session => ({
-  label: `${session.title}（${session.messages.length} 条消息） · ${sessionTime(session.updatedAt)}`,
-  value: session.id,
-})))
 
 const initialSession = props.initialSessionId
   ? savedSessions.value.find(session => session.id === props.initialSessionId)
@@ -436,12 +441,17 @@ function commitPendingIdea(content = '') {
 }
 
 function loadSession(id: string | null) {
+  headerMenu.value = null
   persistCurrentHistory()
   importedIdea.value = ''
   pendingIdea.value = ''
   restoring = true
   try {
   stop()
+  selectedTurn.value = null
+  hoveredTurn.value = null
+  focusedTurn.value = null
+  expandedReferences.value.clear()
   showKnowledgeDraft.value = false
   saveReminder.value = undefined
   if (!id) {
@@ -484,6 +494,7 @@ function activateDiscussionSettings() {
 }
 
 function openKnowledgeDraft(content: string, search?: ChatSearchRecord) {
+  headerMenu.value = null
   savingSuggestedReply = false
   knowledgeDraft.value = knowledgeDraftWithSources(content, search)
   showKnowledgeDraft.value = true
@@ -504,22 +515,22 @@ function knowledgeSaved(result: { kbId: string; kbName: string; title: string })
   if (selectedKnowledgeIds.value && !selectedKnowledgeIds.value.includes(result.kbId)) {
     selectedKnowledgeIds.value = [...selectedKnowledgeIds.value, result.kbId]
   }
-  history.value.push({ role: 'assistant', content: `【软件保存回执】已保存到知识库“${result.kbName}”，条目“${result.title}”。` })
+  history.value.push({ role: 'assistant', content: `【保存成功】已保存到知识库“${result.kbName}”，条目“${result.title}”。` })
   persistCurrentHistory()
 }
 
 function scrollMessageToStart(target: HTMLElement | null) {
   const container = historyElement.value
   if (!container || !target) return
-  // offsetTop may refer to a different positioned ancestor. Use scrollport
-  // geometry; the current prompt is outside this scrollport and cannot cover it.
+  // offsetTop may refer to a different positioned ancestor.
   container.scrollTop = Math.max(0, container.scrollTop + target.getBoundingClientRect().top
     - container.getBoundingClientRect().top - container.clientTop - 12)
 }
 
-function jumpToLatestPrompt() {
+function jumpToTurn(index: number) {
+  selectedTurn.value = index
   const container = historyElement.value
-  scrollMessageToStart(container?.querySelector<HTMLElement>(`[data-message-index="${latestPromptIndex.value}"]`) || null)
+  scrollMessageToStart(container?.querySelector<HTMLElement>(`[data-message-index="${index}"]`) || null)
 }
 
 async function scrollToLatestMessage() {
@@ -558,7 +569,6 @@ function send() {
   commitPendingIdea(content)
   if (content) history.value.push({ role: 'user', content })
   persistCurrentHistory()
-  promptExpanded.value = false
   input.value = ''
   void respond()
 }
@@ -567,7 +577,6 @@ function sendSuggestedQuestion(question: string) {
   if (!props.active || busy.value || !suggestedQuestions.value.includes(question)) return
   history.value.push({ role: 'user', content: question })
   persistCurrentHistory()
-  promptExpanded.value = false
   void respond()
 }
 
@@ -579,7 +588,6 @@ function startDiscussion(idea: string) {
   if (input.value.trim() === content) input.value = ''
   if (pendingIdea.value === content) pendingIdea.value = ''
   persistCurrentHistory()
-  promptExpanded.value = false
   void respond()
 }
 
@@ -717,7 +725,7 @@ watch([() => props.active, () => props.initialIdea], ([active], previous) => {
     }
     activateDiscussionSettings(); carryInitialIdea(); void scrollToLatestMessage()
   }
-  else { stop(); showKnowledgeDraft.value = false }
+  else { stop(); showKnowledgeDraft.value = false; headerMenu.value = null }
 }, { immediate: true })
 let handledStartRequest = 0
 watch([() => props.active, () => props.startRequest], ([active, request]) => {
@@ -733,56 +741,141 @@ onBeforeUnmount(() => { persistCurrentHistory(); stop() })
 .inspiration-carried-idea { margin-bottom: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--panel-2); font-size: 12px; }
 .inspiration-carried-idea p { margin: 6px 0; max-height: 130px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .inspiration-carried-idea small { color: var(--ink-3); }
-.inspiration-options-hint { margin: -6px 0 8px; color: var(--ink-3); font-size: 12px; }
-.inspiration-message .inspiration-save-reminder {
-  margin-top: 8px; height: auto; min-height: 32px; text-align: left; white-space: normal;
+.inspiration-chat {
+  display: flex; flex-direction: column; flex: 1; width: 100%; min-width: 0; min-height: 0;
+  margin: 0 auto; box-sizing: border-box;
+}
+.inspiration-panel-switch { display: none; }
+.inspiration-workspace {
+  flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) clamp(232px, 25%, 315px);
+  grid-template-rows: minmax(0, 1fr); align-items: start; gap: 12px; min-height: 0;
+}
+.inspiration-workspace.settings-collapsed { grid-template-columns: minmax(0, 1fr); }
+.inspiration-conversation {
+  display: flex; flex-direction: column; align-self: stretch; min-width: 0; min-height: 0; padding: 12px 14px;
+}
+.inspiration-heading {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 7px 12px; padding: 0 0 10px; border-bottom: 1px solid var(--line);
+}
+.inspiration-heading h2 { margin: 0; font-size: 20px; }
+.heading-tools { position: relative; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; max-width: 100%; }
+.heading-tool {
+  display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; padding: 5px 8px;
+  border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--paper);
+  color: var(--ink-2); font: 12px/1.45 var(--f-ui); cursor: pointer;
+}
+.heading-tool span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: clamp(85px, 14vw, 180px); }
+.heading-tool .icon { flex: none; }
+.heading-tool.on, .heading-tool:hover { border-color: var(--dai); color: var(--dai); background: var(--dai-soft); }
+.heading-tool:disabled { opacity: .55; cursor: default; }
+.heading-tool[aria-expanded="true"] .tool-chevron, .open-settings-arrow { transform: rotate(180deg); }
+.heading-pop {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: min(290px, calc(100vw - 100px));
+  max-height: min(55vh, 340px); overflow-y: auto; overscroll-behavior: contain;
+  display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line-2);
+  border-radius: var(--r-m); background: var(--paper); box-shadow: var(--shadow-2);
+}
+.heading-pop small, .heading-knowledge-empty { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.55; }
+.heading-pop .m-check { min-width: 0; overflow-wrap: anywhere; }
+.history-session {
+  display: grid; gap: 2px; padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--r-s);
+  background: var(--panel); color: var(--ink); text-align: left; font: inherit; cursor: pointer; overflow-wrap: anywhere;
+}
+.history-session:hover, .history-session[aria-current="true"] { border-color: var(--zhu); }
+.inspiration-reading { position: relative; flex: 1; display: flex; min-width: 0; min-height: 0; }
+.inspiration-turns {
+  flex: 0 0 28px; display: flex; flex-direction: column; align-items: center; padding: 7px 0;
+  margin-right: 7px; overflow-y: auto; scrollbar-width: thin; overscroll-behavior: contain; border-right: 1px solid var(--line);
+}
+.inspiration-turns button {
+  flex: none; display: grid; place-items: center; width: 22px; height: 22px;
+  padding: 0; border: 0; border-radius: var(--r-s); background: transparent; cursor: pointer;
+}
+.inspiration-turns button span { width: 12px; height: 3px; border-radius: 4px; background: var(--ink-3); opacity: .55; }
+.inspiration-turns button:hover span, .inspiration-turns button:focus-visible span,
+.inspiration-turns button[aria-current="true"] span { width: 16px; background: var(--zhu); opacity: 1; }
+.inspiration-turns button:focus-visible { outline: 1px solid var(--zhu); outline-offset: -2px; }
+.inspiration-turn-preview {
+  position: absolute; z-index: 5; left: 34px; top: 7px; max-width: min(250px, calc(100% - 42px)); margin: 0;
+  padding: 7px 9px; border-radius: var(--r-s); background: var(--ink); color: var(--paper);
+  box-shadow: var(--shadow-2); font: 12px/1.55 var(--f-ui); overflow-wrap: anywhere; pointer-events: none;
+}
+.inspiration-history {
+  flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 4px 6px 12px;
+  overscroll-behavior: contain; overflow-anchor: none;
+}
+.inspiration-message {
+  width: fit-content; min-width: 0; max-width: 88%; padding: 12px 14px; margin: 12px 0;
+  border: 1px solid var(--line-2); border-radius: var(--r-l); overflow-wrap: anywhere;
+}
+.inspiration-message > strong { display: block; margin-bottom: 4px; color: var(--ink-2); font-size: 12px; }
+.inspiration-message > div:not(.inspiration-reply-actions) { line-height: 1.8; font-size: 14px; overflow-x: auto; }
+.inspiration-message.user { margin-left: auto; background: var(--zhu-soft); border-color: transparent; }
+.inspiration-message.user > strong { color: var(--zhu); text-align: right; }
+.inspiration-message.assistant {
+  max-width: calc(100% - 31px); margin-left: 31px; position: relative; background: var(--paper);
+}
+.inspiration-message.assistant:has(.inspiration-reply-actions) { width: calc(100% - 31px); }
+.inspiration-message.assistant::before {
+  content: '墨'; position: absolute; top: 4px; left: -31px; display: grid; place-items: center;
+  width: 24px; height: 26px; border-radius: 50%; background: var(--zhu);
+  color: var(--on-accent); font: 16px var(--f-serif);
+}
+.inspiration-message.assistant > strong { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.inspiration-message :deep(p + p) { margin-top: 10px; }
+.inspiration-message :deep(ul), .inspiration-message :deep(ol) { padding-left: 22px; }
+.inspiration-reply-actions {
+  display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; justify-items: start; gap: 6px 8px; min-width: 0;
+  margin-top: 9px; color: var(--ink-2); font-size: 12px;
+}
+.inspiration-reply-actions:has(.inspiration-reference-toggle + .inspiration-save-reminder) {
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+}
+.inspiration-reply-actions .m-btn {
+  height: auto; min-height: 30px; max-width: 100%; padding: 5px 8px;
+  align-items: flex-start; white-space: normal; text-align: left; overflow-wrap: anywhere; line-height: 1.5;
+}
+.inspiration-reply-actions .m-btn .icon { flex: none; margin-top: 2px; }
+.inspiration-reference-toggle[aria-expanded="true"] .icon { transform: rotate(90deg); }
+.inspiration-reply-actions .inspiration-save-reminder {
   border-color: #bd652b; background: color-mix(in srgb, #ed8d42 17%, var(--paper)); color: var(--ink);
 }
-.inspiration-message .inspiration-save-reminder:hover { border-color: #a54e1d; background: color-mix(in srgb, #ed8d42 28%, var(--paper)); }
-.inspiration-chat { display: flex; flex-direction: column; flex: 1; min-height: 0; max-width: 960px; width: 100%; margin: 0 auto; }
-.inspiration-search-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 0; flex-shrink: 0; color: var(--ink-3); font-size: 12px; }
-.inspiration-session-select { margin-left: auto; width: min(300px, 100%); }
-.inspiration-knowledge-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-bottom: 8px; flex-shrink: 0; }
-.inspiration-knowledge-toolbar label { font-size: 12px; color: var(--ink-2); }
-.inspiration-knowledge-toolbar .m-multi, .inspiration-knowledge-toolbar .m-select { flex: 1 1 220px; min-width: 0; }
+.inspiration-reply-actions .inspiration-save-reminder:hover { border-color: #a54e1d; background: color-mix(in srgb, #ed8d42 28%, var(--paper)); }
+.inspiration-reply-actions .inspiration-knowledge-references {
+  display: grid; gap: 4px; grid-column: 1 / -1; justify-self: stretch; min-width: 0; margin: 0; padding: 5px 8px;
+  list-style: none; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--panel);
+}
+.inspiration-knowledge-references li { min-width: 0; }
+.inspiration-reference-excerpt { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.inspiration-reference-excerpt mark { background: var(--zhu-soft); color: var(--ink); }
+.inspiration-composer {
+  flex: none; margin-top: 4px; padding: 10px; border: 1px solid var(--line-2);
+  border-radius: var(--r-l); background: var(--paper);
+}
+.inspiration-composer .m-textarea { background: transparent; }
+@media (max-width: 850px) {
+  .inspiration-panel-switch { display: flex; flex: none; gap: 8px; margin-bottom: 8px; }
+  .inspiration-panel-switch button {
+    flex: 1; padding: 6px 8px; border: 1px solid var(--line-2); border-radius: var(--r-s);
+    background: var(--paper); color: var(--ink-2); font: 12px var(--f-ui); cursor: pointer;
+  }
+  .inspiration-panel-switch button[aria-pressed="true"] { border-color: var(--zhu); background: var(--zhu-soft); color: var(--zhu); }
+  .inspiration-workspace { grid-template-columns: minmax(0, 1fr); }
+  .inspiration-workspace:not(.show-settings) > :deep(.inspiration-settings),
+  .inspiration-workspace.show-settings > .inspiration-conversation,
+  .show-settings-tool { display: none; }
+  .inspiration-conversation { padding: 8px; }
+}
+@media (max-width: 530px) {
+  .inspiration-reply-actions:has(.inspiration-reference-toggle + .inspiration-save-reminder) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  }
+}
 .inspiration-search-toggle { cursor: pointer; flex-shrink: 0; border: 1px solid var(--line-2); border-radius: 100px; padding: 4px 12px; background: var(--paper); color: var(--ink-2); transition: all var(--motion-fast); }
 .inspiration-search-toggle:hover { border-color: var(--dai); color: var(--dai); }
 .inspiration-search-toggle.enabled { color: var(--dai); border-color: var(--dai); background: var(--dai-soft); }
-.inspiration-progress { color: var(--ink-3); font-size: 12px; line-height: 1.6; }
-.inspiration-history { flex: 1; min-height: 80px; overflow-y: auto; padding: 12px 4px; overscroll-behavior: contain; overflow-anchor: none; }
-.inspiration-sticky-prompt { flex: 0 0 auto; margin-bottom: 8px; padding: 8px 12px;
-  border: 1px solid var(--line-2); border-left: 3px solid var(--zhu); border-radius: var(--r-l);
-  background: var(--paper); color: var(--ink); }
-.inspiration-sticky-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 4px; font-size: 12px; }
-.inspiration-sticky-header strong { color: var(--zhu); }
-.inspiration-sticky-actions { display: flex; gap: 10px; }
-.inspiration-sticky-actions button { border: 0; background: transparent; color: var(--zhu); cursor: pointer; font: inherit; padding: 2px; }
-.inspiration-sticky-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-  overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; }
-.inspiration-sticky-text.expanded { display: block; max-height: min(100px, 12vh); overflow-y: auto; overscroll-behavior: contain; }
-.inspiration-message { width: fit-content; min-width: 0; max-width: min(720px, 88%); padding: 14px 16px; margin: 12px 0;
-  border: 1px solid var(--line-2); border-radius: var(--r-l); overflow-wrap: anywhere; }
-.inspiration-message > strong { display: block; margin-bottom: 4px; color: var(--ink-2); font-size: 12px; letter-spacing: 0.04em; }
-.inspiration-message > div { line-height: 1.85; font-size: 15px; overflow-x: auto; }
-/* 用户侧：淡朱砂底 */
-.inspiration-message.user { margin-left: auto; background: var(--zhu-soft);
-  border-color: color-mix(in srgb, var(--zhu) 28%, var(--line-2)); }
-.inspiration-message.user > strong { color: var(--zhu); text-align: right; }
-.inspiration-message.user > div { text-align: left; }
-/* AI 侧：宣纸卡片 + 黛青左线 */
-.inspiration-message.assistant { margin-right: auto; max-width: min(720px, 94%); background: var(--paper);
-  border-left: 3px solid var(--dai); box-shadow: var(--shadow-1); }
-.inspiration-message.assistant > strong { color: var(--dai); font-family: var(--f-serif); }
-.inspiration-message :deep(p + p) { margin-top: 10px; }
-.inspiration-message :deep(ul), .inspiration-message :deep(ol) { padding-left: 22px; }
-.inspiration-knowledge-references { margin: 10px 0; color: var(--ink-2); font-size: var(--fs-sm); }
-.inspiration-knowledge-references summary { cursor: pointer; }
-.inspiration-knowledge-references button { text-align: left; white-space: normal; }
-.inspiration-reference-excerpt { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
-.inspiration-reference-excerpt mark { background: var(--zhu-soft); color: var(--ink); }
-.inspiration-composer { flex: 0 0 auto; margin: 4px 0 12px; padding: 12px 14px; border: 1px solid var(--line-2);
-  border-radius: var(--r-l); background: var(--paper); }
-.inspiration-progress { padding-left: 4px; color: var(--dai); }
+.inspiration-progress { padding-left: 4px; color: var(--dai); font-size: 12px; line-height: 1.6; }
 .inspiration-input-hint { flex: 1 1 auto; margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
 .inspiration-send-group { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
 .inspiration-context-status { position: relative; display: inline-flex; align-items: center; color: var(--ink-3); font-size: 11px; line-height: 1; }
@@ -813,66 +906,6 @@ onBeforeUnmount(() => { persistCurrentHistory(); stop() })
 .inspiration-follow-ups button:focus-visible { outline: 2px solid var(--zhu); outline-offset: 2px; }
 .inspiration-follow-ups button > span { flex-shrink: 0; color: var(--ink-3); }
 .inspiration-error { color: var(--zhu); margin-top: 8px; overflow-wrap: anywhere; }
-@media (max-width: 600px) {
-  .inspiration-message { padding: 10px 12px; }
-  .inspiration-sticky-prompt { padding: 6px 10px; }
-}
-
-/* Approved split layout: conversation and real story settings. */
-.inspiration-chat { flex: 1; min-height: 0; width: 100%; max-width: 1520px; margin: 0 auto; padding: 0 32px 24px; display: flex; overflow: hidden; box-sizing: border-box; }
-.inspiration-panel-switch { display: none; }
-.inspiration-workspace { flex: 1; display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(320px, 1fr); grid-template-rows: minmax(0, 1fr); gap: 16px; width: 100%; min-height: 0; }
-.inspiration-conversation { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 24px; overflow: hidden; }
-.inspiration-heading { flex-shrink: 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-.heading-knowledge { position: relative; flex: 0 1 auto; min-width: 0; max-width: 46%; }
-.heading-knowledge-btn { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 6px 12px; border: 1px dashed var(--line-2); border-radius: 8px; background: var(--paper); color: var(--ink-3); font-size: 13px; cursor: pointer; }
-.heading-knowledge-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.heading-knowledge-btn.on { border-style: solid; border-color: var(--dai); color: var(--dai); background: var(--dai-soft); }
-.heading-knowledge-btn:hover { border-color: var(--dai); color: var(--dai); }
-.heading-knowledge-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: 300px; max-width: 80vw; display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--paper); box-shadow: var(--shadow-2, 0 6px 24px rgba(0,0,0,.12)); }
-.heading-knowledge-pop small, .heading-knowledge-empty { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.6; }
-.inspiration-heading h2 { font-size: 30px; margin: 0 0 6px; }
-.inspiration-heading p { color: var(--ink-2); font-size: 14px; line-height: 1.7; }
-.inspiration-options { flex-shrink: 0; max-height: 30%; overflow-y: auto; margin: 12px 0; color: var(--ink-2); font-size: 12px; }
-/* 对话选项做成可见的展开条，提示可以点开 */
-.inspiration-options summary { cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 7px 12px; list-style: none;
-  border: 1px solid var(--line-2); border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 13px; font-weight: 600; }
-.inspiration-options summary::-webkit-details-marker { display: none; }
-.inspiration-options summary:hover { border-color: var(--dai); color: var(--dai); }
-.inspiration-options summary small { margin-left: auto; font-weight: 400; color: var(--ink-3); font-size: 12px; }
-.inspiration-options .options-arrow { transition: transform var(--motion-fast); }
-.inspiration-options[open] .options-arrow { transform: rotate(90deg); }
-.inspiration-options .inspiration-search-toolbar { padding-top: 10px; }
-.inspiration-history { flex: 1; min-height: 0; padding: 4px 0 16px; }
-.inspiration-message { max-width: 88%; margin: 18px 0; padding: 16px 18px; }
-.inspiration-message.user { background: var(--zhu-soft); border-color: transparent; }
-.inspiration-message.assistant { max-width: calc(100% - 42px); margin-left: 42px; position: relative; border-left: 1px solid var(--line-2); box-shadow: none; }
-.inspiration-message.assistant::before { content: '墨'; position: absolute; top: 4px; left: -42px; display: grid; place-items: center; width: 30px; height: 32px; border-radius: 50%; background: var(--zhu); color: var(--on-accent); font: 20px var(--f-serif); }
-.inspiration-message.assistant > strong { display: none; }
-.inspiration-composer { margin: auto 0 0; padding: 12px; }
-.inspiration-composer .m-textarea { background: transparent; }
-.inspiration-workspace > :deep(.inspiration-settings) { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-.inspiration-sticky-prompt { margin: 0 0 8px; padding: 8px 12px; background: var(--panel); }
-@media (max-width: 1100px) { .inspiration-chat { padding: 0 20px 20px; } .inspiration-workspace { grid-template-columns: minmax(0, 1fr) 300px; } .inspiration-conversation { padding: 18px; } }
-@media (max-width: 850px) {
-  .inspiration-chat { padding: 0 12px 20px; }
-  .inspiration-panel-switch { display: flex; flex: 0 0 auto; gap: 8px; margin-bottom: 12px; }
-  .inspiration-panel-switch button { flex: 1; padding: 8px 12px; border: 1px solid var(--line-2); border-radius: var(--r-m); background: var(--paper); color: var(--ink-2); font: 13px var(--f-ui); cursor: pointer; }
-  .inspiration-panel-switch button[aria-pressed="true"] { border-color: var(--zhu); background: var(--zhu-soft); color: var(--zhu); }
-  .inspiration-panel-switch button:focus-visible { outline: 2px solid var(--zhu); outline-offset: 2px; }
-  .inspiration-workspace { grid-template-columns: minmax(0, 1fr); }
-  .inspiration-conversation { padding: 16px; }
-  .inspiration-workspace:not(.show-settings) > :deep(.inspiration-settings),
-  .inspiration-workspace.show-settings > .inspiration-conversation { display: none; }
-  .inspiration-heading h2 { font-size: 26px; }
-  .inspiration-heading p { display: none; }
-}
-@media (max-height: 800px) {
-  .inspiration-conversation { padding: 16px; }
-  .inspiration-heading h2 { font-size: 24px; }
-  .inspiration-heading p { display: none; }
-  .inspiration-options { margin: 6px 0; }
-}
 .inspiration-empty-guide { margin: auto; max-width: 440px; text-align: center; padding: 28px; color: var(--ink-2); }
 .inspiration-empty-guide > .icon { color: var(--dai); margin-bottom: 16px; }
 .inspiration-empty-guide h3 { font-size: 24px; color: var(--ink); margin-bottom: 8px; }

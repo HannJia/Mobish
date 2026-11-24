@@ -60,7 +60,7 @@ const isDev = !app.isPackaged
 
 let mainWindow = null
 let closeHandshakeInFlight = false
-let closeHandshakeComplete = false
+let closeApproval = null
 let closeHandshakeTimer = null
 let recoveryPrepared = false
 let updates = null
@@ -102,7 +102,7 @@ function getUpdates() {
       if (closeHandshakeInFlight) throw new Error('关闭前保存正在进行，请稍后重试。')
       return updateHandshake.request()
     },
-    allowQuit: value => { closeHandshakeComplete = value },
+    allowQuit: value => { closeApproval = value ? 'update' : null },
     savePreference: value => {
       if (!preferencePath) return
       ensureUserDataDir()
@@ -362,7 +362,7 @@ async function finishCloseHandshake({ event, ok, error = '' }) {
   closeHandshakeInFlight = false
 
   if (ok) {
-    closeHandshakeComplete = true
+    closeApproval = 'saved'
     mainWindow.close()
     if (isSmokeTest && process.env.AI_NOVEL_WRITER_SMOKE_WORKFLOW) setImmediate(() => app.exit(0))
     return
@@ -376,7 +376,7 @@ async function finishCloseHandshake({ event, ok, error = '' }) {
 
 function createWindow() {
   closeHandshakeInFlight = false
-  closeHandshakeComplete = false
+  closeApproval = null
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -396,7 +396,7 @@ function createWindow() {
   })
 
   mainWindow.on('close', (event) => {
-    if (closeHandshakeComplete || mainWindow.webContents.isDestroyed()) return
+    if (closeApproval || mainWindow.webContents.isDestroyed()) return
     event.preventDefault()
     if (updateHandshake.busy || updates?.snapshot().phase === 'installing') return
     if (closeHandshakeInFlight) return
@@ -410,6 +410,26 @@ function createWindow() {
         error: '保存响应超时。',
       })
     }, 30_000)
+  })
+  mainWindow.webContents.on('will-prevent-unload', event => {
+    if (closeApproval === 'discard') {
+      event.preventDefault()
+      return
+    }
+    if (closeApproval !== 'saved') return
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'warning',
+      title: '退出墨笔生花？',
+      message: '当前页面还有未保存的修改。',
+      detail: '继续退出会丢弃这些修改。已保存的灵感对话和输入框草稿可从历史会话恢复。',
+      buttons: ['继续编辑', '退出'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    })
+    // In Electron this permits the unload the renderer tried to cancel.
+    if (choice === 1) event.preventDefault()
+    else closeApproval = null
   })
   mainWindow.webContents.on('did-finish-load', () => getUpdates().start())
   if (isSmokeTest) {
@@ -1033,7 +1053,7 @@ ipcMain.on('app:exit-choice', (event, confirmed) => {
   if (!isMainWindowSender(event) || event.senderFrame !== mainWindow.webContents.mainFrame
     || !isTrustedRendererUrl(event.senderFrame?.url)) return
   if (confirmed === true) {
-    closeHandshakeComplete = true
+    closeApproval = 'discard'
     mainWindow.close()
   } else {
     closeHandshakeInFlight = false

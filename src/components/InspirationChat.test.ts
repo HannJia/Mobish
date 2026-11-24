@@ -53,9 +53,36 @@ type Wrapper = ReturnType<typeof mountChat>
 function button(wrapper: Wrapper, text: string) {
   return wrapper.findAll('button').find(item => item.text() === text)!
 }
+async function selectSession(wrapper: Wrapper, id: string) {
+  await wrapper.get('[data-inspiration-history]').trigger('click')
+  await wrapper.get(`[data-history-session="${id}"]`).trigger('click')
+}
 
 describe('inspiration search controls', () => {
-  it('preserves the draft while switching compact panels and returns to conversation for history', async () => {
+  it('keeps the save entry in the action row when knowledge citations are expanded', async () => {
+    const wrapper = mountChat()
+    vi.mocked(chatInspiration).mockResolvedValue({
+      content: '可以把旧表当作线索。',
+      saveTitle: '旧表线索',
+      knowledgeReferences: [{
+        label: '资料1', baseId: 'archive', entryId: 'clock', sourceVersion: 'v1',
+        baseName: '城市旧档', entryTitle: '旧钟表档案', path: ['渡口', '交接记录'], start: 0, end: 8,
+      }],
+    })
+    await wrapper.get('textarea').setValue('旧表里有哪些线索？')
+    await button(wrapper, '发送').trigger('click')
+    await flushPromises()
+    const actions = wrapper.get('.inspiration-reply-actions')
+    expect(actions.find('.inspiration-knowledge-references').exists()).toBe(false)
+    await actions.get('.inspiration-reference-toggle').trigger('click')
+    expect(actions.get('.inspiration-reference-toggle').attributes('aria-expanded')).toBe('true')
+    expect(actions.get('.inspiration-save-reminder + .inspiration-knowledge-references').text()).toContain('旧钟表档案')
+    await actions.get('.inspiration-save-reminder').trigger('click')
+    expect(wrapper.getComponent(SaveChatKnowledge).props('content')).toContain('城市旧档 › 旧钟表档案 › 渡口 › 交接记录')
+    wrapper.unmount()
+  })
+
+  it('preserves the draft when collapsing settings and opening history', async () => {
     const wrapper = mountChat()
     await wrapper.get('textarea').setValue('姐姐失踪前留下了一盏旧灯。')
     await button(wrapper, '已整理的设定').trigger('click')
@@ -63,10 +90,12 @@ describe('inspiration search controls', () => {
     await button(wrapper, '灵感对话').trigger('click')
     expect(wrapper.get('textarea').element.value).toBe('姐姐失踪前留下了一盏旧灯。')
     await button(wrapper, '已整理的设定').trigger('click')
-    wrapper.getComponent(InspirationSettingsSummary).vm.$emit('history')
+    wrapper.getComponent(InspirationSettingsSummary).vm.$emit('collapse')
     await flushPromises()
     expect(wrapper.get('.inspiration-workspace').classes()).not.toContain('show-settings')
-    expect(wrapper.get('.inspiration-options').attributes('open')).toBeDefined()
+    expect(wrapper.get('.inspiration-workspace').classes()).toContain('settings-collapsed')
+    await wrapper.get('[data-inspiration-history]').trigger('click')
+    expect(wrapper.get('[data-inspiration-history]').attributes('aria-expanded')).toBe('true')
     expect(wrapper.get('textarea').element.value).toBe('姐姐失踪前留下了一盏旧灯。')
     expect(chatInspiration).not.toHaveBeenCalled()
     wrapper.unmount()
@@ -82,6 +111,7 @@ describe('inspiration search controls', () => {
     expect(wrapper.get('.inspiration-follow-ups').findAll('button').map(item => item.text().replace('↗', '').trim())).toEqual(questions)
     wrapper.getComponent(SaveChatKnowledge).vm.$emit('saved', { kbId: 'test-kb', kbName: '验收资料', title: '线索' })
     await flushPromises()
+    expect(wrapper.text()).toContain('【保存成功】已保存到知识库“验收资料”，条目“线索”。')
     expect(wrapper.get('.inspiration-follow-ups').findAll('button').map(item => item.text().replace('↗', '').trim())).toEqual(questions)
     const draft = '我还没写完的想法'
     await wrapper.get('textarea').setValue(draft)
@@ -178,10 +208,10 @@ describe('inspiration search controls', () => {
       parseInspirationSession({ id: 'second', title: '第二部', updatedAt: '2026-11-14T01:00:00Z', messages: [], settingsDraft: makeSettings('苏晴') }),
     ])
     await wrapper.setProps({ active: true })
-    wrapper.findComponent({ name: 'V3Select' }).vm.$emit('update:value', 'first')
+    await selectSession(wrapper, 'first')
     await flushPromises()
     expect(wrapper.getComponent(InspirationSettingsSummary).props('form').settings.protagonist.name).toBe('林晚')
-    wrapper.findComponent({ name: 'V3Select' }).vm.$emit('update:value', 'second')
+    await selectSession(wrapper, 'second')
     await flushPromises()
     expect(wrapper.getComponent(InspirationSettingsSummary).props('form').settings.protagonist.name).toBe('苏晴')
     wrapper.unmount()
@@ -413,7 +443,7 @@ describe('inspiration search controls', () => {
     Object.defineProperty(container, 'scrollHeight', { configurable: true, value: 1800 })
     await flushPromises()
     container.scrollTop = 0
-    wrapper.findComponent({ name: 'V3Select' }).vm.$emit('update:value', 'older')
+    await selectSession(wrapper, 'older')
     await flushPromises()
     expect(wrapper.get('.inspiration-message.assistant').text()).toContain('旧对话回复')
     expect(container.scrollTop).toBe(1800)
@@ -512,7 +542,8 @@ describe('inspiration search controls', () => {
     expect(kb.entries).toHaveLength(0)
     wrapper.findComponent(SaveChatKnowledge).vm.$emit('update:show', false)
     vi.mocked(chatInspiration).mockResolvedValue({ content: '继续讨论。' })
-    wrapper.findAllComponents({ name: 'V3Select' }).find(select => select.attributes('aria-label') === '灵感参考知识库')!.vm.$emit('update:value', [])
+    await wrapper.get('[data-heading-knowledge]').trigger('click')
+    await wrapper.get('.heading-knowledge-pop input[type=checkbox]').setValue(false)
     await wrapper.get('textarea').setValue('这轮不使用资料')
     await button(wrapper, '发送').trigger('click')
     await flushPromises()
@@ -538,38 +569,35 @@ describe('inspiration search controls', () => {
     ])
     wrapper.unmount()
   })
-  it('keeps only the latest author prompt pinned outside the scrolling transcript', async () => {
+  it('shows one turn marker per prompt and previews the corresponding text outside the transcript', async () => {
     const wrapper = mountChat()
-    expect(wrapper.find('.inspiration-sticky-prompt').exists()).toBe(false)
+    expect(wrapper.find('.inspiration-turns').exists()).toBe(false)
     vi.mocked(chatInspiration).mockResolvedValue({ content: '第一轮回答' })
     const prompt = '第一行设定\n第二行设定\n' + '需要完整保留的长问题。'.repeat(100)
     await wrapper.get('textarea').setValue(prompt)
     await button(wrapper, '发送').trigger('click')
     await flushPromises()
-    const pinned = wrapper.get('.inspiration-sticky-prompt')
-    expect(pinned.get('.inspiration-sticky-text').text()).toBe(prompt)
-    expect(wrapper.get('.inspiration-history').find('.inspiration-sticky-prompt').exists()).toBe(false)
+    const firstTurn = wrapper.get('.inspiration-turns button')
+    expect(firstTurn.attributes('aria-current')).toBe('true')
+    expect(wrapper.get('.inspiration-history').find('.inspiration-turns').exists()).toBe(false)
     expect(wrapper.get('.inspiration-message.user strong').text()).toBe('我')
     expect(wrapper.get('.inspiration-message.assistant strong').text()).toBe('AI')
-    await button(wrapper, '展开').trigger('click')
-    expect(button(wrapper, '收起').attributes('aria-expanded')).toBe('true')
-    expect(pinned.get('.inspiration-sticky-text').classes()).toContain('expanded')
-    const history = wrapper.get('.inspiration-history')
-    history.element.scrollTop = 500
-    await history.trigger('scroll')
-    expect(pinned.get('.inspiration-sticky-text').text()).toBe(prompt)
+    await firstTurn.trigger('mouseenter')
+    expect(wrapper.get('.inspiration-turn-preview').text()).toMatch(/^第一行设定 第二行设定.*…$/)
+    await wrapper.get('.inspiration-turns').trigger('mouseleave')
+    expect(wrapper.find('.inspiration-turn-preview').exists()).toBe(false)
 
     vi.mocked(chatInspiration).mockImplementation(() => new Promise(() => {}))
     await wrapper.get('textarea').setValue('新的问题')
     await button(wrapper, '发送').trigger('click')
-    expect(wrapper.findAll('.inspiration-sticky-prompt')).toHaveLength(1)
-    expect(pinned.get('.inspiration-sticky-text').text()).toBe('新的问题')
-    expect(button(wrapper, '展开').attributes('aria-expanded')).toBe('false')
-    history.element.scrollTop = 0
-    await history.trigger('scroll')
-    expect(pinned.text()).not.toContain('第一行设定')
+    const turns = wrapper.findAll('.inspiration-turns button')
+    expect(turns).toHaveLength(2)
+    expect(turns[0].attributes('aria-current')).toBeUndefined()
+    expect(turns[1].attributes('aria-current')).toBe('true')
+    await turns[1].trigger('focus')
+    expect(wrapper.get('.inspiration-turn-preview').text()).toBe('新的问题')
     await button(wrapper, '停止').trigger('click')
-    expect(pinned.get('.inspiration-sticky-text').text()).toBe('新的问题')
+    expect(wrapper.findAll('.inspiration-turns button')).toHaveLength(2)
     wrapper.unmount()
   })
 
@@ -604,7 +632,7 @@ describe('inspiration search controls', () => {
     expect(wrapper.find('[data-streaming-assistant]').exists()).toBe(false)
     expect(wrapper.findAll('.inspiration-message.assistant')).toHaveLength(1)
     container.scrollTop = 1500
-    await button(wrapper, '回看原消息').trigger('click')
+    await wrapper.get('.inspiration-turns button').trigger('click')
     expect(container.scrollTop).toBe(18)
     wrapper.unmount()
   })
@@ -838,7 +866,8 @@ describe('inspiration search controls', () => {
     vi.mocked(chatInspiration).mockResolvedValue({ content: '回复' })
     for (let index = 0; index < 6; index++) {
       const wrapper = mountChat()
-      wrapper.findComponent({ name: 'V3Select' }).vm.$emit('update:value', null)
+      await wrapper.get('[data-inspiration-history]').trigger('click')
+      await button(wrapper, '新建会话').trigger('click')
       await wrapper.get('textarea').setValue(`第 ${index + 1} 个灵感会话`)
       await button(wrapper, '发送').trigger('click')
       await flushPromises()
@@ -864,7 +893,7 @@ describe('inspiration search controls', () => {
     const wrapper = mountChat()
 
     expect(wrapper.findAll('.inspiration-message')).toHaveLength(2)
-    expect(wrapper.find('.inspiration-session-select').exists()).toBe(true)
+    expect(wrapper.find('[data-inspiration-history]').exists()).toBe(true)
     await wrapper.get('textarea').setValue('继续聊第二句')
     await button(wrapper, '发送').trigger('click')
     await flushPromises()
@@ -889,7 +918,8 @@ describe('inspiration search controls', () => {
     await button(wrapper, '发送').trigger('click')
     await flushPromises()
     expect(vi.mocked(chatInspiration).mock.calls[vi.mocked(chatInspiration).mock.calls.length - 1][5]).toEqual([a.id])
-    wrapper.findAllComponents({ name: 'V3Select' }).find(select => select.attributes('aria-label') === '灵感参考知识库')!.vm.$emit('update:value', [])
+    await wrapper.get('[data-heading-knowledge]').trigger('click')
+    await wrapper.get('.heading-knowledge-pop input:checked').setValue(false)
     const changes = wrapper.emitted('knowledge-change')!
     expect(changes[changes.length - 1]).toEqual([[]])
     wrapper.unmount()
@@ -902,7 +932,7 @@ describe('inspiration search controls', () => {
     const wrapper = mountChat()
     await wrapper.setProps({ sharedKnowledgeIds: [] })
     const btn = wrapper.get('[data-heading-knowledge]')
-    expect(btn.text()).toContain('未挂载知识库')
+    expect(btn.attributes('title')).toBe('未挂载知识库')
     await btn.trigger('click')
     const boxes = wrapper.findAll('.heading-knowledge-pop input[type=checkbox]')
     expect(boxes).toHaveLength(2)

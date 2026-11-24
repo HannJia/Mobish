@@ -1,18 +1,24 @@
 <template>
   <aside class="inspiration-settings paper-panel" aria-label="已整理的设定">
-    <header class="summary-heading"><span class="summary-mark"><V3Icon name="file" size="l" /></span><div><h2>已整理的设定</h2><p>保留已填写的内容，随时调整故事方向。</p></div></header>
-    <div class="summary-fields">
-      <button v-for="field in fields" :key="field.key" type="button" class="summary-field" :disabled="busy" :aria-label="`编辑${field.label}`" @click="openEdit(field.key)">
-        <span class="field-symbol"><V3Icon :name="field.icon" size="l" /></span>
-        <span class="field-label">{{ field.label }}</span><strong :class="{ empty: !field.value }">{{ field.value || '待整理' }}</strong><V3Icon name="edit" size="s" class="field-pencil" />
-      </button>
-    </div>
-    <div class="summary-tip"><V3Icon name="bulb" size="l" /><div><h3>完善设定</h3><p>整理当前讨论，更新上方设定并压缩上下文后可继续聊。编辑后的设定会用于后续回复；确定后点击“完成”进入详细检查。</p></div></div>
-    <p v-if="settingsStatus" class="summary-status" role="status">{{ settingsStatus }}</p>
-    <button type="button" class="m-btn pri lg block summary-extract" :disabled="busy || !canExtract || extracting" @click="emit('extract')" :aria-busy="extracting"><V3Icon name="file" size="s" />{{ extracting ? '整理中' : '整理设定' }}</button>
-    <button type="button" class="m-btn lg block summary-finish" :disabled="busy || !canFinish" @click="emit('finish')"><V3Icon name="check" size="s" />完成</button>
-    <button type="button" class="m-btn lg block summary-history" :disabled="busy" @click="emit('history')"><V3Icon name="clock" size="s" />查看历史</button>
-    <p class="summary-footnote">没整理出来的项目会留空。</p>
+    <header class="summary-heading">
+      <h2>已整理的设定</h2>
+      <button type="button" class="m-btn ghost sm summary-collapse" @click="emit('collapse')">收起<V3Icon name="arrowR" size="s" /></button>
+    </header>
+    <dl class="summary-fields" tabindex="0" aria-label="设定内容">
+      <div v-for="field in fields" :key="field.key" class="summary-field">
+        <dt>{{ field.label }}</dt>
+        <dd :class="{ empty: !field.value }">{{ field.value || '待整理' }}</dd>
+        <button v-if="field.editable" type="button" class="field-pencil" :disabled="busy"
+          :aria-label="`编辑${field.label}`" @click="openEdit(field.key)"><V3Icon name="edit" size="s" /></button>
+      </div>
+    </dl>
+    <footer class="summary-footer">
+      <p v-if="settingsStatus" class="summary-status" role="status">{{ settingsStatus }}</p>
+      <div class="summary-actions">
+        <button type="button" class="m-btn pri summary-extract" :disabled="busy || !canExtract || extracting" @click="emit('extract')" :aria-busy="extracting"><V3Icon name="file" size="s" />{{ extracting ? '整理中' : '整理设定' }}</button>
+        <button type="button" class="m-btn summary-finish" :disabled="busy || !canFinish" @click="emit('finish')"><V3Icon name="check" size="s" />完成</button>
+      </div>
+    </footer>
     <V3Modal :show="editing !== null" size="small" :title="`编辑${fields.find(field => field.key === editing)?.label || '设定'}`" @update:show="value => { if (!value) editing = null }">
       <V3Select v-if="editing === 'genre'" v-model:value="draft" :options="genres.map(genre => ({ label: genre.label, value: genre.value }))" aria-label="故事类型" />
       <V3Input v-else v-model:value="draft" :type="editing === 'protagonist' ? 'text' : 'textarea'" :rows="4" :maxlength="2000" aria-label="设定内容" />
@@ -30,19 +36,29 @@ import V3Modal from '@/v3/components/V3Modal.vue'
 import { genres } from '@/data/genres'
 import type { CreateWizardForm } from '@/types/novel'
 const props = withDefaults(defineProps<{ form: CreateWizardForm; busy: boolean; extracting: boolean; canExtract: boolean; canFinish?: boolean; settingsStatus?: string }>(), { canFinish: true, settingsStatus: '' })
-const emit = defineEmits<{ extract: []; finish: []; history: []; 'draft-change': [form: CreateWizardForm] }>()
-type SummaryKey = 'genre' | 'protagonist' | 'world' | 'conflict'
+const emit = defineEmits<{ extract: []; finish: []; collapse: []; 'draft-change': [form: CreateWizardForm] }>()
+type SummaryKey = 'genre' | 'protagonist' | 'world' | 'mainConflict' | 'conflict' | 'notes'
 const editing = ref<SummaryKey | null>(null)
 const draft = ref('')
-const fields = computed(() => [
-  { key: 'genre' as const, label: '类型', value: genres.find(genre => genre.value === props.form.genre)?.label || props.form.genre, icon: 'book' as const },
-  { key: 'protagonist' as const, label: '主角', value: props.form.settings.protagonist.name, icon: 'user' as const },
-  { key: 'world' as const, label: '故事舞台', value: props.form.settings.worldBuilding.worldType, icon: 'pin' as const },
-  { key: 'conflict' as const, label: '核心悬念', value: props.form.settings.coreConflict.coreSuspense, icon: 'link' as const },
-])
+const fields = computed(() => {
+  const { protagonist, supportingCharacters, worldBuilding, coreConflict, otherSettings } = props.form.settings
+  return [
+    { key: 'genre', label: '类型', value: genres.find(genre => genre.value === props.form.genre)?.label || props.form.genre, editable: true },
+    { key: 'protagonist', label: '主角', value: [protagonist.name, protagonist.background].filter(Boolean).join(' · '), editable: true },
+    { key: 'supporting', label: '关键配角', value: supportingCharacters.map(character =>
+      [character.name, character.role || character.relationship].filter(Boolean).join(' · '),
+    ).filter(Boolean).join('\n'), editable: false },
+    { key: 'world', label: '故事舞台', value: worldBuilding.worldType, editable: true },
+    { key: 'mainConflict', label: '主线矛盾', value: coreConflict.mainConflict, editable: true },
+    { key: 'conflict', label: '核心悬念', value: coreConflict.coreSuspense, editable: true },
+    { key: 'notes', label: '线索与备注', value: otherSettings, editable: true },
+  ] as const
+})
 function openEdit(key: SummaryKey) {
   editing.value = key
-  draft.value = key === 'genre' ? props.form.genre : fields.value.find(field => field.key === key)?.value || ''
+  if (key === 'genre') draft.value = props.form.genre
+  else if (key === 'protagonist') draft.value = props.form.settings.protagonist.name
+  else draft.value = fields.value.find(field => field.key === key)?.value || ''
 }
 function saveEdit() {
   if (!editing.value || props.busy) return
@@ -50,6 +66,8 @@ function saveEdit() {
   if (editing.value === 'genre') { form.genre = draft.value; form.subGenre = '' }
   else if (editing.value === 'protagonist') form.settings.protagonist.name = draft.value.trim()
   else if (editing.value === 'world') form.settings.worldBuilding.worldType = draft.value.trim()
+  else if (editing.value === 'mainConflict') form.settings.coreConflict.mainConflict = draft.value.trim()
+  else if (editing.value === 'notes') form.settings.otherSettings = draft.value.trim()
   else form.settings.coreConflict.coreSuspense = draft.value.trim()
   emit('draft-change', form)
   editing.value = null
@@ -57,21 +75,28 @@ function saveEdit() {
 </script>
 
 <style scoped>
-.inspiration-settings { display: flex; flex-direction: column; gap: 16px; min-width: 0; padding: 24px; }
-.inspiration-settings > * { flex-shrink: 0; }
-.summary-heading { display: flex; align-items: flex-start; gap: 12px; }
-.summary-heading h2 { font-size: 23px; margin: 0 0 6px; }
-.summary-heading p, .summary-tip p { color: var(--ink-2); font-size: 13px; line-height: 1.75; }
-.summary-mark, .field-symbol { display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 44px; border-radius: 8px; background: var(--dai-soft); color: var(--dai); }
-.summary-fields { display: grid; gap: 12px; margin-top: 10px; }
-.summary-field { display: grid; grid-template-columns: 40px 62px minmax(0, 1fr) 17px; align-items: center; gap: 10px; min-height: 80px; padding: 12px; border: 1px solid var(--line-2); border-radius: 9px; background: var(--paper); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
-.summary-field:hover { border-color: var(--zhu); }
-.summary-field strong { font-weight: 500; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
-.field-label, .empty, .field-pencil { color: var(--ink-2); font-size: 13px; }
-.summary-tip { display: flex; align-items: flex-start; gap: 12px; padding: 18px 14px; border: 1px solid var(--line); border-radius: 9px; margin-top: auto; }
-.summary-tip > .icon { color: var(--jin); flex-shrink: 0; }
-.summary-tip h3 { font-size: 16px; margin-bottom: 6px; }
-.summary-footnote { color: var(--ink-3); font-size: 11px; }
-.summary-status { color: var(--ink-2); font-size: 12px; line-height: 1.7; }
-@media (max-width: 1100px) { .inspiration-settings { padding: 18px; } .summary-field { grid-template-columns: 32px minmax(0, 1fr) 17px; gap: 8px; } .field-label { grid-column: 2; } .summary-field strong { grid-column: 2; } .field-symbol { width: 32px; grid-row: span 2; } .field-pencil { grid-column: 3; grid-row: 1 / 3; } }
+.inspiration-settings {
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 9px;
+  min-width: 0; min-height: 0; max-height: min(510px, 82%); padding: 12px;
+}
+.summary-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 8px; }
+.summary-heading h2 { font-size: 17px; margin: 0; }
+.summary-collapse { gap: 4px; }
+.summary-fields { display: grid; align-content: start; gap: 5px; min-height: 0; margin: 0; overflow-y: auto; overscroll-behavior: contain; }
+.summary-field {
+  display: grid; grid-template-columns: 62px minmax(0, 1fr) auto; align-items: start;
+  gap: 5px; padding: 6px 7px; border: 1px solid var(--line); border-radius: var(--r-s);
+  background: var(--panel); color: var(--ink); font-size: 12px; line-height: 1.55;
+}
+.summary-field dt, .summary-field .empty { color: var(--ink-3); }
+.summary-field dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.field-pencil { display: grid; place-items: center; padding: 1px; border: 0; background: transparent; color: var(--ink-3); cursor: pointer; }
+.field-pencil:hover { color: var(--zhu); }
+.field-pencil:disabled { opacity: .5; cursor: default; }
+.summary-footer { display: grid; gap: 5px; }
+.summary-status { margin: 0; color: var(--ink-2); font-size: 12px; line-height: 1.55; }
+.summary-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+@media (max-width: 850px) {
+  .inspiration-settings { align-self: stretch; max-height: 100%; }
+}
 </style>
