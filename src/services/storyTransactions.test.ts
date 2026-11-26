@@ -131,6 +131,52 @@ describe.each(['sql', 'kernel'] as const)('atomic story decisions (%s)', backend
     }
   })
 
+  it('writes only selected opening canon in one transaction and makes a concurrent retry a no-op', async () => {
+    const { applyOpeningCanonSeed, buildOpeningCanonSeedPreview } = await import('./openingCanonSeed')
+    const { parseVolumesFromText } = await import('./volumeParsing')
+    await novels.setVolumesWithImpact(novel.id, parseVolumesFromText(`## 第一卷《旧城》
+**本卷角色变化**：
+- 顾舟：开始追查钟楼事故
+**卷级伏笔**：
+- 本卷伏笔：铜铃 — 钟楼里传来双响`))
+    await novels.commitChapterPlanEdit(novel.id, { action: 'confirm-planning', confirmCreation: true,
+      expectedVolumes: JSON.stringify(novel.volumes), expectedPlans: JSON.stringify(novel.chapterPlans) })
+    await workspace.transactStory(novel.id, ({ novel: project, workspace: records }) => {
+      project.settings.worldBuilding.specialRules = '作者原有设定'
+      Object.assign(records.creationDraft!.contract, { protagonistPremise: '林澈：守门人', worldRules: ['雨禁：落雨时不可开门', '雾禁：入夜禁灯'] })
+    })
+    const before = copy(await stored())
+    const preview = buildOpeningCanonSeedPreview(novel, workspace.getCreationDraft(novel.id))
+    expect(preview.map(item => [item.title, item.alreadyExists])).toEqual([
+      ['林澈', true], ['顾舟', false], ['铜铃', false], ['雨禁', false], ['雾禁', false],
+    ])
+    const selected = preview.filter(item => item.title !== '雾禁').map(item => item.id)
+    failWrite()
+    await expect(applyOpeningCanonSeed(novel.id, selected)).rejects.toThrow('模拟磁盘事务失败')
+    expect(await stored()).toEqual(before)
+    expect(buildOpeningCanonSeedPreview(novel, workspace.getCreationDraft(novel.id))).toEqual(preview)
+
+    const writesBeforeRetry = writeCount
+    const [first, retry] = await Promise.all([
+      applyOpeningCanonSeed(novel.id, [...selected, selected[1], 'old-preview-id']),
+      applyOpeningCanonSeed(novel.id, selected),
+    ])
+    expect(first.written.map(item => item.title)).toEqual(['顾舟', '铜铃', '雨禁'])
+    expect(first.skipped).toEqual([{ id: selected[0], reason: 'already-exists' }, { id: 'old-preview-id', reason: 'source-changed' }])
+    expect(retry).toEqual({ written: [], skipped: selected.map(id => ({ id, reason: 'already-exists' })) })
+    expect(writeCount).toBe(writesBeforeRetry + 1)
+    const saved = await stored()
+    expect(saved.novel?.characters).toHaveLength(3)
+    expect(saved.novel?.characters[0]).toEqual(before.novel?.characters[0])
+    expect(saved.novel?.characters[2]).toMatchObject({ name: '顾舟', provenance: expect.any(Object) })
+    expect(saved.novel?.eventLog).toMatchObject([{ title: '铜铃', chapterIndex: -1, scope: 'volume', provenance: expect.any(Object) }])
+    expect(saved.novel?.settings.worldBuilding.specialRules).toBe('作者原有设定\n雨禁：落雨时不可开门')
+    expect(saved.novel?.characters).toEqual(novel.characters)
+    expect(saved.novel?.eventLog).toEqual(novel.eventLog)
+    expect(saved.novel?.settings).toEqual(novel.settings)
+    expect(saved.workspace.impactReports?.length).toBeGreaterThan(before.workspace.impactReports?.length ?? 0)
+  })
+
   let dataTestId = 0
   const nextDataId = () => 'data-boundary-' + ++dataTestId
   function commitPanelEdit(edit: Extract<import('./dataPanelTransactions').DataPanelEdit, { action: 'create' }>, baseline?: string): Promise<import('@/types/novel').DataPanelItem | null>
@@ -467,7 +513,7 @@ describe.each(['sql', 'kernel'] as const)('atomic story decisions (%s)', backend
     const priorVersion = buildReviewContextVersion(novel, novel.chapters[0], [], draft)
     await commitCreation({ action: 'contract', confirm: false, contract: materializeContractConfirmations(copy(draft.contract)) })
     const saved = await stored()
-    expect(saved.workspace.creationDraft!.contract.cardConfirmations).toHaveLength(8)
+    expect(saved.workspace.creationDraft!.contract.cardConfirmations).toHaveLength(9)
     expect(saved.workspace.creationDraft!.approval).toEqual(before.workspace.creationDraft!.approval)
     expect(saved.workspace.creationDraft!.selectedSkeletonId).toBe(before.workspace.creationDraft!.selectedSkeletonId)
     expect(saved.novel!.chapters).toEqual(before.novel!.chapters)
@@ -519,9 +565,9 @@ describe.each(['sql', 'kernel'] as const)('atomic story decisions (%s)', backend
   it('commits an author-confirmed plan batch with V2 planning, invalidation and one report atomically', async () => {
     const { applyChapterPlanEdit, chapterPlanningSourceVersion } = await import('./storyPlanTransactions')
     const input = copy(novel.chapterPlans![0])
-    const edit = { action: 'create-batch' as const, planningSourceVersion: chapterPlanningSourceVersion(novel, workspace.getStoryMemories(novel.id)),
+    const edit = { action: 'create-batch' as const, planningSourceVersion: chapterPlanningSourceVersion(novel, workspace.getStoryMemories(novel.id), []),
       plans: [{ ...input, title: '核对登记册', source: 'ai' as const }, { ...input, title: '追访守夜人', source: 'ai' as const }] }
-    const commit = () => workspace.transactStory(novel.id, aggregate => applyChapterPlanEdit(aggregate, edit, now, () => 'batch-' + (++creationTestId)))
+    const commit = () => workspace.transactStory(novel.id, aggregate => applyChapterPlanEdit(aggregate, edit, now, () => 'batch-' + (++creationTestId), []))
     const before = copy(await stored())
     failWrite(); await expect(commit()).rejects.toThrow('模拟磁盘事务失败')
     expect(await stored()).toEqual(before); expect(novel.chapterPlans).toHaveLength(1)
@@ -540,7 +586,7 @@ describe.each(['sql', 'kernel'] as const)('atomic story decisions (%s)', backend
 
   it('rejects stale plan candidates and stale planning confirmation before writing', async () => {
     const { applyChapterPlanEdit, chapterPlanningSourceVersion } = await import('./storyPlanTransactions')
-    const source = chapterPlanningSourceVersion(novel, workspace.getStoryMemories(novel.id))
+    const source = chapterPlanningSourceVersion(novel, workspace.getStoryMemories(novel.id), [])
     const confirm = { action: 'confirm-planning' as const, expectedVolumes: JSON.stringify(novel.volumes), expectedPlans: JSON.stringify(novel.chapterPlans) }
     await workspace.transactStory(novel.id, aggregate => {
       aggregate.novel.outline = '作者改变总纲'
@@ -548,8 +594,8 @@ describe.each(['sql', 'kernel'] as const)('atomic story decisions (%s)', backend
     })
     const before = copy(await stored()), writes = writeCount
     await expect(workspace.transactStory(novel.id, aggregate => applyChapterPlanEdit(aggregate,
-      { action: 'create-batch', plans: [{ ...copy(novel.chapterPlans![0]), title: '旧方向建议' }], planningSourceVersion: source }, now, () => 'stale'))).rejects.toThrow('已经变化')
-    await expect(workspace.transactStory(novel.id, aggregate => applyChapterPlanEdit(aggregate, confirm, now, () => 'stale'))).rejects.toThrow('已经变化')
+      { action: 'create-batch', plans: [{ ...copy(novel.chapterPlans![0]), title: '旧方向建议' }], planningSourceVersion: source }, now, () => 'stale', []))).rejects.toThrow('已经变化')
+    await expect(workspace.transactStory(novel.id, aggregate => applyChapterPlanEdit(aggregate, confirm, now, () => 'stale', []))).rejects.toThrow('已经变化')
     expect(writeCount).toBe(writes); expect(await stored()).toEqual(before)
   })
 

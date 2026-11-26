@@ -5,7 +5,7 @@ import { useNovelStore } from '@/stores/novel'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import { useConfigStore } from '@/stores/config'
 import { useWritingAdvisor } from './useWritingAdvisor'
-import { requestWritingAdvice, type WritingAdviceMode, type WritingAdviceResult } from '@/services/writingAdvisor'
+import { extractWritingFocus, requestWritingAdvice, type WritingAdviceMode, type WritingAdviceResult } from '@/services/writingAdvisor'
 
 vi.mock('@/services/writingAdvisor', () => ({ extractWritingFocus: vi.fn(() => '当前段落'), requestWritingAdvice: vi.fn() }))
 beforeEach(() => { setActivePinia(createPinia()); vi.mocked(requestWritingAdvice).mockReset() })
@@ -40,6 +40,31 @@ function setup() {
 }
 
 describe('advisor cache lifecycle', () => {
+  it('uses selection and count overrides for one request and keeps source version tied to the draft', async () => {
+    const { advisor, content, scope } = setup()
+    const focusOverride = '从这句伏笔继续推演。'
+    vi.mocked(extractWritingFocus).mockImplementationOnce(selection => selection)
+    await advisor.analyze('scene', { focusOverride, suggestionCount: 2 })
+    expect(extractWritingFocus).toHaveBeenLastCalledWith(focusOverride, 0, focusOverride.length)
+    expect(requestWritingAdvice).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      focus: focusOverride, suggestionCount: 2, content: content.value, mode: 'scene',
+    }))
+    const suggestion = advisor.result.value!.suggestions[0]
+    expect(advisor.stale.value).toBe(false)
+    expect(advisor.getSuggestionSourceVersion(suggestion)).toBeTruthy()
+    content.value += '补充的未保存段落。'
+    expect(advisor.stale.value).toBe(true)
+    expect(advisor.getSuggestionSourceVersion(suggestion)).toBeUndefined()
+
+    await advisor.analyzeAll()
+    expect(vi.mocked(requestWritingAdvice).mock.calls.slice(1).map(([request]) => ({
+      mode: request.mode, focus: request.focus, suggestionCount: request.suggestionCount,
+    }))).toEqual(['paragraph', 'scene', 'chapter'].map(mode => ({
+      mode, focus: '当前段落', suggestionCount: undefined,
+    })))
+    scope.stop()
+  })
+
   it('keeps an in-flight request on its original tab and never restarts it on return', async () => {
     const { advisor, scope } = setup()
     await advisor.analyze('scene')

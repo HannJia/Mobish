@@ -1,7 +1,7 @@
 // 写作台生命周期与定稿检查。只读派生，不改数据。
 // 门槛与 commitChapterCompletion / finalizeStoryChapter 一致：这里只用于展示和决定主按钮，
 // 真正的校验仍在事务里执行，界面显示“可定稿”不代表跳过事务校验。
-import type { Chapter } from '@/types/novel'
+import type { Chapter, Novel } from '@/types/novel'
 import type { CandidateChange, ChapterReview, ChapterWorkflowStatus, ReviewFinding } from '@/types/reconstruction'
 import { buildAnalysisSourceVersionId } from '@/services/reconstructionCandidates'
 import { buildChapterReviewSignature, buildChapterReviewSourceVersion } from '@/services/chapterReviewIdentity'
@@ -9,6 +9,7 @@ import { isReviewCoverageComplete, normalizeStoredReviewCoverage } from '@/servi
 import { isFindingBlocking } from '@/services/reconstructionReview'
 import { inspectChapterLength, type ChapterLengthInspection, type ChapterLengthPolicy } from '@/services/chapterLength'
 import { getChapterSummaryStatus } from '@/services/derivedSources'
+import { isCurrentPendingCandidate, summarizePendingCanon } from './candidatePreview'
 
 export interface ChapterWorkflowInput {
   chapter: Chapter
@@ -62,8 +63,7 @@ export function deriveChapterWorkflow(input: ChapterWorkflowInput): ChapterWorkf
   const current = input.findings.filter(f => f.sourceVersionId === version && f.status !== 'stale')
   const blockers = current.filter(isFindingBlocking)
   const openFindings = current.filter(f => f.status === 'open' || f.status === 'deferred')
-  const pendingCandidates = input.candidates.filter(c => (!c.sourceVersionId || c.sourceVersionId === version)
-    && (c.status === 'proposed' || c.status === 'deferred'))
+  const pendingCandidates = input.candidates.filter(candidate => isCurrentPendingCandidate(candidate, version))
 
   const review = input.latestReview?.sourceVersionId === reviewVersion ? input.latestReview : undefined
   const coverageComplete = saved && chapter.contentReviewSignature === signature
@@ -103,6 +103,35 @@ export function deriveChapterWorkflow(input: ChapterWorkflowInput): ChapterWorkf
   if (status !== 'finalized' && !locked) primary = chapter.status === 'completed' && saved ? 'finalize' : 'complete'
 
   return { status, locked, saved, length, reviewCurrent, coverage, blockers, openFindings, pendingCandidates, gate, primary }
+}
+
+export function selectChapterPendingCanon(novelId: string, chapterId: string, content: string, candidates: readonly CandidateChange[]) {
+  const version = buildAnalysisSourceVersionId(content)
+  return candidates.filter(candidate => candidate.chapterId === chapterId && (!candidate.novelId || candidate.novelId === novelId)
+    && isCurrentPendingCandidate(candidate, version))
+}
+
+export function chapterPendingCanonRoute(novelId: string, chapterId: string) {
+  return { name: 'V3Write', params: { novelId, chapterId }, query: { tab: 'candidate' } } as const
+}
+
+/** Returns an optional reminder, independent of the chapter's completion gates. */
+export function deriveChapterPendingCanon(novelId: string, chapter: Pick<Chapter, 'id' | 'content'>,
+  candidates: readonly CandidateChange[], label: '本章' | '上一章' = '本章') {
+  const counts = summarizePendingCanon(selectChapterPendingCanon(novelId, chapter.id, chapter.content, candidates))
+  return { ...counts, chapterId: chapter.id, route: counts.total ? chapterPendingCanonRoute(novelId, chapter.id) : null,
+    summary: counts.total ? `${label}还有 ${counts.total} 条${counts.byType.map(group => group.label).join('/')}变化未确认入典。确认后，AI 可在后续写作中参考。` : '' }
+}
+
+export function derivePreviousChapterPendingCanon(novel: Pick<Novel, 'id' | 'chapters'>, currentChapterId: string,
+  candidates: readonly CandidateChange[]) {
+  const current = novel.chapters.find(chapter => chapter.id === currentChapterId)
+  if (!current) return null
+  let previous: Chapter | undefined
+  for (const chapter of novel.chapters) {
+    if (chapter.chapterIndex < current.chapterIndex && (!previous || chapter.chapterIndex > previous.chapterIndex)) previous = chapter
+  }
+  return previous ? deriveChapterPendingCanon(novel.id, previous, candidates, '上一章') : null
 }
 
 /** 目录树的状态点颜色 */

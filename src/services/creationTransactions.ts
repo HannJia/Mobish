@@ -28,7 +28,7 @@ export type CreationEdit =
 function semantic(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(semantic)
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value)
-    .filter(([key]) => key !== 'updatedAt' && key !== 'cardConfirmations').map(([key, item]) => [key, semantic(item)]))
+    .filter(([key]) => key !== 'updatedAt' && key !== 'cardConfirmations' && key !== 'cardHistory').map(([key, item]) => [key, semantic(item)]))
   return value
 }
 
@@ -48,7 +48,7 @@ function confirmedCreationDirectionSignature(draft?: CreationDraft): string {
 /** Capture at form-open/request time, not when a delayed result is about to save. */
 export function captureCreationBaseline(novel: Novel, draft?: CreationDraft): string {
   // Checkpoints do not rebase an open form or a paid request. Candidate content does.
-  const editing = draft ? { ...draft, editorDrafts: undefined, skeletonAttempts: undefined, skeletonHistory: undefined, editingSkeletonId: undefined, sceneRecovery: undefined } : undefined
+  const editing = draft ? { ...draft, editorDrafts: undefined, skeletonAttempts: undefined, skeletonHistory: undefined, editingSkeletonId: undefined, sceneRecovery: undefined, lastSurface: undefined } : undefined
   return JSON.stringify([captureStoryContextBaseline(novel), editing, novel.characters, novel.eventLog, novel.chapterPlans])
 }
 
@@ -75,6 +75,7 @@ export function applyCreationEdit(aggregate: StoryAggregate, edit: CreationEdit,
     fields = ['creationDraft']
   } else if (edit.action === 'contract') {
     draft = edit.confirm ? confirmStoryContract(draft, edit.contract, now) : reviseStoryContract(draft, edit.contract, now)
+    draft = { ...draft, lastSurface: edit.confirm ? 'skeleton' : 'contract' }
     if (edit.confirm) editNovelContextWithImpact(aggregate, { updates: { title: draft.contract.title.trim() }, fields: ['title'] }, now, id)
     fields = ['creationDraft.contract']
   } else if (edit.action === 'skeleton') {
@@ -114,7 +115,7 @@ export function applyCreationEdit(aggregate: StoryAggregate, edit: CreationEdit,
       bindImportedOutline = confirmed.outlineCandidate?.source === 'author'
         && (confirmed.outlineCandidate.skeletonId === confirmed.selectedSkeletonId
           || !initialDraft?.selectedSkeletonId && !confirmed.outlineCandidate.skeletonId)
-      draft = saveSkeletonRevision(confirmed, confirmed.skeletons.find(item => item.id === confirmed.selectedSkeletonId)!, 'confirmed', now, id)
+      draft = { ...saveSkeletonRevision(confirmed, confirmed.skeletons.find(item => item.id === confirmed.selectedSkeletonId)!, 'confirmed', now, id), lastSurface: 'outline' }
     }
     fields = ['creationDraft.skeletons']
   } else if (edit.action === 'skeleton-candidates') {
@@ -135,7 +136,7 @@ export function applyCreationEdit(aggregate: StoryAggregate, edit: CreationEdit,
     if (draft.contract.approval !== 'approved' || draft.approval.contract !== 'approved') throw new Error('请先确认作品契约')
     if (edit.source === 'model') buildConfirmedSkeletonConstraint(draft)
     if (edit.importSkeleton) draft = saveSkeletonRevision(draft, { ...buildPlotSkeletonFromOutline(novel, content, now), id: id() }, 'import', now, id)
-    draft = { ...draft, outlineCandidate: { content, source: edit.source, complete: edit.complete ?? true,
+    draft = { ...draft, lastSurface: edit.importSkeleton ? 'skeleton' : 'outline', outlineCandidate: { content, source: edit.source, complete: edit.complete ?? true,
       skeletonId: edit.importSkeleton ? draft.editingSkeletonId : draft.selectedSkeletonId, contextBaseline: captureStoryContextBaseline(novel),
       directionSignature: creationDirectionSignature(draft), updatedAt: now }, updatedAt: now }
     fields = ['creationDraft.outlineCandidate']
@@ -152,13 +153,15 @@ export function applyCreationEdit(aggregate: StoryAggregate, edit: CreationEdit,
     if (candidate && (candidate.contextBaseline !== captureStoryContextBaseline(novel)
       || candidate.directionSignature !== creationDirectionSignature(draft))) throw new Error('大纲候选的来源设定或故事方向已经变化，请重新生成或编辑核对后保存')
     if (candidate?.skeletonId && candidate.skeletonId !== draft.selectedSkeletonId) throw new Error('请先确认这份大纲对应的故事骨架，或核对当前方向后重新保存大纲')
-    const imported = buildCreationOutlineImport(novel, content)
+    const beats = draft.skeletons.find(item => item.id === draft.selectedSkeletonId)?.beats || []
+    const imported = buildCreationOutlineImport(novel, content, beats.map(item => item.id))
     workspace.creationDraft = draft
     editNovelContextWithImpact(aggregate, { updates: { title: draft.contract.title.trim(), outline: content }, fields: ['title', 'outline'] }, now, id)
     if (imported.definitions.length) editDefinitionsWithImpact(aggregate, imported.definitions, now, id)
     if (imported.volumes.length) editVolumeCollectionWithImpact(aggregate, imported.volumes, JSON.stringify(novel.volumes), now, id)
     draft = syncCreationDraftPlanning(workspace.creationDraft!, novel, now)
     draft.acceptedOutline = { contentSignature: buildAnalysisSourceVersionId(content), directionSignature: creationDirectionSignature(draft), confirmedAt: now }
+    draft.lastSurface = 'volumes'
     delete draft.outlineCandidate
     if (novel.status !== 'writing') { novel.status = 'writing'; fields.push('status') }
     fields.push('creationDraft.outlineCandidate')
@@ -166,6 +169,7 @@ export function applyCreationEdit(aggregate: StoryAggregate, edit: CreationEdit,
 
   if (JSON.stringify(semantic(initialDraft)) === JSON.stringify(semantic(draft))
     && JSON.stringify(initialDraft?.contract.cardConfirmations) === JSON.stringify(draft.contract.cardConfirmations)
+    && JSON.stringify(initialDraft?.contract.cardHistory) === JSON.stringify(draft.contract.cardHistory)
     && initialNovel === JSON.stringify(novel)) return false
   workspace.creationDraft = draft
   const reports = (workspace.impactReports || []).splice(reportStart)

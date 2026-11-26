@@ -7,6 +7,7 @@ import { knowledgeBreakdownSource, makeBreakdownSource, openingSections } from '
 import { useBookBreakdownStore } from './bookBreakdown'
 import { useKnowledgeStore } from './knowledge'
 import type { KBEntry, KnowledgeBase } from '@/types/knowledge'
+import { BREAKDOWN_REQUEST_TIMEOUT_MS } from '@/services/bookBreakdownAnalysis'
 
 vi.mock('@/services/ai', () => ({ callAI: vi.fn() }))
 vi.mock('./config', () => {
@@ -72,6 +73,27 @@ describe('independent breakdown checkpoints', () => {
     const next = await store.refreshSource(edited, sourceOf('门已经关上。'))
     expect(next.units.map(unit => unit.cards?.length)).toEqual([0, undefined, undefined])
     expect(next.archive[0]).toMatchObject({ version: source.version, card: { interpretation: edit.interpretation, edited: true } })
+  })
+
+  it('charges a timed-out request once and resumes only the unfinished chapter after reopening', async () => {
+    const source = sourceOf('原稿还在。')
+    const store = useBookBreakdownStore()
+    const created = await store.create(source, 'opening', openingSections(source), null, '节奏', 2, 9000)
+    vi.mocked(callAI).mockResolvedValueOnce(response('原稿还在。')).mockRejectedValueOnce(new Error('请求超时（240秒）'))
+    await store.resume(created, 2, 9000)
+    const failed = store.jobs.find(job => job.id === created.id)!
+    expect(failed).toMatchObject({ status: 'failed', attempts: 2, error: '请求超时（240秒）' })
+    expect(failed.usage.charged).toBeGreaterThan(50)
+    expect(callAI).toHaveBeenLastCalledWith(expect.objectContaining({ timeoutMs: BREAKDOWN_REQUEST_TIMEOUT_MS, noAutomaticRetry: true }))
+    await store.editCard(failed, { ...failed.units[0].cards![0], interpretation: '作者校订' })
+    setActivePinia(createPinia())
+    const reopened = useBookBreakdownStore()
+    await reopened.initialize()
+    await reopened.resume(reopened.jobs.find(job => job.id === created.id)!, 3, 9000)
+    const completed = reopened.jobs.find(job => job.id === created.id)!
+    expect(completed).toMatchObject({ status: 'complete', attempts: 3 })
+    expect(completed.units[0].cards![0]).toMatchObject({ interpretation: '作者校订', edited: true })
+    expect(callAI).toHaveBeenCalledTimes(3)
   })
 
   it('rechecks the shared knowledge visibility after an earlier request finishes', async () => {

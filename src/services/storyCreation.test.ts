@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createPinia, disposePinia, setActivePinia } from 'pinia'
 import type { CreateWizardForm } from '@/types/novel'
+import type { StoryContract } from '@/types/reconstruction'
 
 // 这些用例做真实的磁盘写入（含 fsync）和子进程调用；全量测试并行时可能超过默认 5 秒。
 // 放宽为 30 秒，只作卡死保护，不是性能指标。
@@ -72,6 +73,74 @@ describe.each(['sql', 'kernel'] as const)('initial story creation (%s)', backend
     return { genre: 'urban', subGenre: 'business', tags: ['经商'], targetWordCountMin: 80, targetWordCountMax: 100,
       writingMode: 'manual', knowledgeEnabled: false, knowledgeBaseIds: [], writingStyle: novels.defaultWritingStyle(), settings: novels.defaultSettings() }
   }
+
+  it.each([
+    ['empty', undefined, undefined],
+    ['label', { label: '1992 年开篇' }, undefined],
+    ['zero', { day: 0 }, 0],
+    ['day', { day: 12.5, label: '抵达渡口' }, 12.5],
+  ] as const)('reopens an independently specified story origin (%s)', async (label, origin, day) => {
+    const { prepareStoryCreation } = await import('./storyCreation')
+    const now = '2026-11-26T00:00:00.000Z'
+    const prepared = prepareStoryCreation({ ...form(), storyTimeOrigin: origin }, [], 'inspiration', now, 'origin-' + label)
+    await workspace.persistInitialCreation(prepared.novel, prepared.workspace)
+    const saved = await repository.readStoryAggregate(prepared.novel.id)
+    expect(saved.novel?.storyClock?.origin?.day).toBe(day)
+    expect(saved.workspace.creationDraft?.contract.storyTimeOrigin?.day).toBe(day)
+    if (origin && 'label' in origin) expect(saved.workspace.creationDraft?.contract.storyTimeOrigin?.label).toBe(origin.label)
+    if (label === 'label') expect(saved.novel?.storyClock?.pendingOriginLabel).toBe('1992 年开篇')
+    if (!origin) expect(saved.novel?.storyClock).toBeUndefined()
+  })
+
+  it('reopens the confirmed contract at the skeleton step and persists later steps by novel', async () => {
+    const { prepareStoryCreation } = await import('./storyCreation')
+    const { contractCards, toggleContractCard } = await import('./storyContract')
+    const { shelfBookPath } = await import('@/v3/selectors/shelf')
+    const now = '2026-11-26T00:00:00.000Z'
+    const prepared = prepareStoryCreation(form(), [], 'blank', now, 'resume-story')
+    await workspace.persistInitialCreation(prepared.novel, prepared.workspace)
+    novels.publishCreatedNovel(prepared.novel)
+    workspace.publishCreatedWorkspace(prepared.novel.id, prepared.workspace)
+    const id = prepared.novel.id
+    const contract = contractCards.reduce<StoryContract>((value, card) => toggleContractCard(value, card.id, now), {
+      ...prepared.workspace.creationDraft!.contract, title: '渡口', genre: '悬疑', centralConflict: '寻找灯盏',
+    })
+    await workspace.commitCreationEdit(id, { action: 'contract', contract, confirm: true }, workspace.captureCreationEditBaseline(id))
+    workspace.clearNovel(id)
+    await workspace.hydrateFromPersistence(id)
+    expect(shelfBookPath(novels.getNovel(id)!)).toBe('/generate/resume-story')
+    expect(workspace.getCreationSurface(id)).toBe('skeleton')
+    expect(workspace.getCreationDraft(id)?.contract).toMatchObject({ title: '渡口', approval: 'approved' })
+    await workspace.saveCreationSurface(id, 'contract')
+    workspace.clearNovel(id)
+    await workspace.hydrateFromPersistence(id)
+    expect(workspace.getCreationSurface(id)).toBe('contract')
+    expect(workspace.getCreationDraft(existingId)?.lastSurface).toBeUndefined()
+    const commit = (edit: import('./creationTransactions').CreationEdit) =>
+      workspace.commitCreationEdit(id, edit, workspace.captureCreationEditBaseline(id))
+    const content = '## 第一卷《渡口》\n预估章节数：4章\n承担的骨架节点：beat-a'
+    await commit({ action: 'skeleton-candidates', candidates: [{
+      id: 'direction-a', title: '灯归渡口', premise: '寻找灯盏', logline: '夺回灯盏', promise: '追查失踪案',
+      ending: '归还灯盏', approval: 'draft', updatedAt: now, beats: [
+        { id: 'beat-a', kind: 'opening', title: '发现灯盏', description: '在渡口见到碎灯', relatedCharacterIds: [], relatedPlotlineIds: [] },
+        { id: 'beat-b', kind: 'turning_point', title: '追查灯主', description: '循账本寻找灯主', relatedCharacterIds: [], relatedPlotlineIds: [] },
+        { id: 'beat-c', kind: 'climax', title: '归还灯盏', description: '夺回并归还灯盏', relatedCharacterIds: [], relatedPlotlineIds: [] },
+      ],
+    }] })
+    await commit({ action: 'confirm-skeleton' })
+    await commit({ action: 'outline-candidate', source: 'author', content })
+    workspace.clearNovel(id)
+    await workspace.hydrateFromPersistence(id)
+    expect(workspace.getCreationSurface(id)).toBe('outline')
+    expect(workspace.getCreationDraft(id)?.outlineCandidate?.content).toBe(content)
+    await commit({ action: 'accept-outline', content })
+    workspace.clearNovel(id)
+    await workspace.hydrateFromPersistence(id)
+    expect(workspace.getCreationSurface(id)).toBe('volumes')
+    const saved = await repository.readStoryAggregate(id)
+    expect(saved.novel?.volumes[0]).toMatchObject({ title: '渡口', sourceVolumeNumber: 1, skeletonBeatIds: ['beat-a'] })
+    expect(shelfBookPath(saved.novel!)).toBe('/generate/resume-story')
+  })
 
   it('rolls back without publishing, retries the same aggregate, reloads it, and preserves other novels', async () => {
     const { prepareStoryCreation } = await import('./storyCreation')

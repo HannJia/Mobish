@@ -78,6 +78,16 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     return kb
   }
 
+  function renameKB(id: string, name: string, description?: string): boolean {
+    const trimmed = name.trim()
+    const kb = getKB(id)
+    if (!trimmed || !kb || knowledgeBases.value.some(base => base.id !== id && base.name.trim() === trimmed)) return false
+    kb.name = trimmed
+    if (description !== undefined) kb.description = description
+    persistence.markDirty(id)
+    return true
+  }
+
   async function saveEntrySummary(kbId: string, entryId: string, expectedSourceVersion: string, expectedSummaryVersion: string,
     summary: string, origin: KnowledgeSummarySource['origin'] = 'author', coverage?: KnowledgeSummaryCoverage): Promise<void> {
     await persistence.transact(kbId, async draft => {
@@ -224,7 +234,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     flushPendingSaves,
     adoptImportedKnowledgeBases,
     saveError, saving, hasPendingSaves,
-    createKB, deleteKB, getKB,
+    createKB, renameKB, deleteKB, getKB,
     saveEntrySummary, saveBaseSummary,
     addEntry, updateEntry, deleteEntry, mergeEntries,
     importFromText, getRelevantEntries,

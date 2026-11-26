@@ -1,9 +1,17 @@
 import type { CreationDraft, ScenePlan } from '@/types/reconstruction'
-import type { ScenePlanningRecovery, SceneRecoveryEdit } from '@/types/planningRecovery'
+import type { CreationSurface, ScenePlanningRecovery, SceneRecoveryEdit } from '@/types/planningRecovery'
 import { assertScenePlanningRecovery } from './planningRecoveryValidation'
 
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+
+export function resolveCreationSurface(draft?: CreationDraft): CreationSurface {
+  if (!draft || draft.approval.contract !== 'approved' || draft.contract.approval !== 'approved') return 'contract'
+  if (draft.lastSurface === 'contract' || draft.lastSurface === 'skeleton') return draft.lastSurface
+  if (draft.approval.skeleton !== 'approved') return 'skeleton'
+  if (!draft.acceptedOutline || draft.lastSurface === 'outline') return 'outline'
+  return draft.stage === 'ready' && draft.lastSurface !== 'volumes' ? 'ready' : 'volumes'
+}
 export function sceneRecovery(draft?: CreationDraft): ScenePlanningRecovery {
   return draft?.sceneRecovery || { editors: [], options: [], revisions: [], attempts: [], selections: [] }
 }

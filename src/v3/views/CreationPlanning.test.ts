@@ -25,7 +25,7 @@ function setup(confirmed = true) {
 it('only presents readiness after the saved planning confirmation', () => {
   const { wrapper } = setup(false)
   expect(wrapper.find('.ready-card').exists()).toBe(false)
-  expect(wrapper.get('.planning-actions button').attributes('disabled')).toBeDefined()
+  expect(wrapper.get('.planning-footer [role="status"]').text()).toBe('还没有分卷规划')
   wrapper.unmount()
 })
 it('retains one empty chapter after a failed save and reuses it on retry', async () => {

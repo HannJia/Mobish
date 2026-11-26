@@ -5,14 +5,16 @@ const os = require('node:os')
 const http = require('node:http')
 const crypto = require('node:crypto')
 const { spawn } = require('node:child_process')
-const { app } = require('electron')
+const { app, net } = require('electron')
 const { NsisUpdater } = require('electron-updater')
 const { ElectronHttpExecutor } = require('electron-updater/out/electronHttpExecutor')
-const { validateManifest } = require('../app-main/updater.cjs')
+const { createUpdateController, validateManifest } = require('../app-main/updater.cjs')
+const { createElectronUpdateFetch, createUpdateTransport, verifyDownloadedFile } = require('../app-main/updateTransport.cjs')
 
 async function main() {
   const directory = process.env.AI_NOVEL_UPDATE_TEST_DIR
   if (!directory) throw new Error('Missing isolated test directory')
+  app.disableHardwareAcceleration()
   app.setPath('userData', directory)
   const payload = Buffer.from('NON_EXECUTABLE_UPDATE_DOWNLOAD_TEST\n'.repeat(2048))
   const sha512 = crypto.createHash('sha512').update(payload).digest('base64')
@@ -20,7 +22,51 @@ async function main() {
   let downloads = 0
   const filename = 'mobish-1.0.3.exe'
   const metadata = { version: '1.0.3', files: [{ url: filename, size: payload.length, sha512 }] }
+  const requests = []
+  let foreignRequests = 0
+  const foreign = http.createServer((_request, response) => { foreignRequests++; response.end() })
+  await new Promise(resolve => foreign.listen(0, '127.0.0.1', resolve))
+  let startDownload
   const server = http.createServer((request, response) => {
+    requests.push(request.url)
+    const [, source, scenario, file] = request.url.split('/')
+    if (['github', 'gitee'].includes(source)) {
+      if (file === 'latest.yml') {
+        if (source === 'github' && scenario === 'manifest') { response.writeHead(404).end(); return }
+        if (source === 'github' && scenario === 'manifest-timeout') {
+          response.writeHead(200)
+          response.write('{')
+          return
+        }
+        if (source === 'gitee') {
+          response.writeHead(302, { Location: '/mirror-manifest' }).end()
+          return
+        }
+        response.end(JSON.stringify(metadata))
+        return
+      }
+      if (file === filename) {
+        if (source === 'github') {
+          if (scenario === 'failed' || scenario === 'both-fail') { response.writeHead(503).end(); return }
+          if (scenario === 'redirect') {
+            response.writeHead(302, { Location: `http://127.0.0.1:${foreign.address().port}/payload` }).end()
+            return
+          }
+          if (scenario === 'stalled' || scenario === 'cancelled') {
+            response.writeHead(200)
+            response.write(payload.subarray(0, 1))
+            startDownload?.()
+            return
+          }
+          if (scenario === 'size') { response.end(payload.subarray(0, -1)); return }
+          if (scenario === 'checksum') { response.end(Buffer.alloc(payload.length, 1)); return }
+        }
+        if (scenario === 'both-fail') { response.writeHead(503).end(); return }
+        response.end(payload)
+        return
+      }
+    }
+    if (request.url === '/mirror-manifest') { response.end(JSON.stringify(metadata)); return }
     if (request.url.startsWith('/latest.yml')) {
       response.setHeader('Content-Type', 'application/json')
       response.end(JSON.stringify(metadata))
@@ -35,8 +81,7 @@ async function main() {
   const url = `http://127.0.0.1:${server.address().port}/`
   try {
     await app.whenReady()
-    for (const test of ['valid', 'tampered']) {
-      corrupt = test === 'tampered'
+    async function makeUpdater(test) {
       const cache = path.join(directory, test)
       await fs.mkdir(cache)
       const config = path.join(cache, 'app-update.yml')
@@ -48,8 +93,13 @@ async function main() {
         onQuit: () => assert.fail('Automatic install on quit must remain disabled'),
       }
       const updater = new NsisUpdater(undefined, adapter)
-      updater.httpExecutor = new ElectronHttpExecutor()
       updater.logger = null
+      return updater
+    }
+    for (const test of ['valid', 'tampered']) {
+      corrupt = test === 'tampered'
+      const updater = await makeUpdater(test)
+      updater.httpExecutor = new ElectronHttpExecutor()
       updater.autoDownload = false
       updater.autoInstallOnAppQuit = false
       updater.disableWebInstaller = true
@@ -68,15 +118,68 @@ async function main() {
       }
       console.log(`UPDATE_DOWNLOAD_SMOKE ${test}: passed`)
     }
+    for (const scenario of ['github', 'manifest', 'manifest-timeout', 'failed', 'checksum', 'size', 'stalled', 'redirect', 'both-fail', 'cancelled']) {
+      const updater = await makeUpdater(scenario)
+      const release = { tag_name: 'v1.0.3', assets: [
+        { name: filename, state: 'uploaded', size: payload.length },
+        { name: 'latest.yml', state: 'uploaded', size: 200 },
+      ] }
+      const controller = createUpdateController({
+        supported: true, autoCheck: false, currentVersion: '1.0.2',
+        fetchLatest: async () => release, fetchGitee: async (_signal, tag) => {
+          assert.equal(tag, 'v1.0.3')
+          return release
+        },
+        getUpdater: () => updater,
+        makeTransport: (candidate, signal) => {
+          // The transport still validates the exact URL the updater resolves.
+          const feedUrl = `${url}${candidate.source}/${scenario}/`
+          const setFeedURL = updater.setFeedURL.bind(updater)
+          updater.setFeedURL = options => {
+            updater.setFeedURL = setFeedURL
+            setFeedURL({ ...options, url: feedUrl })
+          }
+          return createUpdateTransport({ ...candidate, feedUrl }, {
+            testOrigin: new URL(url).origin, metadataSignal: signal, manifestTimeoutMs: 500, stallTimeoutMs: 500,
+            fetchImpl: createElectronUpdateFetch(net),
+          })
+        },
+        verifyDownload: verifyDownloadedFile, publish: () => {},
+        prepareInstall: () => assert.fail('Test must not prepare to install'),
+      })
+      requests.length = 0
+      assert.equal((await controller.check()).phase, 'available')
+      if (scenario === 'cancelled') startDownload = () => controller.cancel()
+      const state = await controller.download()
+      startDownload = undefined
+      if (scenario === 'cancelled' || scenario === 'both-fail') {
+        assert.equal(state.phase, scenario === 'cancelled' ? 'idle' : 'error')
+        assert.deepEqual(await fs.readdir(updater.downloadedUpdateHelper.cacheDirForPendingUpdate), [])
+      } else {
+        assert.equal(state.phase, 'downloaded', state.error)
+        assert.equal(new URL(state.release.url).hostname, scenario === 'github' ? 'github.com' : 'gitee.com')
+        assert.deepEqual(await fs.readFile(updater.downloadedUpdateHelper.file), payload)
+        const pending = await fs.readdir(updater.downloadedUpdateHelper.cacheDirForPendingUpdate)
+        assert.deepEqual(pending.sort(), [filename, 'update-info.json'].sort())
+      }
+      if (['github', 'cancelled'].includes(scenario)) assert.ok(!requests.some(url => url.startsWith('/gitee/')))
+      else assert.ok(requests.includes(`/gitee/${scenario}/latest.yml`))
+      assert.equal(foreignRequests, 0)
+      controller.dispose()
+      console.log(`UPDATE_DOWNLOAD_SMOKE ${scenario}: passed`)
+    }
   } finally {
+    server.closeAllConnections()
+    foreign.closeAllConnections()
     await new Promise(resolve => server.close(resolve))
+    await new Promise(resolve => foreign.close(resolve))
   }
 }
 
 async function runIsolated() {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'novel-update-smoke-'))
   try {
-    const child = spawn(require('electron'), [__filename], {
+    const child = spawn(require('electron'), ['--disable-gpu', '--disable-software-rasterizer', '--in-process-gpu', __filename], {
       env: { ...process.env, AI_NOVEL_UPDATE_TEST_DIR: directory }, stdio: 'inherit', windowsHide: true,
     })
     const code = await new Promise((resolve, reject) => {

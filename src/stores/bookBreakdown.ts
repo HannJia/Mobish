@@ -2,7 +2,7 @@ import { computed, ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import { callAI } from '@/services/ai'
 import {
-  accumulateBreakdownUsage, BREAKDOWN_OUTPUT_TOKENS, breakdownPartMessages, breakdownReportInput, breakdownRequestEstimate,
+  accumulateBreakdownUsage, BREAKDOWN_OUTPUT_TOKENS, BREAKDOWN_REQUEST_TIMEOUT_MS, breakdownPartMessages, breakdownReportInput, breakdownRequestEstimate,
   breakdownUsage, EMPTY_BREAKDOWN_USAGE, parseBreakdownCards, parseBreakdownPart, relocateBreakdownCards,
   type BreakdownCard, type BreakdownJob, type BreakdownScope,
 } from '@/services/bookBreakdownAnalysis'
@@ -164,8 +164,9 @@ export const useBookBreakdownStore = defineStore('bookBreakdown', () => {
         job = await save({ ...job, attempts: job.attempts + 1, usage: accumulateBreakdownUsage(job.usage, estimate) })
         assertSourceVersion(job)
         signal.throwIfAborted()
-        const result = await callAI({ model: selectedModelSnapshot, messages, signal, maxTokens: BREAKDOWN_OUTPUT_TOKENS,
+        const result = await callAI({ model: selectedModelSnapshot, messages, signal, maxTokens: BREAKDOWN_OUTPUT_TOKENS, timeoutMs: BREAKDOWN_REQUEST_TIMEOUT_MS,
           taskName: '拆书 · ' + job.title, noAutomaticRetry: true, disableThinking: true })
+        signal.throwIfAborted()
         const usage = breakdownUsage(result, estimate)
         const settled = { ...job, usage: accumulateBreakdownUsage(previousUsage, usage) }
         try {

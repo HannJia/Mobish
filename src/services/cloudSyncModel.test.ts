@@ -4,6 +4,9 @@ import { useNovelStore } from '@/stores/novel'
 import { createTestProjectBackup as createProjectBackup, plannedProjectWorkspace } from '@/test/projectBackupFixture'
 import { canonicalJson, decideSync, hashPayload, mergeCloudDocuments, normalizeSyncEndpoint, parseCloudDocument, projectDocuments } from './cloudSyncModel'
 import { parseInspirationSession } from './inspirationSessions'
+import { contractCards, parseContractExploration, toggleContractCard } from './storyContract'
+import { characterStateFixture } from '@/test/characterStateFixture'
+import { recordDataPanelReference } from './dataPanelReference'
 
 function book() {
   const store = useNovelStore()
@@ -13,6 +16,51 @@ function book() {
 beforeEach(() => setActivePinia(createPinia()))
 
 describe('云同步文档与冲突判断', () => {
+  it('preserves panel bindings and their revisions when serializing and merging cloud projects', () => {
+    const { novel } = characterStateFixture()
+    const { createdAt } = novel
+    const panel = { id: 'bound-panel', category: '角色' as const, name: '修炼册', characterId: novel.characters[0].id,
+      fields: [], relatedKeywords: [], createdAt, updatedAt: createdAt }
+    recordDataPanelReference(panel, undefined, { kind: 'author' }, createdAt, 'bound-panel-revision')
+    novel.dataPanels = [panel]
+    const key = 'novel:' + novel.id
+    const payload = projectDocuments(createProjectBackup([novel], [])).get(key)!
+    const decoded = parseCloudDocument(key, payload)
+    expect(decoded).toMatchObject({ novel: { dataPanels: [panel] } })
+    const merged = mergeCloudDocuments(createProjectBackup([], []), new Map([[key, payload]]))
+    expect(merged.novels[0].dataPanels).toEqual([panel])
+  })
+  it('keeps the 1.1.0 confirmation and suggestion collections readable while round-tripping ninth-card data', () => {
+    const novel = book()
+    const workspace = plannedProjectWorkspace(novel)
+    const draft = workspace.creationDraft!
+    const now = '2026-11-26T00:00:00.000Z'
+    const contract = contractCards.reduce((value, card) => toggleContractCard(value, card.id, now), {
+      ...draft.contract, cardConfirmations: undefined,
+    } as typeof draft.contract)
+    draft.contract = contract
+    draft.lastSurface = 'outline'
+    const { reply, suggestions } = parseContractExploration(JSON.stringify({ reply: '可选方向', suggestions: [
+      { cardId: 'romance', values: { romanceDirection: '慢热' } },
+      { cardId: 'romance', values: { romanceDirection: '无感情线' } },
+      { cardId: 'ending', values: { endingDirection: '归乡' } },
+    ] }), contract)
+    draft.editorDrafts = [{ id: 'editor', baseline: 'baseline', surface: 'contract', contract, manualOutline: '', outlineText: '',
+      updatedAt: now, exploration: { input: '', messages: [{ id: 'assistant', role: 'assistant', content: reply, reply, suggestions, status: 'completed' }] } }]
+    const key = 'novel:' + novel.id
+    const payload = projectDocuments(createProjectBackup([novel], [], [], [], [workspace])).get(key)!
+    const wireWorkspace = JSON.parse(payload).reconstructionWorkspace
+    const wire = wireWorkspace.creationDraft
+    expect(wire.contract.cardConfirmations).toHaveLength(8)
+    expect(wire.contract.cardConfirmations.map((item: { cardId: string }) => item.cardId)).not.toContain('ending')
+    expect(wire.contract).not.toHaveProperty('cardHistory')
+    expect(wire).not.toHaveProperty('lastSurface')
+    expect(wire.editorDrafts[0].exploration.messages[0].suggestions.map((item: { cardId: string }) => item.cardId)).toEqual(['romance'])
+    const restored = parseCloudDocument(key, payload)
+    expect(restored).toMatchObject({ reconstructionWorkspace: { creationDraft: { lastSurface: 'outline',
+      contract: { cardHistory: contract.cardHistory, cardConfirmations: expect.arrayContaining(contract.cardConfirmations!) },
+      editorDrafts: [{ exploration: { messages: [{ reply, suggestions }] } }] } } })
+  })
   it('keeps cloud hashes stable when reopened storage materializes default false flags', async () => {
     const novel = book()
     delete novel.chapterPlanConfirmed

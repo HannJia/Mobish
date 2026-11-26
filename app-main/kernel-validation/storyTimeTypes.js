@@ -108,6 +108,8 @@ function normalizeStoryClock(value, fallbackUpdatedAt) {
         lastChapterIndex: Number.isSafeInteger(raw.lastChapterIndex) ? raw.lastChapterIndex : undefined,
         updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : fallbackUpdatedAt,
         ...(origin ? { origin } : {}), ...(history?.length ? { history } : {}),
+        ...(!origin && typeof raw.pendingOriginLabel === 'string' && raw.pendingOriginLabel.trim()
+            ? { pendingOriginLabel: raw.pendingOriginLabel.trim().slice(0, 200) } : {}),
         ...(history?.length ? { confirmationSequence: history.reduce((max, row) => Math.max(max, row.confirmationOrder), orderValid(raw.confirmationSequence) ? raw.confirmationSequence : 0) }
             : orderValid(raw.confirmationSequence) ? { confirmationSequence: raw.confirmationSequence } : {}) };
 }
@@ -318,14 +320,14 @@ function setStoryTimeOrigin(novel, day, label, now, id) {
     if (!finiteDay(day) || day < 0)
         throw new Error('故事起点必须是有效的非负数字。');
     const clock = novel.storyClock || { currentDay: 0, label: '未确认起点', updatedAt: now };
-    const order = nextOrder(clock), safeDay = Math.round(day * 100) / 100, display = label?.trim() || `第 ${safeDay + 1} 天`;
+    const order = nextOrder(clock), safeDay = Math.round(day * 100) / 100, display = label?.trim() || clock.pendingOriginLabel || `第 ${safeDay + 1} 天`;
     const history = records(clock).map(row => row.boundary === 'origin' && row.status === 'current' ? { ...row, status: 'superseded' } : row);
     const origin = { id: id(), day: safeDay, label: display, confirmedAt: now, source: 'author' };
     const record = { id: origin.id, kind: 'origin', status: 'current', boundary: 'origin', startDay: safeDay, endDay: safeDay,
         elapsedDays: 0, confirmedAt: now, confirmationOrder: order, source: 'author', label: display };
     if (!storyTimeRecordWellFormed(record) || history.some(row => row.id === record.id))
         throw new Error('时间起点记录无效或标识重复。');
-    novel.storyClock = { ...clock, lastChapterIndex: -1, origin, history: [...history, record], confirmationSequence: order, currentDay: safeDay, label: display, updatedAt: now };
+    novel.storyClock = { ...clock, pendingOriginLabel: undefined, lastChapterIndex: -1, origin, history: [...history, record], confirmationSequence: order, currentDay: safeDay, label: display, updatedAt: now };
     invalidateStoryTimeSources(novel);
     return novel.storyClock;
 }

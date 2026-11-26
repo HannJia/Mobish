@@ -5,6 +5,11 @@ import { buildAnalysisSourceVersionId } from '@/services/reconstructionCandidate
 import type { IconName } from '../icons'
 import { areaPath } from '../shell'
 
+export function shelfBookPath(novel: Novel, chapterId?: string): string {
+  return novel.status === 'creating' || (novel.status === 'writing' && !novel.chapters.length)
+    ? '/generate/' + encodeURIComponent(novel.id) : areaPath('write', novel.id, chapterId)
+}
+
 export interface ResumeTarget { novel: Novel; chapter?: Chapter; quote: string }
 
 export function lastParagraph(text: string, max = 64): string {

@@ -4,6 +4,38 @@ import { candidateFieldValues, parseEditableCandidate } from '@/services/candida
 import { memoryCandidateFields } from '@/services/characterMemoryCandidateEditing'
 import { eventCausalityLabels } from '@/services/eventCausalityValidation'
 
+export function isCurrentPendingCandidate(candidate: CandidateChange, sourceVersionId: string): boolean {
+  return (candidate.status === 'proposed' || candidate.status === 'deferred')
+    && (!candidate.sourceVersionId || candidate.sourceVersionId === sourceVersionId)
+}
+
+const pendingCanonLabels = {
+  character: '人物', fact: '事实', state: '人物状态', relationship: '关系', knowledge: '知情状态',
+  foreshadowing: '伏笔', timeline: '时间', plotline: '情节线', event_causality: '因果',
+} satisfies Record<CandidateChange['type'] | 'character', string>
+
+type PendingCanonType = keyof typeof pendingCanonLabels
+
+export function summarizePendingCanon(candidates: readonly CandidateChange[]) {
+  const counts = new Map<PendingCanonType, number>()
+  for (const candidate of new Map(candidates.map(item => [item.id, item])).values()) {
+    let type: PendingCanonType = candidate.type
+    if (type === 'fact') {
+      try {
+        if (parseEditableCandidate(candidate).kind === 'character') type = 'character'
+      } catch {
+        // Keep malformed pending facts visible so the author can review or dismiss them.
+      }
+    }
+    counts.set(type, (counts.get(type) ?? 0) + 1)
+  }
+  const byType = (Object.keys(pendingCanonLabels) as PendingCanonType[]).flatMap(type => {
+    const count = counts.get(type)
+    return count ? [{ type, label: pendingCanonLabels[type], count }] : []
+  })
+  return { total: byType.reduce((total, group) => total + group.count, 0), byType }
+}
+
 export function candidatePreview(candidate: CandidateChange, characters: Character[], events: EventLogEntry[] = []) {
   try {
     const data = parseEditableCandidate(candidate)

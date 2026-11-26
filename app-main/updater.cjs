@@ -2,23 +2,45 @@ const semver = require('semver')
 
 const RELEASES_URL = 'https://github.com/HannJia/mobish/releases'
 const LATEST_API = 'https://api.github.com/repos/HannJia/mobish/releases/latest'
+const GITEE_RELEASES_URL = 'https://gitee.com/hannjia/Mobish/releases'
+const GITEE_API = 'https://gitee.com/api/v5/repos/hannjia/Mobish/releases'
 
-function parseRelease(data, currentVersion, arch = 'x64') {
+function releaseVersion(data) {
   const tag = data?.tag_name
   const version = typeof tag === 'string' && /^v?\d+\.\d+\.\d+$/.test(tag) ? semver.valid(tag) : null
-  if (!version || data.draft || data.prerelease) throw new Error('发布版本号无效，或不是正式版本。')
+  if (!version || (data.draft !== undefined && data.draft !== false)
+    || (data.prerelease !== undefined && data.prerelease !== false)) return null
+  return version
+}
+
+function parseRelease(data, currentVersion, arch = 'x64', source = 'github', expectedTag, giteeStaticBase) {
+  const tag = data?.tag_name
+  const version = releaseVersion(data)
+  if (!version) throw new Error('发布版本号无效，或不是正式版本。')
+  if (expectedTag && tag !== expectedTag) throw new Error('Gitee 备用源尚未提供同一版本的更新文件。')
   if (!semver.gt(version, currentVersion)) return null
   const installer = `mobish-${version}.exe`
   const assets = Array.isArray(data.assets) ? data.assets : []
-  const hasAsset = name => assets.some(asset => asset.name === name && asset.state === 'uploaded' && asset.size > 0)
+  const findAsset = name => assets.find(asset => asset?.name === name && asset.state === 'uploaded'
+    && Number.isSafeInteger(asset.size) && asset.size > 0)
+  const installerAsset = findAsset(installer)
+  const releasesUrl = source === 'gitee' ? GITEE_RELEASES_URL : RELEASES_URL
+  const staticBase = source === 'gitee' && giteeStaticBase ? new URL(giteeStaticBase) : null
+  if (staticBase && (staticBase.protocol !== 'https:' || staticBase.username || staticBase.password
+    || staticBase.search || staticBase.hash || !staticBase.pathname.endsWith('/'))) {
+    throw new Error('Gitee 静态更新地址配置无效。')
+  }
   return {
-    version,
-    url: `${RELEASES_URL}/tag/${tag}`,
-    feedUrl: `${RELEASES_URL}/download/${tag}/`,
+    version, tag, source,
+    url: `${releasesUrl}/tag/${tag}`,
+    feedUrl: staticBase ? new URL(`${tag}/`, staticBase).href : `${releasesUrl}/download/${tag}/`,
+    staticOrigin: staticBase?.origin,
     installer,
+    installerSize: source === 'github' ? installerAsset?.size : undefined,
     notes: typeof data.body === 'string' ? data.body.slice(0, 24000) : '',
-    publishedAt: typeof data.published_at === 'string' ? data.published_at : '',
-    canDownload: arch === 'x64' && hasAsset(installer) && hasAsset('latest.yml'),
+    publishedAt: typeof data.published_at === 'string' ? data.published_at
+      : typeof data.created_at === 'string' ? data.created_at : '',
+    canDownload: arch === 'x64' && (source === 'gitee' || Boolean(installerAsset && findAsset('latest.yml'))),
   }
 }
 
@@ -27,26 +49,31 @@ function validateManifest(info, release) {
     throw new Error('更新清单与发布版本不一致，请稍后重新检查。')
   }
   const file = info.files[0]
-  if (file.url !== release.installer || typeof file.sha512 !== 'string'
-    || !/^[A-Za-z0-9+/]{86}==$/.test(file.sha512) || !(file.size > 0)
-    || info.packages) {
+  if (!file || file.url !== release.installer || typeof file.sha512 !== 'string'
+    || !/^[A-Za-z0-9+/]{86}==$/.test(file.sha512) || !Number.isSafeInteger(file.size) || file.size <= 0
+    || (release.installerSize !== undefined && file.size !== release.installerSize)
+    || (info.path !== undefined && info.path !== file.url)
+    || (info.sha512 !== undefined && info.sha512 !== file.sha512) || info.packages) {
     throw new Error('更新清单缺少有效校验信息，或包含不受支持的安装地址。')
   }
 }
 
 function publicRelease(release) {
   if (!release) return null
-  const { feedUrl: _feedUrl, installer: _installer, ...visible } = release
+  const { feedUrl, installer, installerSize, tag, source, staticOrigin, ...visible } = release
   return visible
 }
 
 function createUpdateController(options) {
   const { supported, currentVersion, fetchLatest, getUpdater, publish, prepareInstall,
-    allowQuit, savePreference, openExternal, arch = 'x64' } = options
+    allowQuit, savePreference, openExternal, fetchGitee, giteeStaticBase, makeTransport,
+    verifyDownload, checkTimeoutMs = 15000, arch = 'x64' } = options
   let release = null
   let updater = null
   let operation = null
   let downloadToken = null
+  let downloadAbort = null
+  let installerManifest = null
   let ready = false
   let cancelled = false
   let startupTimer = null
@@ -107,6 +134,46 @@ function createUpdateController(options) {
     operation = Promise.resolve().then(work).finally(() => { operation = null })
     return operation
   }
+  async function lookup(fetchRelease, tag, signal) {
+    if (!fetchRelease) throw new Error('备用更新源不可用。')
+    const timeout = new AbortController()
+    const timer = setTimeout(() => timeout.abort(new Error('检查更新超时。')), checkTimeoutMs)
+    const combined = signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal
+    let rejectAbort
+    const onAbort = () => rejectAbort(combined.reason)
+    try {
+      combined.throwIfAborted()
+      return await Promise.race([
+        new Promise((_resolve, reject) => {
+          rejectAbort = reject
+          combined.addEventListener('abort', onAbort, { once: true })
+        }),
+        fetchRelease(combined, tag),
+      ])
+    } finally {
+      clearTimeout(timer)
+      combined.removeEventListener('abort', onAbort)
+    }
+  }
+  async function prepareRelease(candidate, signal) {
+    if (!candidate?.canDownload) throw new Error('发布版缺少更新清单或安装包。')
+    const client = ensureUpdater()
+    const transport = makeTransport?.(candidate, signal)
+    if (transport) client.httpExecutor = transport
+    client.setFeedURL({ provider: 'generic', url: candidate.feedUrl, useMultipleRangeRequest: false })
+    const result = await client.checkForUpdates()
+    signal?.throwIfAborted()
+    validateManifest(result?.updateInfo, candidate)
+    if (!result.cancellationToken) throw new Error('当前系统无法安装此更新。')
+    installerManifest = result.updateInfo.files[0]
+    transport?.setManifest(installerManifest)
+    downloadToken = result.cancellationToken
+    ready = true
+  }
+  async function lookupGitee(tag, signal) {
+    const data = await lookup(fetchGitee, tag, signal)
+    return parseRelease(data, currentVersion, arch, 'gitee', tag, giteeStaticBase)
+  }
   async function check() {
     if (disposed || !supported || ['downloaded', 'installing', 'downloading'].includes(state.phase)) return snapshot()
     await exclusive(async () => {
@@ -116,16 +183,19 @@ function createUpdateController(options) {
       set({ phase: 'checking', error: '' })
       ready = false
       release = null
+      downloadToken = null
       try {
-        release = parseRelease(await fetchLatest(), currentVersion, arch)
-        if (release?.canDownload) {
-          const client = ensureUpdater()
-          // Pin metadata and payload to the exact release inspected above.
-          client.setFeedURL({ provider: 'generic', url: release.feedUrl, useMultipleRangeRequest: false })
-          const result = await client.checkForUpdates()
-          validateManifest(result?.updateInfo, release)
-          downloadToken = result.cancellationToken
-          ready = true
+        try {
+          release = parseRelease(await lookup(fetchLatest), currentVersion, arch)
+          if (release && arch === 'x64') await prepareRelease(release)
+        } catch (error) {
+          if (!fetchGitee) throw error
+          const fallback = await lookupGitee(release?.tag)
+          if (fallback) {
+            release ||= fallback
+            if (arch === 'x64') await prepareRelease(fallback)
+            release = fallback
+          }
         }
         set({
           phase: release ? 'available' : 'current', release: publicRelease(release),
@@ -150,27 +220,46 @@ function createUpdateController(options) {
     if (!supported || !ready || !release?.canDownload || state.phase !== 'available') return snapshot()
     return exclusive(async () => {
       cancelled = false
+      downloadAbort = new AbortController()
       set({ phase: 'downloading', percent: 0, error: '', transferred: 0, total: 0, bytesPerSecond: 0 })
+      const client = ensureUpdater()
+      async function downloadRelease() {
+        const files = await client.downloadUpdate(downloadToken)
+        await verifyDownload?.(files, installerManifest)
+        downloadAbort.signal.throwIfAborted()
+      }
       try {
-        await ensureUpdater().downloadUpdate(downloadToken)
-        if (cancelled) {
+        try {
+          await downloadRelease()
+        } catch (error) {
+          await client.downloadedUpdateHelper?.clear()
+          if (cancelled || release.source !== 'github' || !fetchGitee) throw error
           ready = false
-          set({ phase: 'idle', percent: 0 })
-        } else {
-          set({ phase: 'downloaded', percent: 100 })
+          downloadToken = null
+          const fallback = await lookupGitee(release.tag, downloadAbort.signal)
+          await prepareRelease(fallback, downloadAbort.signal)
+          release = fallback
+          set({ release: publicRelease(release), percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 })
+          await downloadRelease()
         }
+        set({ phase: 'downloaded', percent: 100 })
       } catch (error) {
         ready = false
-        if (cancelled) set({ phase: 'idle', percent: 0, error: '' })
+        await client.downloadedUpdateHelper?.clear()
+        if (cancelled) set({ phase: 'idle', percent: 0, transferred: 0, total: 0, bytesPerSecond: 0, error: '' })
         else fail(error)
+      } finally {
+        downloadAbort = null
+        downloadToken = null
       }
       return snapshot()
     })
   }
   function cancel() {
-    if (state.phase === 'downloading' && downloadToken) {
+    if (state.phase === 'downloading' && !cancelled) {
       cancelled = true
-      downloadToken.cancel()
+      downloadAbort?.abort()
+      downloadToken?.cancel()
     }
     return snapshot()
   }
@@ -234,4 +323,4 @@ function createUpdateController(options) {
   }
 }
 
-module.exports = { createUpdateController, parseRelease, validateManifest, RELEASES_URL, LATEST_API }
+module.exports = { createUpdateController, parseRelease, releaseVersion, validateManifest, RELEASES_URL, LATEST_API, GITEE_API }

@@ -26,7 +26,7 @@ interface ElectronAPI {
   configSecurityStatus: () => Promise<{ encryptionAvailable: boolean }>
   webSearchRequest?: (request: import('./services/webSearchService').WebSearchHttpRequest, requestId?: string) => Promise<{ ok: boolean; status: number; text: string }>
   webSearchCancel?: (requestId: string) => void
-  onBeforeClose: (callback: () => void | Promise<void>) => () => void
+  onBeforeClose: (callback: () => void | Promise<void | import('./services/windowClose').WindowCloseContext>) => () => void
   onExitConfirm: (callback: (errorDetail: string) => void) => () => void
   sendExitChoice: (confirmed: boolean) => void
   updateGetState: () => Promise<import('./types/update').AppUpdateState>

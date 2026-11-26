@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { deriveChapterWorkflow, type ChapterWorkflowInput } from './chapterWorkflow'
+import { deriveChapterPendingCanon, deriveChapterWorkflow, derivePreviousChapterPendingCanon, type ChapterWorkflowInput } from './chapterWorkflow'
 import { buildAnalysisSourceVersionId } from '@/services/reconstructionCandidates'
 import { buildChapterReviewSourceVersion } from '@/services/chapterReviewIdentity'
 import type { Chapter } from '@/types/novel'
-import type { ChapterReview, ReviewFinding } from '@/types/reconstruction'
+import type { CandidateChange, ChapterReview, ReviewFinding } from '@/types/reconstruction'
 
 const content = '雨下了一夜。'
 const chapter = (over: Partial<Chapter> = {}): Chapter => ({ id: 'c1', volumeIndex: -1, chapterIndex: 0, title: '一', content, summary: '', wordCount: 6,
@@ -15,6 +15,10 @@ const review = (over: Partial<ChapterReview> = {}) => ({ id: 'r', chapterId: 'c1
   startedAt: '', deterministicChecksPassed: true, semanticChecksPassed: true, findings: [], candidateChanges: [], status: 'ready_to_finalize', ...over }) as ChapterReview
 const blocker: ReviewFinding = { id: 'f', type: 'continuity', severity: 'blocker', title: '', explanation: '', chapterId: 'c1', evidence: [],
   blocksFinalization: true, status: 'open', sourceVersionId: buildAnalysisSourceVersionId(content) }
+const candidate = (type: CandidateChange['type'], over: Partial<CandidateChange> = {}): CandidateChange => ({
+  id: type, novelId: 'n1', chapterId: 'c1', type, status: 'proposed', sourceVersionId: buildAnalysisSourceVersionId(content),
+  proposedValue: '{}', evidence: [], createdAt: '', updatedAt: '', ...over,
+})
 
 describe('deriveChapterWorkflow', () => {
   it('derives idea / outlined for empty chapters', () => {
@@ -42,5 +46,30 @@ describe('deriveChapterWorkflow', () => {
   })
   it('offers finalize once the chapter is completed with pending candidates', () => {
     expect(deriveChapterWorkflow(input({ chapter: chapter({ status: 'completed' }) })).primary).toBe('finalize')
+  })
+})
+
+describe('pending canon reminders', () => {
+  it('has no reminder when candidates are settled, stale, or owned by another chapter or book', () => {
+    const settled = (['accepted', 'edited', 'merged', 'rejected', 'stale'] as const).map(status => candidate('state', { status, id: status }))
+    expect(deriveChapterPendingCanon('n1', chapter(), [...settled, candidate('fact', { sourceVersionId: 'other-body' }),
+      candidate('timeline', { chapterId: 'other-chapter' }), candidate('knowledge', { novelId: 'other-book' })]))
+      .toEqual({ chapterId: 'c1', total: 0, byType: [], summary: '', route: null })
+    expect(deriveChapterPendingCanon('n1', chapter(), []).summary).toBe('')
+  })
+
+  it('groups distinct changes for the previous chapter and links directly to its writing desk', () => {
+    const current = chapter({ id: 'c3', chapterIndex: 2 })
+    const book = { id: 'n1', chapters: [current, chapter()] }
+    const character = candidate('fact', { proposedValue: '{"kind":"character","name":"林澈"}' })
+    const reminder = derivePreviousChapterPendingCanon(book, current.id, [character, character, candidate('relationship'),
+      candidate('knowledge', { status: 'deferred', sourceVersionId: undefined }), candidate('foreshadowing'),
+      candidate('state', { chapterId: current.id })])
+    expect(reminder).toEqual({ chapterId: 'c1', total: 4, byType: [
+      { type: 'character', label: '人物', count: 1 }, { type: 'relationship', label: '关系', count: 1 },
+      { type: 'knowledge', label: '知情状态', count: 1 }, { type: 'foreshadowing', label: '伏笔', count: 1 },
+    ], summary: '上一章还有 4 条人物/关系/知情状态/伏笔变化未确认入典。确认后，AI 可在后续写作中参考。',
+    route: { name: 'V3Write', params: { novelId: 'n1', chapterId: 'c1' }, query: { tab: 'candidate' } } })
+    expect(derivePreviousChapterPendingCanon(book, 'c1', [])).toBeNull()
   })
 })

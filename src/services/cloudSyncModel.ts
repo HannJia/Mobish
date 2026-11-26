@@ -2,6 +2,7 @@ import type { Novel, ChapterRevision } from '@/types/novel'
 import type { KnowledgeBase } from '@/stores/knowledge'
 import { createProjectBackup, parseProjectBackup, type ProjectBackup, type ProjectWorkspaceSnapshot } from './projectBackup'
 import { sortInspirationSessions, parseInspirationSession, type InspirationSession } from './inspirationSessions'
+import { decodeCloudCreation, encodeCloudCreation } from './cloudContractCompatibility'
 
 export const DEFAULT_SYNC_ENDPOINT = 'https://154.94.227.164'
 const MAX_SYNC_DOCUMENT_BYTES = 50 * 1024 * 1024
@@ -10,6 +11,10 @@ export interface CloudUser { id: string; username: string; role: 'user' | 'admin
 export interface CloudSession { endpoint: string; token: string; expiresAt: number; user: CloudUser }
 export interface CloudRecord { key: string; version: number; hash: string | null; bytes: number; updatedAt: number; payload?: string | null }
 export interface SyncBase { version: number; hash: string | null }
+export interface KnowledgeMergeDeletion {
+  sourceHash: string
+  requiredHashes: Record<string, string>
+}
 export interface SyncState { 
   binding: SyncBinding | null
   enabled: boolean
@@ -17,6 +22,7 @@ export interface SyncState {
   lastSync: string
   approvedUploads?: string[]
   pendingUploads?: Array<{ key: string; title: string; kind: 'novel' | 'knowledge' | 'inspiration' }>
+  knowledgeMergeDeletions?: Record<string, KnowledgeMergeDeletion>
 }
 export interface SyncConflict {
   id: string; key: string; title: string; local: string | null; remote: string | null
@@ -58,8 +64,33 @@ export async function hashPayload(payload: string | null): Promise<string | null
   if (payload === null) return null
   const bytes = new TextEncoder().encode(payload)
   if (bytes.byteLength > MAX_SYNC_DOCUMENT_BYTES) throw new Error('单本小说或单个知识库超过 50 MiB 同步上限，请先导出备份并精简历史版本。')
+  return sha256(bytes)
+}
+
+export async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   const hash = await crypto.subtle.digest('SHA-256', bytes)
   return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
+export async function canSyncKnowledgeMergeDeletion(deletion: KnowledgeMergeDeletion, local: Map<string, string>,
+  remote: ReadonlyMap<string, SyncBase>, conflicts: ReadonlySet<string>): Promise<boolean> {
+  for (const [key, hash] of Object.entries(deletion.requiredHashes)) {
+    const payload = local.get(key)
+    if (payload === undefined || conflicts.has(key) || remote.get(key)?.hash !== await hashPayload(payload)
+      || await hashKnowledgeMergeFields(key, payload) !== hash) return false
+  }
+  return true
+}
+
+/** The migration receipt binds the fields changed by a merge, independently of unrelated prose and planning. */
+export async function hashKnowledgeMergeFields(key: string, payload: string): Promise<string> {
+  if (key.startsWith('knowledge:')) return (await hashPayload(payload))!
+  const doc = parseCloudDocument(key, payload)
+  const fields = doc.kind === 'novel' ? doc.novel.knowledgeBaseIds : doc.kind === 'inspiration' ? {
+    knowledgeIds: doc.inspiration.knowledgeIds,
+    references: doc.inspiration.messages.flatMap(message => message.knowledgeReferences || []),
+  } : doc.knowledge
+  return sha256(new TextEncoder().encode(canonicalJson(fields)))
 }
 
 export function projectDocuments(project: ProjectBackup): Map<string, string> {
@@ -68,6 +99,7 @@ export function projectDocuments(project: ProjectBackup): Map<string, string> {
   const result = new Map<string, string>()
   const knownLibraries = new Set(project.knowledgeBases.map(kb => kb.id))
   for (const novel of project.novels) {
+    const workspace = project.reconstructionWorkspaces.find(workspace => workspace.novelId === novel.id)
     result.set(`novel:${novel.id}`, canonicalJson({
       kind: 'novel', schemaVersion: 3, novel: {
         ...novel,
@@ -77,7 +109,7 @@ export function projectDocuments(project: ProjectBackup): Map<string, string> {
         chapterPlanConfirmed: novel.chapterPlanConfirmed || undefined,
       },
       chapterRevisions: (project.chapterRevisions || []).filter(item => item.novelId === novel.id).sort((a, b) => a.id.localeCompare(b.id)),
-      reconstructionWorkspace: project.reconstructionWorkspaces.find(workspace => workspace.novelId === novel.id),
+      reconstructionWorkspace: workspace && encodeCloudCreation(workspace),
     }))
   }
   for (const knowledge of project.knowledgeBases) result.set(`knowledge:${knowledge.id}`, canonicalJson({ kind: 'knowledge', schemaVersion: 3, knowledge }))
@@ -99,6 +131,7 @@ export function parseCloudDocument(key: string, payload: string): SyncDocument {
   }
   if (value?.kind === 'novel' && key === `novel:${value.novel?.id}` && Array.isArray(value.chapterRevisions)) {
     if (value.schemaVersion !== 3 || !value.reconstructionWorkspace) throw new Error('云端小说缺少完整的创作工作区（可能来自旧版本），已停止合并以保护本机规划和审校记录。')
+    value.reconstructionWorkspace = decodeCloudCreation(value.reconstructionWorkspace)
     // References are checked against the complete project again before application.
     const placeholders = (value.novel.knowledgeBaseIds || []).map(id => ({
       id, name: '', description: '', entries: [], createdAt: now,

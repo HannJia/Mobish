@@ -315,7 +315,7 @@ describe('editable generated outline', () => {
     expect(novel.outline).toBe('')
     const picker = wrapper.getComponent(StorySkeletonPicker)
     const selectedId = workspace.getCreationDraft(novel.id)!.skeletons[1].id
-    await picker.findAll('.comparison thead button')[1].trigger('click')
+    await picker.findAll('.cards .c-actions .m-btn.pri')[1].trigger('click')
     await vi.waitFor(() => expect(picker.props('selectedId')).toBe(selectedId))
     await waitForSkeletonPickerReady(wrapper)
     await picker.get('textarea[aria-label="结局方向"]').setValue('作者修改的结局：公开证据后离开城市')

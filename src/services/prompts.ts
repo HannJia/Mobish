@@ -9,6 +9,7 @@ import { genres } from '@/data/genres'
 import { DATA_MEMORY_OUTPUT, DATA_MEMORY_RULES } from '@/services/dataPanelExtraction'
 import { chapterLengthPrompt, resolveChapterLengthPolicy } from './chapterLength'
 import { countNovelWords } from '@/utils/format'
+import { contractContent } from './storyContract'
 
 // 查找分类名称
 function findGenreNames(genreVal: string, subGenreVal: string): { genre: string; subGenre: string } {
@@ -112,7 +113,7 @@ function chapterWordLimitRule(novel: Novel): string {
 }
 
 function planningContract(draft?: CreationDraft) {
-  return draft?.approval.contract === 'approved' && draft.contract.approval === 'approved' ? draft.contract : undefined
+  return draft?.approval.contract === 'approved' && draft.contract.approval === 'approved' ? contractContent(draft.contract) : undefined
 }
 
 function planningWordTarget(novel: Novel, draft?: CreationDraft): string {
@@ -440,6 +441,9 @@ ${chapterContent}
 
 // 生成分卷规划的 Prompt
 export function buildVolumePlanningPrompt(novel: Novel, draft?: CreationDraft): ChatMessage[] {
+  const beats = draft?.approval.skeleton === 'approved'
+    ? draft.skeletons.find(item => item.id === draft.selectedSkeletonId && item.approval === 'approved')?.beats || []
+    : []
   return [
     { role: 'system', content: '你是一位小说结构策划师。按作者确认的篇幅规划，短篇可以单卷。直接输出分卷内容，不要使用代码块、文件路径或任何包装格式。' },
     { role: 'user', content: `根据以下总大纲，为小说《${novel.title}》生成详细的分卷规划。
@@ -454,6 +458,9 @@ ${planningChapterRule(novel, draft)}
 
 【已确认作品契约】
 ${planningContract(draft) ? JSON.stringify(planningContract(draft)) : '尚未确认，不将讨论草稿作为正式约束。'}
+
+【正式方向的骨架节点】
+${beats.length ? JSON.stringify(beats.map(({ id, title, description }) => ({ id, title, description }))) : '暂无已确认的节点。'}
 
 【输出格式】
 严格按以下格式逐卷输出（不要用代码块、不要用文件路径、不要加额外包装）：
@@ -471,6 +478,7 @@ ${planningContract(draft) ? JSON.stringify(planningContract(draft)) : '尚未确
 - 角色1变化
 - 角色2变化
 **预估章节数和字数**：约XX章，约XX万字（按上述单章篇幅设置估算）
+**承担的骨架节点**：填写本卷推进的节点 ID，以逗号分隔；无对应节点时留空，不编造 ID。
 **卷级伏笔**：
 - 本卷伏笔：xxx
 - 跨卷铺垫：xxx

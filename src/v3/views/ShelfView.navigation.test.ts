@@ -31,6 +31,7 @@ describe('书架继续写作导航', () => {
       settings: novels.defaultSettings(),
     })
     const chapter = novels.addChapter(novel.id, { title: '渡口', content: '雨停后，沈砚收起账册。' })!
+    novels.setStatus(novel.id, 'writing')
     chapter.updatedAt = '2026-11-13T00:00:00.000Z'
     novel.updatedAt = chapter.updatedAt
 

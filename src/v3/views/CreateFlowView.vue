@@ -30,24 +30,26 @@
       </li>
     </ol>
 
-    <div v-if="novel" class="flow-content">
+    <div v-if="novel && hydrated" class="flow-content">
       <CreationPlanning v-if="planningAccepted" />
       <GenerateOutline v-else ref="directionEditor" @step="activeSurfaceStep = $event" />
     </div>
-    <section v-else class="flow-missing m-panel" role="alert">
-      <p>找不到这部作品，可能已移入回收站。</p>
+    <section v-else-if="!novel || loadError" class="flow-missing m-panel" role="alert">
+      <p v-if="loadError">{{ loadError }}</p>
+      <p v-else>找不到这部作品，可能已移入回收站。</p>
       <router-link class="m-btn zhu" to="/">返回书架</router-link>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
 import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspace'
 import GenerateOutline from '@/v3/create/DirectionEditor.vue'
 import CreationPlanning from './CreationPlanning.vue'
+import { resolveCreationSurface } from '@/services/planningRecovery'
 
 defineOptions({ name: 'V3CreateFlowView' })
 
@@ -59,9 +61,13 @@ const novelId = computed(() => typeof route.params.novelId === 'string' ? route.
 const novel = computed(() => novels.getNovel(novelId.value))
 const creationDraft = computed(() => workspace.getCreationDraft(novelId.value))
 const activeSurfaceStep = ref<number>()
+const hydrated = ref(false)
+const loadError = ref('')
+const surface = computed(() => resolveCreationSurface(creationDraft.value))
 const planningReady = computed(() => Boolean(creationDraft.value?.acceptedOutline
   && creationDraft.value.approval.contract === 'approved' && creationDraft.value.approval.skeleton === 'approved'))
-const planningAccepted = computed(() => route.query?.edit !== 'direction' && planningReady.value)
+const planningAccepted = computed(() => route.query?.edit !== 'direction' && planningReady.value
+  && (surface.value === 'volumes' || surface.value === 'ready'))
 const activeStep = computed(() => {
   if (!planningAccepted.value && activeSurfaceStep.value !== undefined) return activeSurfaceStep.value
   if (planningAccepted.value && novel.value?.chapterPlanConfirmed && creationDraft.value?.approval['chapter-outline'] === 'approved') return 4
@@ -75,7 +81,18 @@ const activeStep = computed(() => {
     default: return 0
   }
 })
-onMounted(() => { if (novelId.value) void workspace.hydrateFromPersistence(novelId.value).catch(() => undefined) })
+watch(novelId, async (id, _previous, onCleanup) => {
+  let stale = false
+  onCleanup(() => { stale = true })
+  hydrated.value = false; loadError.value = ''; activeSurfaceStep.value = undefined
+  if (!id) return
+  try {
+    await workspace.hydrateFromPersistence(id)
+    if (!stale) hydrated.value = true
+  } catch {
+    if (!stale) loadError.value = '创作草稿读取失败，请返回书架后重试。'
+  }
+}, { immediate: true })
 
 // 已完成的步骤可以点回去：契约、骨架回到方向编辑；分卷大纲回到规划。“起点”已经落成作品，不可回退。
 const directionEditor = ref<InstanceType<typeof GenerateOutline> | null>(null)
@@ -89,8 +106,11 @@ async function revisit(index: number) {
     if (planningAccepted.value) await router.replace({ query: { ...route.query, edit: 'direction' } })
     await nextTick()
     if (index === 1) directionEditor.value?.reopenContract()
+    if (index === 2) directionEditor.value?.reopenSkeleton()
     document.querySelector('.creation-flow')?.scrollTo?.({ top: 0, behavior: 'smooth' })
-  } else if (route.query.edit) {
+  } else {
+    await workspace.saveCreationSurface(novelId.value, 'volumes')
+    if (!route.query.edit) return
     await router.replace({ query: Object.fromEntries(Object.entries(route.query).filter(([key]) => key !== 'edit')) })
   }
 }
@@ -98,12 +118,12 @@ async function revisit(index: number) {
 
 <style scoped>
 
-.creation-flow { position: absolute; inset: 0; overflow: auto; padding: 28px 40px 60px; background: var(--desk); color: var(--ink); }
+.creation-flow { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; padding: 14px clamp(16px, 2.2vw, 36px) 14px; background: var(--desk); color: var(--ink); }
 .flow-head { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .flow-kicker { color: var(--zhu); font-size: 11px; }
 .flow-head h1 { margin: 4px 0; font: 600 25px/1.4 var(--f-serif); }
 .flow-head p { margin: 0; color: var(--ink-3); font-size: 13px; }
-.flow-steps { max-width: 1160px; margin: 4px auto 26px; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); list-style: none; }
+.flow-steps { flex: none; width: 100%; max-width: 1460px; margin: 0 auto 12px; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); list-style: none; }
 .flow-steps li { position: relative; isolation: isolate; display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--ink-4); font-size: 12px; }
 .flow-steps li::after { content: ''; position: absolute; z-index: 0; top: 12px; left: 34px; right: 10px; height: 1px; background: var(--line); pointer-events: none; }
 .flow-steps li:last-child::after { display: none; }
@@ -116,11 +136,15 @@ async function revisit(index: number) {
 .flow-step-hit { position: relative; z-index: 2; display: flex; align-items: center; gap: 9px; min-width: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; }
 .flow-step-hit:hover .flow-step-label { color: var(--zhu); text-decoration: underline; }
 @media (max-width: 580px) { .flow-step-hit { flex-direction: column; align-items: flex-start; gap: 5px; } }
-.flow-content { max-width: 1160px; margin: 0 auto; }
+.flow-content { flex: 1; min-height: 0; width: 100%; max-width: 1460px; margin: 0 auto; display: flex; flex-direction: column; }
 .flow-missing { max-width: 620px; margin: 56px auto; padding: 24px; text-align: center; }
 .crumb-book { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }.crumb-current { color: var(--ink); font-weight: 600; }
 @media (max-width: 900px) {
-  .creation-flow { padding: 20px 20px 40px; }
+  .creation-flow { padding: 12px 16px 14px; }
+}
+@media (max-width: 760px) {
+  .creation-flow { overflow: auto; padding: 12px 12px 24px; }
+  .flow-content { min-height: auto; }
 }
 @media (max-width: 580px) {
   .creation-flow { padding: 16px 14px 32px; }

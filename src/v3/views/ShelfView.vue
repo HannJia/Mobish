@@ -160,7 +160,7 @@ import { chapterTitleForDisplay } from '@/v3/write/chapterNumber'
 import { downloadProjectBackup, MAX_PROJECT_BACKUP_BYTES, parseProjectBackup } from '@/services/projectBackup'
 import { exportProjectSnapshot, importProject } from '@/services/projectTransfer'
 import { COVER_CHOICES, coverIdOf, coverUrl, coverUrlById } from '../covers'
-import { greeting, openBlockers, pendingItems, relativeTime, resumeTarget } from '../selectors/shelf'
+import { greeting, openBlockers, pendingItems, relativeTime, resumeTarget, shelfBookPath } from '../selectors/shelf'
 import { areaPath, toast, toastError } from '../shell'
 import { weekTotal, writingLog } from '../writingLog'
 import { finishStarPrompt, GITHUB_REPO_URL, shouldShowStarPrompt } from '@/services/githubStar'
@@ -236,10 +236,10 @@ const weekFacts = computed(() => novels.activeNovels.reduce((sum, n) => sum
 const lastBackup = ref((() => { try { return localStorage.getItem(BACKUP_KEY) || '' } catch { return '' } })())
 
 function latestChapterId(book: Novel) { return [...book.chapters].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]?.id }
-function openResume() { if (resume.value) router.push(areaPath('write', resume.value.novel.id, resume.value.chapter?.id)) }
+function openResume() { if (resume.value) router.push(shelfBookPath(resume.value.novel, resume.value.chapter?.id)) }
 function openBook(book: Novel) {
   if (book.status === 'trash') return act('restore', book)
-  router.push(areaPath('write', book.id, latestChapterId(book)))
+  router.push(shelfBookPath(book, latestChapterId(book)))
 }
 
 const menuFor = ref<string | null>(null)

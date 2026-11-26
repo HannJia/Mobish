@@ -82,12 +82,14 @@ export function writeKnowledgeBaseRows(kb: KnowledgeBase) {
 export async function deleteKnowledgeBaseFromDb(kbId: string) {
   if (usesProjectKernel()) return deleteKernelKnowledge(kbId)
   await initDb()
-  await runTransaction(() => {
-    execute('DELETE FROM knowledge_entry_metadata WHERE id IN (SELECT id FROM knowledge_entries WHERE kb_id = ?)', [kbId])
-    execute('DELETE FROM knowledge_entries WHERE kb_id = ?', [kbId])
-    execute("DELETE FROM semantic_index WHERE source_type = 'knowledge' AND source_id NOT IN (SELECT id FROM knowledge_entries)")
-    execute('DELETE FROM knowledge_bases WHERE id = ?', [kbId])
-  })
+  await runTransaction(() => deleteKnowledgeBaseRows(kbId))
+}
+
+export function deleteKnowledgeBaseRows(kbId: string) {
+  execute('DELETE FROM knowledge_entry_metadata WHERE id IN (SELECT id FROM knowledge_entries WHERE kb_id = ?)', [kbId])
+  execute('DELETE FROM knowledge_entries WHERE kb_id = ?', [kbId])
+  execute("DELETE FROM semantic_index WHERE source_type = 'knowledge' AND source_id NOT IN (SELECT id FROM knowledge_entries)")
+  execute('DELETE FROM knowledge_bases WHERE id = ?', [kbId])
 }
 
 export function clearKnowledgeRows() {

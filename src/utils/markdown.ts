@@ -36,6 +36,7 @@ function extractTables(text: string, tables: string[]): string {
 
 function inline(text: string): string {
   return text
+    .replace(/\[([^\]]+)\]\((#\/[^\s)"'<>]+)\)/g, '<a class="md-hash-link" href="$2">$1</a>')
     .replace(/`([^`\n]+)`/g, '<code>$1</code>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')

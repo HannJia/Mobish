@@ -15,87 +15,69 @@ const skeleton = (key: string, over: Partial<PlotSkeleton> = {}): PlotSkeleton =
     { id: 'b-' + key + '-2', title: key + '转折', description: key + '的转折内容', kind: 'turning_point', relatedPlotlineIds: [], relatedCharacterIds: [] }],
   approval: 'draft', updatedAt: '2026-11-09T00:00:00Z', ...over,
 })
-const stubs = {}
+
 function mountPicker(props: Record<string, unknown> = {}) {
-  return mount(StorySkeletonPicker, { props: { skeletons: [skeleton('甲'), skeleton('乙'), skeleton('丙')], selectedId: 'sk-甲', ...props }, global: { stubs } })
+  return mount(StorySkeletonPicker, { props: { skeletons: [skeleton('甲'), skeleton('乙'), skeleton('丙')], selectedId: 'sk-甲', ...props } })
 }
-const cell = (wrapper: ReturnType<typeof mountPicker>, label: string, title: string) => wrapper.get(`button.cell[aria-label="${label} · ${title}"]`)
 
-describe('故事骨架并排比较', () => {
-  it('每个方案一列，字段与关键节点按行对照，并保留整列选用', () => {
+describe('故事骨架三视图与方案台换写法', () => {
+  it('默认展示三列方案对照卡片、主线在前与情节曲线，并支持切换情节结构泳道视图', async () => {
     const wrapper = mountPicker()
-    expect(wrapper.findAll('thead .col-title').map(node => node.text())).toEqual(['方案甲', '方案乙', '方案丙'])
-    expect(wrapper.findAll('tbody th.rh').map(node => node.text().replace(/\s+/g, ''))).toEqual(['方案名称', '故事前提', '一句话主线', '读者承诺', '结局方向', '关键节点按勾选顺序混合'])
-    expect(wrapper.findAll('.col-all')).toHaveLength(3)
-    expect(wrapper.get('.mix-hint').text()).toContain('为 5 个字段选择来源')
+    expect(wrapper.findAll('.cards .card')).toHaveLength(3)
+    expect(wrapper.findAll('.cards .c-title').map(node => node.text())).toEqual(['方案甲', '方案乙', '方案丙'])
+    expect(wrapper.findAll('.cards .c-logline').map(node => node.text())).toEqual(['甲的主线', '乙的主线', '丙的主线'])
+    expect(wrapper.findAll('.cards svg.shape')).toHaveLength(3)
+
+    await wrapper.findAll('.seg button')[1].trigger('click')
+    expect(wrapper.findAll('.lanes .lane')).toHaveLength(3)
+    await wrapper.find('.lanes .track li button').trigger('click')
+    expect(wrapper.get('.lane-detail').text()).toContain('甲的开端内容')
   })
 
-  it('点击单元格逐行挑选，同一行只能取自一个方案，再点同一格取消', async () => {
+  it('在方案台通过红框换写法切换字段来源并组合为新的可编辑候选', async () => {
     const wrapper = mountPicker()
-    await cell(wrapper, '故事前提', '方案乙').trigger('click')
-    expect(cell(wrapper, '故事前提', '方案乙').attributes('aria-pressed')).toBe('true')
-    await cell(wrapper, '故事前提', '方案丙').trigger('click')
-    expect(cell(wrapper, '故事前提', '方案乙').attributes('aria-pressed')).toBe('false')
-    expect(cell(wrapper, '故事前提', '方案丙').attributes('aria-pressed')).toBe('true')
-    expect(wrapper.findAll('td.pick')).toHaveLength(1)
-    await cell(wrapper, '故事前提', '方案丙').trigger('click')
-    expect(wrapper.findAll('td.pick')).toHaveLength(0)
-  })
+    await wrapper.get('button[aria-label="整列选用：方案甲"]').trigger('click')
+    expect(wrapper.find('.desk').exists()).toBe(true)
+    await wrapper.get('button[aria-label="结局方向 · 方案丙"]').trigger('click')
+    expect((wrapper.get('textarea[aria-label="结局方向"]').element as HTMLTextAreaElement).value).toBe('丙的结局')
+    expect(wrapper.get('.mix-bar').text()).toContain('方案甲×6 · 方案丙×1')
 
-  it('整列选用一次取满五个字段和该方案全部节点，混合栏如实列出来源与计数', async () => {
-    const wrapper = mountPicker()
-    await wrapper.get('button[aria-label="整列选用：方案乙"]').trigger('click')
-    expect(wrapper.findAll('.mix-seq li').map(node => node.text())).toEqual(['方案名称 · 方案乙', '故事前提 · 方案乙', '一句话主线 · 方案乙', '读者承诺 · 方案乙', '结局方向 · 方案乙'])
-    expect(wrapper.findAll('.mixed-beats li')).toHaveLength(2)
-    expect(wrapper.get('.mix-counts').text()).toBe('方案乙×7')
-    expect(wrapper.find('.mix-hint').exists()).toBe(false)
-    // 再逐行改选一个字段，来源计数随之变化。
-    await cell(wrapper, '结局方向', '方案丙').trigger('click')
-    expect(wrapper.get('.mix-counts').text()).toBe('方案乙×6 · 方案丙×1')
-  })
-
-  it('混合事务只发出所选来源：每个字段一个来源，节点按勾选顺序，且不自动确认', async () => {
-    const wrapper = mountPicker()
-    for (const label of ['方案名称', '故事前提', '一句话主线', '读者承诺', '结局方向']) await cell(wrapper, label, label === '结局方向' ? '方案丙' : '方案甲').trigger('click')
-    const beats = wrapper.findAll('.beats-cell')
-    await beats[2].findAll('input')[1].setValue(true)
-    await beats[0].findAll('input')[0].setValue(true)
-    const mix = wrapper.findAll('button').find(button => button.text() === '组合为新的可编辑候选')!
+    const mix = wrapper.findAll('button').find(button => button.text().trim() === '组合为新的可编辑候选')!
     expect(mix.attributes('disabled')).toBeUndefined()
     await mix.trigger('click')
     const sources = wrapper.emitted('mix')![0][0] as SkeletonSourceSelection[]
     expect(sources.slice(0, 5)).toEqual([
-      { field: 'title', revisionId: 'rev-甲' }, { field: 'premise', revisionId: 'rev-甲' }, { field: 'logline', revisionId: 'rev-甲' },
-      { field: 'promise', revisionId: 'rev-甲' }, { field: 'ending', revisionId: 'rev-丙' },
+      { field: 'title', revisionId: 'rev-甲' }, { field: 'logline', revisionId: 'rev-甲' },
+      { field: 'premise', revisionId: 'rev-甲' }, { field: 'promise', revisionId: 'rev-甲' },
+      { field: 'ending', revisionId: 'rev-丙' },
     ])
-    expect(sources.slice(5).map(source => [source.revisionId, source.beatId])).toEqual([['rev-丙', 'b-丙-2'], ['rev-甲', 'b-甲-1']])
+    expect(sources.slice(5).map(source => [source.revisionId, source.beatId])).toEqual([['rev-甲', 'b-甲-1'], ['rev-甲', 'b-甲-2']])
     expect(wrapper.emitted('confirm')).toBeUndefined()
-    expect(wrapper.emitted('select')).toBeUndefined()
   })
 
   it('有未保存的作者输入时不允许混合，并说明原因', async () => {
     const wrapper = mountPicker({ dirty: true })
     await wrapper.get('button[aria-label="整列选用：方案甲"]').trigger('click')
+    await wrapper.get('button[aria-label="结局方向 · 方案乙"]').trigger('click')
     expect(wrapper.get('.mix-hint').text()).toContain('请先保存当前作者版本')
-    expect(wrapper.findAll('button').find(button => button.text() === '组合为新的可编辑候选')!.attributes('disabled')).toBeDefined()
+    expect(wrapper.findAll('button').find(button => button.text().trim() === '组合为新的可编辑候选')!.attributes('disabled')).toBeDefined()
   })
 
-  it('reviews the selected excerpts, applies the author decision and reopens the reason with the resulting candidate', async () => {
+  it('检查组合冲突并应用作者取舍后保留取舍理由', async () => {
     setActivePinia(createPinia())
     const config = useConfigStore()
     const getModel = vi.spyOn(config, 'getModelForTask').mockReturnValue({ apiKey: 'test', maxTokens: 2000 } as NonNullable<ReturnType<typeof config.getModelForTask>>)
     vi.mocked(callAI).mockResolvedValue({ content: JSON.stringify({ conflicts: [
-      { left: 2, right: 5, conflict: '结局假定前提中的城门还开着。', options: ['把结局改为在城外会合。', '在前提中提前打开城门。'] },
+      { left: 3, right: 5, conflict: '结局假定前提中的城门还开着。', options: ['把结局改为在城外会合。', '在前提中提前打开城门。'] },
     ] }) })
     const wrapper = mountPicker()
     await wrapper.get('button[aria-label="整列选用：方案甲"]').trigger('click')
-    await cell(wrapper, '结局方向', '方案乙').trigger('click')
-    await wrapper.findAll('button').find(button => button.text() === '检查组合冲突')!.trigger('click')
+    await wrapper.get('button[aria-label="结局方向 · 方案乙"]').trigger('click')
+    await wrapper.findAll('button').find(button => button.text().trim() === '检查组合冲突')!.trigger('click')
     await flushPromises()
-    const review = wrapper.get('section.mix-review')
-    expect(review.text()).toContain('乙的结局')
+    const review = wrapper.get('.conflicts')
     expect(review.text()).toContain('把结局改为在城外会合。')
-    const mix = wrapper.findAll('button').find(button => button.text() === '组合为新的可编辑候选')!
+    const mix = wrapper.findAll('button').find(button => button.text().trim() === '组合为新的可编辑候选')!
     expect(mix.attributes('disabled')).toBeDefined()
     await review.findAll('input[type="radio"]')[0].setValue(true)
     await review.get('input[aria-label="取舍理由 1"]').setValue('闭门要推动第一幕。')
@@ -106,38 +88,29 @@ describe('故事骨架并排比较', () => {
     const candidate = skeleton('混合')
     candidate.beats.forEach((beat, index) => { beat.id = sources[index + 5].targetBeatId! })
     await wrapper.setProps({ skeletons: [skeleton('甲'), skeleton('乙'), candidate], selectedId: candidate.id })
-    expect(wrapper.get('details.mix-review').text()).toContain('闭门要推动第一幕。')
+    expect(wrapper.get('details.mix-review-saved').text()).toContain('闭门要推动第一幕。')
     wrapper.unmount()
-    const reopened = mountPicker({ skeletons: [candidate], selectedId: candidate.id })
-    expect(reopened.get('details.mix-review').text()).toContain('闭门要推动第一幕。')
-    reopened.unmount()
     localStorage.clear()
     getModel.mockRestore()
   })
 
-  it('没有 revisionId 的历史方案不能被选作混合来源', () => {
-    const wrapper = mountPicker({ skeletons: [skeleton('甲', { revisionId: undefined }), skeleton('乙')] })
-    expect(wrapper.get('button[aria-label="整列选用：方案甲"]').attributes('disabled')).toBeDefined()
-    expect(cell(wrapper, '故事前提', '方案甲').attributes('disabled')).toBeDefined()
-    expect(cell(wrapper, '故事前提', '方案乙').attributes('disabled')).toBeUndefined()
-  })
-
-  it('点方案标题只切换编辑对象，并标出当前编辑、正式方向与未完整方案', async () => {
+  it('标出方案台编辑中、正式方向与未完整状态，且点击顶部胶囊可切换选中方案', async () => {
     const wrapper = mountPicker({ confirmedId: 'sk-乙', skeletons: [skeleton('甲'), skeleton('乙'), skeleton('丙', { complete: false })] })
-    const tags = wrapper.findAll('.colh').map(node => node.find('.col-tags').text())
-    expect(tags).toEqual(['编辑中', '正式方向', '未完整，需要补齐后保存'])
-    await wrapper.findAll('.col-title')[2].trigger('click')
+    const metaTexts = wrapper.findAll('.cards .c-meta').map(node => node.text())
+    expect(metaTexts[0]).toContain('方案台编辑中')
+    expect(metaTexts[1]).toContain('✓ 正式方向')
+    expect(metaTexts[2]).toContain('未完整，需要补齐后保存')
+    await wrapper.findAll('.index button')[2].trigger('click')
     expect(wrapper.emitted('select')![0]).toEqual(['sk-丙'])
     expect(wrapper.emitted('confirm')).toBeUndefined()
   })
 
-  it('没有候选方案时只提供手写和重新生成，不渲染空表格', async () => {
+  it('没有候选方案时展示空白起步页并提供手写与重新生成', async () => {
     const wrapper = mountPicker({ skeletons: [], selectedId: undefined })
-    expect(wrapper.find('table').exists()).toBe(false)
-    expect(wrapper.find('.mix').exists()).toBe(false)
+    expect(wrapper.find('.cards').exists()).toBe(false)
     expect(wrapper.get('footer').text()).toContain('选择一个方案，或手写新方案')
-    await wrapper.findAll('button').find(button => button.text() === '手写新方案')!.trigger('click')
-    await wrapper.findAll('button').find(button => button.text() === '重新生成候选')!.trigger('click')
+    await wrapper.findAll('button').find(button => button.text().trim() === '手写新方案')!.trigger('click')
+    await wrapper.findAll('button').find(button => button.text().trim() === '重新生成候选')!.trigger('click')
     expect(wrapper.emitted('create')).toHaveLength(1)
     expect(wrapper.emitted('regenerate')).toHaveLength(1)
   })

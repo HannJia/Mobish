@@ -1,5 +1,5 @@
 import type { Novel } from '@/types/novel'
-import { contractCards, contractCardConfirmed, contractCardSignature, contractContent } from './storyContract'
+import { contractCards, contractCardConfirmed, contractCardSignature, contractContent, materializeContractConfirmations, recordContractCardChanges } from './storyContract'
 import { styleDimensions } from '@/data/styles'
 import {
   createEmptyCreationDraft,
@@ -14,6 +14,7 @@ import {
 } from '@/types/reconstruction'
 import { buildAnalysisSourceVersionId } from './reconstructionCandidates'
 import { saveSkeletonRevision, skeletonCompletionIssues, skeletonContentSignature } from './creationDraft'
+import { volumeChapterRanges, volumeForChapterPlan } from './volumeParsing'
 
 function splitRules(value: string): string[] {
   return value.split(/[\n；;。]+/).map(item => item.trim()).filter(Boolean).slice(0, 20)
@@ -81,6 +82,8 @@ export function createCreationDraftFromNovel(novel: Novel, now: string): Creatio
     romanceDirection: [novel.settings.romance.romanceType, novel.settings.romance.developmentPace].filter(Boolean).join('，'),
     worldRules: splitRules(novel.settings.worldBuilding.specialRules),
     authorPreferences: novel.tags.slice(0, 12),
+    ...(novel.storyClock?.origin ? { storyTimeOrigin: { day: novel.storyClock.origin.day, label: novel.storyClock.origin.label } }
+      : novel.storyClock?.pendingOriginLabel ? { storyTimeOrigin: { label: novel.storyClock.pendingOriginLabel } } : {}),
     updatedAt: now,
   }
   return draft
@@ -105,7 +108,7 @@ export function buildPlotSkeletonFromOutline(novel: Novel, outline: string, now:
 
 export function buildPlotSkeletonPrompt(contract: StoryContract): string {
   if (contract.approval !== 'approved') throw new Error('请先确认作品契约')
-  return '请根据作者已经确认的作品契约生成 2-3 个可比较的原创故事骨架候选。遵守世界规则、禁用内容、叙事视角、读者承诺和结局方向；标为暂不确定的部分可以提出备选建议。只输出 JSON，不要 Markdown 或解释。每个候选包含 title、premise、logline、promise、ending 和 beats；beats 为 4-8 个节点，每个节点包含 title、description、kind（opening|inciting|turning_point|midpoint|low_point|climax|resolution|custom）。\n\n作品契约：' + JSON.stringify(contract)
+  return '请根据作者已经确认的作品契约生成 2-3 个可比较的原创故事骨架候选。遵守世界规则、禁用内容、叙事视角、读者承诺和结局方向；标为暂不确定的部分可以提出备选建议。只输出 JSON，不要 Markdown 或解释。每个候选包含 title、premise、logline、promise、ending 和 beats；beats 为 4-8 个节点，每个节点包含 title、description、kind（opening|inciting|turning_point|midpoint|low_point|climax|resolution|custom）。\n\n作品契约：' + JSON.stringify(contractContent(contract))
     + '\n输出格式：{"skeletons":[{"title":"","premise":"","logline":"","promise":"","ending":"","beats":[{"title":"","description":"","kind":"custom"}]}]}'
 }
 
@@ -114,13 +117,15 @@ export function reviseStoryContract(draft: CreationDraft, contract: StoryContrac
   contract = { ...contract, worldRules: contract.worldRules.map(value => value.trim()).filter(Boolean),
     forbiddenTopics: contract.forbiddenTopics.map(value => value.trim()).filter(Boolean),
     authorPreferences: contract.authorPreferences.map(value => value.trim()).filter(Boolean) }
+  contract = materializeContractConfirmations(recordContractCardChanges(draft.contract, contract, now))
   contract = { ...contract, cardConfirmations: (contract.cardConfirmations || []).filter(item =>
     contractCards.some(card => card.id === item.cardId) && item.signature === contractCardSignature(contract, item.cardId)) }
   const contentChanged = JSON.stringify(contractContent(draft.contract)) !== JSON.stringify(contractContent(contract))
   const withdrawn = draft.contract.approval === 'approved' && contractCards.some(card => !contractCardConfirmed(contract, card.id))
   if (!contentChanged && !withdrawn) {
-    if (JSON.stringify(draft.contract.cardConfirmations) === JSON.stringify(contract.cardConfirmations)) return draft
-    return { ...draft, contract: { ...draft.contract, cardConfirmations: contract.cardConfirmations }, updatedAt: now }
+    if (JSON.stringify(draft.contract.cardConfirmations) === JSON.stringify(contract.cardConfirmations)
+      && JSON.stringify(draft.contract.cardHistory) === JSON.stringify(contract.cardHistory)) return draft
+    return { ...draft, contract: { ...draft.contract, cardConfirmations: contract.cardConfirmations, cardHistory: contract.cardHistory }, updatedAt: now }
   }
   return {
     ...draft, stage: 'contract', contract: { ...contract, approval: 'draft', updatedAt: now },
@@ -135,7 +140,7 @@ export function reviseStoryContract(draft: CreationDraft, contract: StoryContrac
 export function confirmStoryContract(draft: CreationDraft, contract: StoryContract, now: string): CreationDraft {
   const revised = reviseStoryContract(draft, contract, now)
   const issues = validateCreationStage({ ...revised, stage: 'contract' })
-  if (contractCards.some(card => !contractCardConfirmed(revised.contract, card.id))) issues.push('请逐项确认全部八张契约卡片')
+  if (contractCards.some(card => !contractCardConfirmed(revised.contract, card.id))) issues.push('请逐项确认全部九张契约卡片')
   if (issues.length) throw new Error(issues.join('；'))
   return { ...revised, stage: revised.stage === 'contract' ? 'skeleton' : revised.stage,
     contract: { ...revised.contract, approval: 'approved', updatedAt: now },
@@ -252,28 +257,25 @@ export function syncCreationDraftPlanning(draft: CreationDraft, novel: Novel, no
   const volumes: VolumeOutline[] = (novel.volumes || []).map(volume => {
     const id = 'volume:' + volume.id
     const old = draft.volumes.find(item => item.id === id)
-    const sourceVersion = buildAnalysisSourceVersionId(JSON.stringify([volume.title, volume.summary, volume.keyTurningPoints, volume.characterChanges]))
+    const sourceVersion = buildAnalysisSourceVersionId(JSON.stringify([volume.title, volume.summary, volume.keyTurningPoints, volume.characterChanges,
+      ...(volume.skeletonBeatIds?.length ? [volume.skeletonBeatIds] : [])]))
     if (old?.sourceVersion === sourceVersion) return { ...old, chapterPlanIds: [] }
     changedVolumes.add(id)
     return { ...old, id, sourceVersion, title: volume.title, objective: volume.summary, conflict: volume.keyTurningPoints,
       openingState: old?.openingState || '', midpointChange: volume.keyTurningPoints, endingState: volume.characterChanges,
-      chapterPlanIds: [], plotlineIds: old?.plotlineIds || [], approval: 'draft' }
+      chapterPlanIds: [], plotlineIds: old?.plotlineIds || [], skeletonBeatIds: volume.skeletonBeatIds, approval: 'draft' }
   })
   const changed = new Set<string>()
+  const ranges = volumeChapterRanges(novel.volumes || [])
   const chapterPlans: StructuredChapterPlan[] = (novel.chapterPlans || []).map(plan => {
     const id = 'chapter-plan:' + plan.id
     const old = draft.chapterPlans.find(item => item.id === id)
     const chapter = novel.chapters.find(item => item.chapterIndex === plan.targetChapterStart)
-    let offset = 0
     // The first empty chapter uses the first volume when no range has been estimated yet.
     // Binding it now keeps the author's approval valid when that empty chapter is created.
-    const volume = chapter ? novel.volumes?.find(item => item.volumeIndex === chapter.volumeIndex)
-      : [...(novel.volumes || [])].sort((a, b) => a.volumeIndex - b.volumeIndex).find(item => {
-        const contains = plan.targetChapterStart >= offset && plan.targetChapterStart < offset + item.estimatedChapters
-        offset += item.estimatedChapters
-        return contains
-      }) || (plan.targetChapterStart === 0 ? [...(novel.volumes || [])].sort((a, b) => a.volumeIndex - b.volumeIndex)[0] : undefined)
-    const volumeId = volume ? 'volume:' + volume.id : undefined
+    const owner = chapter ? novel.volumes?.find(item => item.volumeIndex === chapter.volumeIndex)?.id
+      : volumeForChapterPlan(ranges, plan) || (plan.targetChapterStart === 0 ? ranges[0]?.volumeId : undefined)
+    const volumeId = owner ? 'volume:' + owner : undefined
     const sourceVersion = buildAnalysisSourceVersionId(JSON.stringify([plan.title, plan.objective, plan.summary, plan.beats,
       plan.targetChapterStart, plan.targetChapterEnd, plan.relatedEventIds, volumeId]))
     if (old?.sourceVersion === sourceVersion) {

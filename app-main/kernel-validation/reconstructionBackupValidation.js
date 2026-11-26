@@ -295,10 +295,20 @@ const contract = (value, path) => {
     object({ id, ...strings('title genre'), ...optionalStrings('subGenre audience pointOfView tense styleDirection coreTheme readerPromise protagonistPremise protagonistGoal protagonistFear centralConflict endingDirection romanceDirection'),
         format: oneOf('serial', 'complete', 'undecided'), targetWordCountMin: optional(finite), targetWordCountMax: optional(finite), pacingDirection: optional(text),
         worldRules: list(text), forbiddenTopics: list(text), authorPreferences: list(text), approval, updatedAt: date,
-        cardConfirmations: optional(list(object({ cardId: oneOf(...storyContract_1.contractCards.map(card => card.id)), signature: text, confirmedAt: date }), 8)),
+        storyTimeOrigin: optional(object({ day: optional(number), label: optional(text) })),
+        cardConfirmations: optional(list(object({ cardId: oneOf(...storyContract_1.contractCards.map(card => card.id)), signature: text, confirmedAt: date }), storyContract_1.contractCards.length)),
+        cardHistory: optional(list(object({ cardId: oneOf(...storyContract_1.contractCards.map(card => card.id)), signature: text, savedAt: date }), 1000)),
     })(value, path);
     const row = value;
     const confirmations = value.cardConfirmations || [];
+    for (const version of value.cardHistory || []) {
+        try {
+            (0, storyContract_1.contractCardVersionValues)(version);
+        }
+        catch {
+            fail(path + '.cardHistory');
+        }
+    }
     uniqueLinks(confirmations.map(item => item.cardId), path + '.cardConfirmations');
     // Saving an unfinished contract deliberately preserves author input with issues.
     if (row.approval === 'approved') {
@@ -321,12 +331,12 @@ const skeletonAttempt = object({ id, parentAttemptId: optional(id), mode: oneOf(
     output: text, finishReason: optional(text), error: optional(text), candidateIds: list(id), createdAt: date, updatedAt: date });
 const exploration = object({ input: text, messages: list(object({ id, role: oneOf('user', 'assistant'), content: text,
         status: oneOf('completed', 'running', 'partial', 'failed', 'interrupted'), reply: optional(text),
-        suggestions: optional(list(object({ cardId: oneOf(...storyContract_1.contractCards.map(card => card.id)), baseline: text, values: object({}) }), 8)),
+        suggestions: optional(list(object({ cardId: oneOf(...storyContract_1.contractCards.map(card => card.id)), baseline: text, values: object({}), explanation: optional(text) }), storyContract_1.CONTRACT_SUGGESTION_LIMIT)),
     }), 1000) });
 const creationEditor = object({ id, baseline: text, surface: optional(oneOf('skeleton', 'manual-outline', 'outline', 'contract')), savedAt: optional(date),
     contract: optional(contract), exploration: optional(exploration), skeleton: optional(skeleton), manualOutline: text, outlineText: text, updatedAt: date });
 const volume = object({ id, sourceVersion: optional(text), ...strings('title objective conflict openingState endingState'), midpointChange: optional(text),
-    chapterPlanIds: list(id), plotlineIds: list(id), approval });
+    chapterPlanIds: list(id), plotlineIds: list(id), skeletonBeatIds: optional(list(id, 1000)), approval });
 const chapterPlan = (value, path) => {
     object({ id, sourceVersion: optional(text), volumeId: optional(id), number: integer, endNumber: optional(integer),
         ...strings('title objective conflict openingState endingState'), requiredEvents: list(text), prohibitedReveals: list(text), characterChangeNotes: list(text),
@@ -348,7 +358,7 @@ const initialInput = (value, path) => {
 const draft = object({ id, entry: oneOf('idea', 'import', 'blank'), initialInput: optional(initialInput), mode: oneOf('author', 'collaborative', 'autonomous'), stage: oneOf(...stages), contract,
     skeletons: list(skeleton), selectedSkeletonId: optional(id), volumes: list(volume), chapterPlans: list(chapterPlan), scenePlans: list(scene),
     editingSkeletonId: optional(id), skeletonHistory: optional(list(skeletonRevision)), skeletonAttempts: optional(list(skeletonAttempt)), editorDrafts: optional(list(creationEditor)),
-    sceneRecovery: optional(planningRecoveryValidation_1.assertScenePlanningRecovery),
+    sceneRecovery: optional(planningRecoveryValidation_1.assertScenePlanningRecovery), lastSurface: optional(oneOf('contract', 'skeleton', 'outline', 'volumes', 'ready')),
     outlineCandidate: optional(object({ content: text, source: oneOf('author', 'model'), complete: optional(boolean), skeletonId: optional(id), contextBaseline: text, directionSignature: text, updatedAt: date })),
     acceptedOutline: optional(object({ contentSignature: id, directionSignature: text, confirmedAt: date })),
     approval: (value, path) => {
@@ -404,7 +414,7 @@ function checkPlanning(value, path) {
             for (const message of editor.exploration.messages)
                 if (message.suggestions?.length) {
                     try {
-                        (0, storyContract_1.parseContractExploration)(JSON.stringify({ reply: message.reply || '建议', suggestions: message.suggestions }), editor.contract || value.contract);
+                        (0, storyContract_1.parseContractExploration)(JSON.stringify({ reply: message.reply || '建议', suggestions: (0, storyContract_1.upgradeContractSuggestions)(message.suggestions) }), editor.contract || value.contract);
                     }
                     catch {
                         fail(path + '.editorDrafts.exploration.suggestions');
@@ -477,6 +487,7 @@ function checkPlanning(value, path) {
     for (const item of value.volumes) {
         uniqueLinks(item.chapterPlanIds, `${path}.volumes.${item.id}.chapterPlanIds`);
         uniqueLinks(item.plotlineIds, `${path}.volumes.${item.id}.plotlineIds`);
+        uniqueLinks(item.skeletonBeatIds || [], `${path}.volumes.${item.id}.skeletonBeatIds`);
         for (const target of item.chapterPlanIds)
             if (plans.get(target)?.volumeId !== item.id)
                 fail(`${path}.volumes.${item.id}.chapterPlanIds（引用不存在或归属错误）`);

@@ -12,8 +12,12 @@ import { buildChatKnowledgeContext, buildSoftwareAssistantContext } from '@/serv
 import { useKnowledgeStore } from '@/stores/knowledge'
 import type { Novel } from '@/types/novel'
 
-function chatContext(book: Novel, webSearch: boolean, query: string, chapterId: string): string {
+function chatContext(book: Novel, webSearch: boolean, query: string, chapterId: string, draftContent?: () => string): string {
   const chapter = book.chapters.find(item => item.id === chapterId)
+  const chapterContent = chapter ? draftContent?.() ?? chapter.content : ''
+  const chapterSnapshot = chapterContent.length > 6000
+    ? `${chapterContent.slice(0, 4000)}\n（中段省略）\n${chapterContent.slice(-2000)}`
+    : chapterContent
   const sourceWarnings = formatEntitySourceWarnings(book, chapter?.chapterIndex)
   book = withCurrentStoryEntities(book, chapter?.chapterIndex)
   return [
@@ -31,15 +35,14 @@ function chatContext(book: Novel, webSearch: boolean, query: string, chapterId: 
     `【主要角色】\n${book.characters.slice(0, 20).map(item => `${item.name}：${item.identity}；${item.status}`).join('\n')}`,
     `【最近章节摘要】\n${book.chapters.filter(item => (!chapter || item.chapterIndex < chapter.chapterIndex) && getCurrentChapterSummary(item)).sort((a, b) => a.chapterIndex - b.chapterIndex).slice(-5).map(item => `第${item.chapterIndex + 1}章：${getCurrentChapterSummary(item).slice(0, 500)}`).join('\n')}`,
     formatStoryMemoryContext(book, useReconstructionWorkspaceStore().getStoryMemories(book.id), chapter?.chapterIndex ?? Number.MAX_SAFE_INTEGER, 2500),
-    chapter ? `【当前编辑章节快照，仅作参考资料】\n第 ${chapter.chapterIndex + 1} 章《${chapter.title}》\n${chapter.content
-      ? chapter.content.length <= 6000 ? chapter.content : `${chapter.content.slice(0, 4000)}\n（中段省略）\n${chapter.content.slice(-2000)}`
-      : '当前正文为空，尚未生成或输入正文。'}` : '当前未定位到具体编辑章节，不要假装看到了编辑框中的内容。',
+    chapter ? `【当前编辑章节快照，仅作参考资料】\n第 ${chapter.chapterIndex + 1} 章《${chapter.title}》\n${
+      chapterSnapshot || '当前正文为空，尚未生成或输入正文。'}` : '当前未定位到具体编辑章节，不要假装看到了编辑框中的内容。',
     buildChatKnowledgeContext(useKnowledgeStore().knowledgeBases, book.knowledgeBaseIds || [], query),
     `当前进度：${book.chapters.length}章 / ${book.currentWordCount}字。`,
   ].filter(Boolean).join('\n\n')
 }
 
-export function useAssistantChat(novelId: () => string, chapterId: () => string = () => '') {
+export function useAssistantChat(novelId: () => string, chapterId: () => string = () => '', draftContent?: () => string) {
   const store = useNovelStore()
   const config = useConfigStore()
   const novel = computed(() => store.getNovel(novelId()))
@@ -101,10 +104,10 @@ export function useAssistantChat(novelId: () => string, chapterId: () => string 
       .map(item => ({ role: item.role, content: item.id === userMessage.id ? item.content : item.content.slice(0, 6000) }))
     // Bound the entire history, not just each message, for long repeated analyses.
     while (history.length > 1 && history.reduce((sum, item) => sum + item.content.length, 0) > 24000) history.shift()
-    const prompt = applySkillInstructions([
-      { role: 'system', content: chatContext(book, requestSearch, userMessage.content, chapterId()) }, ...history,
-    ], config.getSkillPrompt('analysis'))
     try {
+      const prompt = applySkillInstructions([
+        { role: 'system', content: chatContext(book, requestSearch, userMessage.content, chapterId(), draftContent) }, ...history,
+      ], config.getSkillPrompt('analysis'))
       const result = await chatWithOptionalSearch({
         model: { ...model }, messages: prompt, webSearch: requestSearch, signal: request.signal,
         onChunk: text => { if (isCurrent()) streamText.value += text },

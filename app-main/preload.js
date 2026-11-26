@@ -48,11 +48,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('app:before-update', listener)
   },
   onBeforeClose: (callback) => {
-    const listener = () => {
+    const listener = (_event, requestId) => {
       Promise.resolve()
         .then(callback)
-        .then(() => ipcRenderer.send('app:close-ready', { ok: true }))
+        .then(context => ipcRenderer.send('app:close-ready', { requestId, ok: true, context }))
         .catch((error) => ipcRenderer.send('app:close-ready', {
+          requestId,
           ok: false,
           error: error instanceof Error ? error.message : String(error),
         }))

@@ -217,6 +217,7 @@
           </V3Field>
           <V3Field label="最大输出 Token 数">
             <V3Number v-model:value="modelForm.maxTokens" :min="256" :max="128000" :step="256" />
+            <p class="model-discovery-hint">思考和正文共用输出额度。使用思考模型写作时，可按服务商支持的范围调高，例如 16384。</p>
           </V3Field>
           <V3Field label="上下文窗口（选填）">
             <V3Number v-model:value="modelForm.contextWindow" :min="1000" :max="10000000" :step="1000" placeholder="如 64000" aria-label="上下文窗口" />
@@ -493,6 +494,7 @@ import { THEME_LABEL } from '@/v3/shell'
 import { ref, computed, reactive, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { useMessage, useDialog } from '@/v3/feedback'
+import { registerWindowCloseGuard } from '@/services/windowClose'
 import V3Field from '@/v3/components/form/V3Field.vue'
 import V3Input from '@/v3/components/form/V3Input.vue'
 import V3Number from '@/v3/components/form/V3Number.vue'
@@ -825,10 +827,15 @@ function protectSettingsDrafts(event: BeforeUnloadEvent) {
   event.preventDefault()
   event.returnValue = ''
 }
-onMounted(() => window.addEventListener('beforeunload', protectSettingsDrafts))
+let unregisterWindowClose: (() => void) | undefined
+onMounted(() => {
+  window.addEventListener('beforeunload', protectSettingsDrafts)
+  unregisterWindowClose = registerWindowCloseGuard(() => ({ dirty: hasUnsavedChanges.value }))
+})
 onBeforeUnmount(() => {
   stopModelDiscovery()
   window.removeEventListener('beforeunload', protectSettingsDrafts)
+  unregisterWindowClose?.()
 })
 
 const searchTestModel = computed<ModelConfig>(() => ({

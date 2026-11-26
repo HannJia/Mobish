@@ -96,7 +96,7 @@ export interface AvailableModel {
   ownedBy?: string
 }
 
-const NON_STREAM_TIMEOUT = 120_000  // 非流式 120 秒
+const NON_STREAM_TIMEOUT = 300_000  // 非流式 300 秒
 const STREAM_TIMEOUT = 300_000      // 流式 300 秒
 const MAX_REQUEST_ATTEMPTS = 3
 

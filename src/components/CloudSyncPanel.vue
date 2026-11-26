@@ -88,6 +88,18 @@
         <p v-if="inviteFeedback" role="status" class="cloud-copy-feedback">{{ inviteFeedback }}</p>
       </div>
     </template>
+    <div v-if="duplicateLibraries.length" class="cloud-duplicates paper-panel" aria-label="同名知识库合并">
+      <h4>发现同名重复知识库</h4>
+      <p class="cloud-note">同步合并保留了不同编号的同名知识库。确认合并会保留目标库编号、合并双方独有与有差异的资料，并迁移作品挂载及灵感历史引用。</p>
+      <article v-for="item in duplicateLibraries" :key="`${item.targetId}:${item.duplicateId}`" class="cloud-duplicate-row">
+        <div>
+          <strong>《{{ item.name }}》</strong>
+          <p class="cloud-note">相同 {{ item.identical.length }} 条 · 有差异 {{ item.different.length }} 条 · 目标独有 {{ item.targetOnly.length }} 条 · 副本独有 {{ item.duplicateOnly.length }} 条</p>
+          <p class="cloud-note">将迁移 {{ item.affected.novels }} 部作品挂载 · {{ item.affected.sessionSelections }} 个灵感会话 · {{ item.affected.messageReferences }} 处历史引用</p>
+        </div>
+        <button type="button" class="m-btn sm pri" :disabled="sync.busy || working" @click="openDuplicateMerge(item)">对比并合并</button>
+      </article>
+    </div>
     <div v-if="sync.pendingConflicts.length" class="cloud-conflicts">
       <h4>选择要保留的版本</h4>
       <article v-for="conflict in sync.pendingConflicts" :key="conflict.id" class="cloud-conflict">
@@ -127,12 +139,41 @@
       <a v-if="recoveryDownloadUrl" class="cloud-download-fallback" :href="recoveryDownloadUrl" download="云同步账号恢复码.txt" @click="recoveryFeedback = '已开始下载，请查看浏览器下载列表或默认下载目录。'">如果没有自动下载，点此保存</a>
       <template #footer><button type="button" class="m-btn" @click="downloadRecovery">下载恢复码</button><button type="button" class="m-btn pri" @click="recoveryCode = ''">已妥善保存</button></template>
     </V3Modal>
+    <V3Modal :show="!!mergePreview" title="合并同名知识库" size="wide" :closable="!working"
+      :description="mergePreview ? `《${mergePreview.name}》：合并将保留目标库编号，无损保留双方独有及有差异条目，迁移全部挂载与灵感引用，确认落地后再清理副本。` : undefined"
+      @update:show="value => { if (!value) closeDuplicateMerge() }">
+      <div v-if="mergePreview" class="cloud-merge-preview">
+        <div class="cloud-controls">
+          <span class="cloud-note">保留目标库：<strong>{{ mergePreview.targetId === mergePreview.recommendedTargetId ? '推荐目标库' : '已切换目标库' }}</strong></span>
+          <button type="button" class="m-btn sm" :disabled="working" @click="swapMergeTarget">切换保留另一份为主库</button>
+        </div>
+        <div class="cloud-merge-stats">
+          <span>相同条目：{{ mergePreview.identical.length }}</span>
+          <span>有差异条目（均保留）：{{ mergePreview.different.length }}</span>
+          <span>目标独有：{{ mergePreview.targetOnly.length }}</span>
+          <span>副本独有（将并入）：{{ mergePreview.duplicateOnly.length }}</span>
+        </div>
+        <p class="cloud-note">受影响迁移：{{ mergePreview.affected.novels }} 部作品挂载、{{ mergePreview.affected.sessionSelections }} 个灵感会话、{{ mergePreview.affected.messageReferences }} 处历史引用。</p>
+        <div v-if="mergePreview.duplicateOnly.length" class="cloud-merge-list">
+          <b>将并入目标库的副本独有条目</b>
+          <ul><li v-for="entry in mergePreview.duplicateOnly" :key="entry.id">{{ entry.title }}</li></ul>
+        </div>
+        <div v-if="mergePreview.different.length" class="cloud-merge-list">
+          <b>标题或内容存在差异（双方条目均保留）</b>
+          <ul><li v-for="pair in mergePreview.different" :key="`${pair.target.id}:${pair.duplicate.id}`">{{ pair.target.title }} / {{ pair.duplicate.title }}</li></ul>
+        </div>
+      </div>
+      <template #footer>
+        <button type="button" class="m-btn" :disabled="working" @click="closeDuplicateMerge">取消</button>
+        <button type="button" class="m-btn pri" :aria-busy="working" :disabled="working || !mergeToken" @click="confirmDuplicateMerge">{{ working ? '正在合并…' : '确认合并并迁移引用' }}</button>
+      </template>
+    </V3Modal>
   </section>
 </template>
 
 <script setup lang="ts">
 import { errorText } from '@/services/userFacingError'
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useDialog } from '@/v3/feedback'
 import V3Icon from '@/v3/components/V3Icon.vue'
 import V3Modal from '@/v3/components/V3Modal.vue'
@@ -140,6 +181,7 @@ import V3Input from '@/v3/components/form/V3Input.vue'
 import V3Number from '@/v3/components/form/V3Number.vue'
 import V3Switch from '@/v3/components/form/V3Switch.vue'
 import { useCloudSyncStore } from '@/stores/cloudSync'
+import type { KnowledgeMergePreview } from '@/services/knowledgeDuplicateMerge'
 import CloudPreferencesPanel from './CloudPreferencesPanel.vue'
 import { copyText } from '@/utils/clipboard'
 
@@ -269,6 +311,48 @@ function resolve(id: string, side: 'local' | 'remote') {
     onPositiveClick: () => perform(() => sync.resolveConflict(id, side)),
   })
 }
+
+const duplicateLibraries = ref<KnowledgeMergePreview[]>([])
+const mergePreview = ref<KnowledgeMergePreview | null>(null)
+const mergeToken = ref('')
+async function refreshDuplicates() {
+  try { duplicateLibraries.value = await sync.listKnowledgeDuplicates() }
+  catch { duplicateLibraries.value = [] }
+}
+onMounted(() => { void refreshDuplicates() })
+watch(() => sync.state.lastSync, () => { void refreshDuplicates() })
+async function openDuplicateMerge(item: KnowledgeMergePreview) {
+  await perform(async () => {
+    const data = await sync.getKnowledgeMergePreview({ targetId: item.targetId, duplicateId: item.duplicateId })
+    if (!data) { await refreshDuplicates(); return }
+    mergePreview.value = data
+    mergeToken.value = data.token
+  })
+}
+async function swapMergeTarget() {
+  if (!mergePreview.value) return
+  const next = { targetId: mergePreview.value.duplicateId, duplicateId: mergePreview.value.targetId }
+  await perform(async () => {
+    const data = await sync.getKnowledgeMergePreview(next)
+    if (!data) { closeDuplicateMerge(); await refreshDuplicates(); return }
+    mergePreview.value = data
+    mergeToken.value = data.token
+  })
+}
+function closeDuplicateMerge() {
+  mergePreview.value = null
+  mergeToken.value = ''
+}
+async function confirmDuplicateMerge() {
+  if (!mergePreview.value || !mergeToken.value) return
+  const selection = { targetId: mergePreview.value.targetId, duplicateId: mergePreview.value.duplicateId, token: mergeToken.value }
+  await perform(async () => {
+    await sync.confirmKnowledgeMerge(selection)
+    closeDuplicateMerge()
+    await refreshDuplicates()
+    feedback.value = '同名知识库已合并，作品挂载与灵感引用已迁移。'
+  })
+}
 </script>
 
 <style scoped>
@@ -329,6 +413,13 @@ h4 { font-size:14px; margin:0 0 12px; }
 .cloud-sync-settings > .cloud-controls { justify-content: space-between; }
 .cloud-sync-settings .cloud-toggle { flex: 1; justify-content: space-between; padding-right: 20px; }
 .cloud-invites.paper-panel { margin-top: 0; padding: 24px; }
+.cloud-duplicates.paper-panel { padding: 20px 24px; border-color: color-mix(in srgb, var(--zhu) 40%, var(--line)); }
+.cloud-duplicate-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.cloud-duplicate-row:first-of-type { border-top: 0; padding-top: 0; }
+.cloud-merge-preview { display: grid; gap: 10px; }
+.cloud-merge-stats { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 12px; color: var(--ink-2); }
+.cloud-merge-list { display: grid; gap: 4px; font-size: 12px; color: var(--ink-2); }
+.cloud-merge-list ul { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
 .cloud-explanation.paper-panel { margin-top: 0; padding: 8px 20px; }
 @media (max-width: 600px) { .cloud-account-card, .cloud-sync-settings, .cloud-auth-card { padding: 18px; } .cloud-account > .cloud-controls { margin-left: 0; } }
 </style>

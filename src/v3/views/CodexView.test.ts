@@ -421,6 +421,27 @@ describe('V3 典籍原型布局与真实按章投影', () => {
     expect(JSON.stringify([data.novel, data.workspace.getCanonMutations(data.novel.id), data.workspace.getCandidates(data.novel.id)])).toBe(before)
   })
 
+  it('仅在携带 returnTo 时显示「返回写作」按钮并透传到人物与数据面板链接', async () => {
+    const data = fixture()
+    const target = `/write/${data.novel.id}/${data.novel.chapters[0].id}?tab=character`
+    await mountCodex()
+    expect(wrapper!.find('.codex-back-btn').exists()).toBe(false)
+
+    wrapper!.unmount()
+    route.query = { returnTo: target }
+    await mountCodex()
+    const back = wrapper!.findAllComponents(RouterLinkStub).find(link => link.classes().includes('codex-back-btn'))
+    expect(back).toBeDefined()
+    expect(back!.text()).toContain('返回写作')
+    expect(back!.props('to')).toBe(target)
+
+    const footerLinks = wrapper!.findAllComponents(RouterLinkStub).filter(link => link.text() === '数据面板' || link.text() === '管理人物')
+    expect(footerLinks.length).toBeGreaterThanOrEqual(2)
+    for (const link of footerLinks) {
+      expect(link.props('to')).toMatchObject({ query: { returnTo: target } })
+    }
+  })
+
   it.skipIf(process.env.CODEX_MATRIX_BENCHMARK !== '1')('输出大型知情矩阵挂载基准', async () => {
     const data = largeMatrixFixture()
     const started = performance.now()

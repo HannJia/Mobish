@@ -1,7 +1,13 @@
-import { describe, expect, it } from 'vitest'
-import { buildWritingAdvicePrompt, extractWritingFocus, parseWritingAdviceResult } from './writingAdvisor'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { buildWritingAdvicePrompt, extractWritingFocus, parseWritingAdviceResult, requestWritingAdvice } from './writingAdvisor'
 import type { WritingContext } from './context'
 import type { Chapter, Novel } from '@/types/novel'
+
+vi.mock('./context', () => ({
+  buildWritingContext: () => context,
+  augmentWritingContextWithVectorMemory: async () => context,
+}))
+afterEach(() => vi.unstubAllGlobals())
 
 const context: WritingContext = {
   outlineContext: '世界观：北境城每年初雪后会关闭外城门。',
@@ -34,6 +40,48 @@ describe('写作辅助协议', () => {
     expect(messages[1].content).toContain('门上的雪痕')
   })
 
+  it('长章正文保留开头与最新结尾，省略中段', () => {
+    const beginning = `城门打开。\n${'甲'.repeat(2994)}`
+    const ending = `${'乙'.repeat(2994)}\n火把熄灭。`
+    const middle = '这是中段独有的事件。'
+    const [, prompt] = buildWritingAdvicePrompt(novel, chapter, '', 'scene', context, beginning + middle + ending)
+    expect(prompt.content).toContain(`${beginning}\n（中段省略）\n${ending}`)
+    expect(prompt.content).not.toContain(middle)
+  })
+
+  it('按指定数量要求彼此不同的下一步走法并聚焦作者正在编辑的内容', () => {
+    const [, prompt] = buildWritingAdvicePrompt(novel, chapter, '选区正文', 'scene', context, undefined, 2)
+    expect(prompt.content).toContain('suggestions 返回 2 个彼此不同且聚焦的下一步走法')
+    expect(prompt.content).toContain('每个走法都要围绕作者正在编辑的内容')
+    expect(prompt.content).not.toContain('3-4 个')
+  })
+
+  it.each(['SSE', 'JSON'])('使用配置的模型流式请求两个方向并解析 %s 完整响应', async transport => {
+    const model = { id: 'advisor', name: '顾问模型', modelName: 'configured-model', baseUrl: 'https://example.test',
+      apiKey: 'test-key', maxTokens: 4000, temperature: 0.7, topP: 1 }
+    const content = JSON.stringify({ suggestions: [
+      { title: '调查城门', approach: '先找门上的刻痕。' },
+      { title: '走访旧港口', approach: '先找见过金属片的人。' },
+    ] })
+    const events = [
+      { choices: [{ delta: { content: content.slice(0, 27) } }] },
+      { choices: [{ delta: { content: content.slice(27) }, finish_reason: 'stop' }] },
+    ]
+    const response = transport === 'SSE'
+      ? new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('') + 'data: [DONE]\n\n', {
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+      : Response.json({ choices: [{ message: { content }, finish_reason: 'stop' }] })
+    const fetchMock = vi.fn().mockResolvedValue(response)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await requestWritingAdvice({ model, novel, chapter, content: '', focus: '', mode: 'scene', suggestionCount: 2 })
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ model: model.modelName, stream: true, max_tokens: 2600 })
+    expect(result.suggestions.map(suggestion => suggestion.title)).toEqual(['调查城门', '走访旧港口'])
+  })
+
   it('解析建议、证据和下一章计划并限制数量', () => {
     const raw = JSON.stringify({
       contextSummary: '参考章节计划和前文摘要',
@@ -53,6 +101,8 @@ describe('写作辅助协议', () => {
     expect(result.suggestions).toHaveLength(4)
     expect(result.suggestions[0].evidence[0].sourceLabel).toBe('第 3 章')
     expect(result.nextChapterPlan?.beats).toEqual(['调查老人', '进入内城'])
+    const focusedResult = parseWritingAdviceResult(raw, 'scene', '林默走进城门。', context, 2)
+    expect(focusedResult.suggestions).toEqual(result.suggestions.slice(0, 2))
   })
 
   it('拒绝没有可用方向的结果', () => {

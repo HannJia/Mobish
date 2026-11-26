@@ -194,6 +194,8 @@ export interface StoryClock {
   lastChapterIndex?: number
   updatedAt: string
   origin?: StoryTimeOrigin
+  /** Author-supplied label with no confirmed story day. */
+  pendingOriginLabel?: string
   history?: StoryTimeRecord[]
   confirmationSequence?: number
 }
@@ -222,6 +224,7 @@ export interface DataPanelItem {
   name: string
   fields: DataPanelField[]
   relatedKeywords: string[]
+  characterId?: string // 显式绑定的角色卡 ID
   ownerItemId?: string // 装备/道具明确归属的角色或其他数据对象
   equipmentState?: EquipmentState
   lastMentionChapterIndex?: number
@@ -402,6 +405,8 @@ export interface Volume {
   characterChanges: string   // 角色变化
   estimatedChapters: number  // 预估章节数
   estimatedWordCount: number // 预估字数（万字）
+  sourceVolumeNumber?: number // 原文卷号（从 1 开始）
+  skeletonBeatIds?: string[]
   versions?: PlanningVersion[]
 }
 
@@ -524,7 +529,7 @@ export interface CreateWizardForm {
   /** Initial author input only; carried into creationDraft by the initial aggregate commit. */
   creationInput?: CreationEntryInput
   /** Present only when the author has reviewed the visible initial-time setting. */
-  storyTimeOrigin?: { day: number; label?: string }
+  storyTimeOrigin?: { day?: number; label?: string }
   writingMode?: 'manual' | 'ai'
   knowledgeEnabled?: boolean
   knowledgeBaseIds?: string[]

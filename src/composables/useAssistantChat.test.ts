@@ -115,6 +115,61 @@ describe('chat lifecycle and book isolation', () => {
     chapterScope.stop()
     scope.stop()
   })
+
+  it('reads the latest unsaved draft for each turn, including quick follow-ups', async () => {
+    const { first, store, scope } = setup()
+    const savedContent = '已经保存的原文。'
+    const chapter = store.addChapter(first.id, { content: savedContent })!
+    const draftBeginning = `未保存的开头。${'甲'.repeat(4000)}`
+    const draftEnding = `${'乙'.repeat(2000)}未保存的章末。`
+    const draft = ref(`${draftBeginning}被略去的中段。${draftEnding}`)
+    const chapterScope = effectScope()
+    const chat = chapterScope.run(() => useAssistantChat(() => first.id, () => chapter.id, () => draft.value))!
+    vi.mocked(chatWithOptionalSearch).mockResolvedValue({ content: '本章建议' })
+    chat.inputText.value = '按当前章节想两个方向'
+    await chat.sendMessage()
+    const firstPrompt = vi.mocked(chatWithOptionalSearch).mock.calls[0][0].messages[0].content
+    expect(firstPrompt).toContain(`${draftBeginning.slice(0, 4000)}\n（中段省略）\n${draftEnding.slice(-2000)}`)
+    expect(firstPrompt).not.toContain('被略去的中段')
+    expect(firstPrompt).not.toContain(savedContent)
+
+    draft.value = '二次编辑加入了新的伏笔。'
+    chat.quickAsk('沿第一个思路继续推演')
+    await vi.waitFor(() => expect(chat.thinking.value).toBe(false))
+    const followUpPrompt = vi.mocked(chatWithOptionalSearch).mock.calls[1][0].messages[0].content
+    expect(followUpPrompt).toContain(draft.value)
+    expect(followUpPrompt).not.toContain('未保存的章末')
+    expect(chapter.content).toBe(savedContent)
+    chapterScope.stop()
+    scope.stop()
+  })
+
+  it('treats an empty live draft as empty and reads drafts only for chapters in the current book', async () => {
+    const { first, second, store, scope } = setup()
+    const savedContent = '作者已在编辑框清空的旧正文。'
+    const chapter = store.addChapter(first.id, { content: savedContent })!
+    const otherChapter = store.addChapter(second.id, { content: '另一部书的正文。' })!
+    const currentChapterId = ref(chapter.id)
+    const readDraft = vi.fn(() => '')
+    const chapterScope = effectScope()
+    const chat = chapterScope.run(() => useAssistantChat(() => first.id, () => currentChapterId.value, readDraft))!
+    vi.mocked(chatWithOptionalSearch).mockResolvedValue({ content: '建议' })
+    chat.inputText.value = '怎么开场？'
+    await chat.sendMessage()
+    const emptyPrompt = vi.mocked(chatWithOptionalSearch).mock.calls[0][0].messages[0].content
+    expect(emptyPrompt).toContain('当前正文为空')
+    expect(emptyPrompt).not.toContain(savedContent)
+
+    currentChapterId.value = otherChapter.id
+    chat.inputText.value = '再想一个方向'
+    await chat.sendMessage()
+    const unboundPrompt = vi.mocked(chatWithOptionalSearch).mock.calls[1][0].messages[0].content
+    expect(unboundPrompt).toContain('当前未定位到具体编辑章节')
+    expect(readDraft).toHaveBeenCalledTimes(1)
+    chapterScope.stop()
+    scope.stop()
+  })
+
   it('does not show or resend raw inspiration but still uses confirmed settings', async () => {
     const { chat, first, store, scope } = setup()
     store.setInspirationHistory(first.id, [{

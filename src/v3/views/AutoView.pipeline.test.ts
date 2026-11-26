@@ -59,11 +59,11 @@ it('starts, checkpoints, pauses an active request and resumes from the run cente
     expect(url).toBe(endpoint + '/v1/chat/completions')
     const payload = JSON.parse(String(init?.body))
     const prompt = payload.messages.map((message: { content: string }) => message.content).join('\n')
-    const phase = payload.stream ? 'review' : prompt.includes('knowledgeChanges') ? 'analysis' : 'writing'
-    if (phase === 'writing') {
-      const match = prompt.match(/【本章写作事实卡】[\s\S]*?(?:^|\r?\n)章节：第\s*(\d+)\s*章/m)
-      expect(match).not.toBeNull()
-      activeChapter = Number(match![1])
+    const writingChapter = prompt.match(/【本章写作事实卡】[\s\S]*?(?:^|\r?\n)章节：第\s*(\d+)\s*章/m)
+    const phase = writingChapter ? 'writing' : prompt.includes('knowledgeChanges') ? 'analysis' : 'review'
+    if (writingChapter) {
+      activeChapter = Number(writingChapter[1])
+      expect(payload.max_tokens).toBe(16384)
     }
     expect(activeChapter).toBeGreaterThan(0)
     requests.push({ phase, chapter: activeChapter })
@@ -90,7 +90,7 @@ it('starts, checkpoints, pauses an active request and resumes from the run cente
       { headers: { 'Content-Type': 'application/json' } })
   }))
   useConfigStore().addModel({ name: '离线自动任务替身', baseUrl: endpoint, apiKey: '', modelName: 'synthetic-auto',
-    maxTokens: 4096, temperature: 0, topP: 1, contextWindow: 32000 })
+    maxTokens: 16384, temperature: 0, topP: 1, contextWindow: 32000 })
   const novels = useNovelStore()
   const novel = novels.addNovel({ workingTitle: '自动任务合成作品', genre: 'urban', subGenre: 'mystery', tags: [],
     targetWordCountMin: 1, targetWordCountMax: 2, settings: novels.defaultSettings(), writingStyle: novels.defaultWritingStyle(),

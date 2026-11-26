@@ -30,6 +30,17 @@ describe('safe structured AI diagnostics', () => {
       '结束原因：length；正文长度：2 字符；输出用量：900 Token；推理用量：608 Token')
   })
 
+  it.each(['', ' \n'])('explains reasoning-only truncation for blank content %j', content => {
+    const usage = { completion_tokens: 6012, completion_tokens_details: { reasoning_tokens: 6012 } }
+    expect(structuredOutputDiagnostic({ content, finishReason: 'length', usage })).toContain(
+      '思考过程用光了输出上限。请在「设置 → 模型配置」中调高该模型的「最大输出 Token 数」后重试。')
+  })
+
+  it.each([undefined, 0])('omits the reasoning hint on truncation without positive reasoning usage (%s)', reasoningTokens => {
+    const usage = { completion_tokens: 6012, completion_tokens_details: { reasoning_tokens: reasoningTokens } }
+    expect(structuredOutputDiagnostic({ content: '', finishReason: 'length', usage })).not.toContain('思考过程')
+  })
+
   it.each([0, 608, Number.MAX_SAFE_INTEGER])('preserves a safe reasoning count %s without inventing missing counters', count => {
     const usage = safeAiUsage({ completion_tokens_details: { reasoning_tokens: count } })
     expect(usage).toEqual({ completion_tokens_details: { reasoning_tokens: count } })

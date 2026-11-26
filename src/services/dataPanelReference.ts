@@ -8,6 +8,11 @@ const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 const equal = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right)
 const fieldKey = (id: string) => 'field:' + id
 const projectionUnknown = new WeakMap<DataPanelItem, ReadonlySet<string>>()
+const projectionTemporal = new WeakMap<DataPanelItem, {
+  original: DataPanelItem
+  beforeChapterIndex?: number
+  chapterFields: ReadonlySet<string>
+}>()
 export function dataPanelReferenceUnknown(item: DataPanelItem): ReadonlySet<string> {
   return projectionUnknown.get(item) || new Set<string>()
 }
@@ -30,6 +35,7 @@ export function dataPanelReferenceState(item?: DataPanelItem): State {
   if (!item) return {}
   const result: State = { $exists: true, name: item.name, category: item.category,
     relatedKeywords: item.relatedKeywords, fieldOrder: item.fields.map(field => field.id), equipmentState: item.equipmentState || 'stored' }
+  if (item.characterId) result.characterId = item.characterId
   if (item.ownerItemId !== undefined) result.ownerItemId = item.ownerItemId
   if (item.lastMentionChapterIndex !== undefined) result.lastMentionChapterIndex = item.lastMentionChapterIndex
   for (const field of item.fields) result[fieldKey(field.id)] = fieldReference(field)
@@ -129,9 +135,59 @@ function automationTimeProblem(novel: Novel, revision: DataPanelReferenceRevisio
   return ''
 }
 
+function projectPanelState(novel: Novel, original: DataPanelItem, beforeChapterIndex?: number) {
+  const history = original.referenceHistory
+  const state = history ? clone(history.baseline) : dataPanelReferenceState(original)
+  const problems = new Map<string, string>(), chapterFields = new Set<string>()
+  if (!history) return { state, problems, chapterFields }
+
+  const head = clone(state)
+  for (const revision of history.revisions) {
+    for (const change of revision.changes) setValue(head, change.key, change.after)
+    const source = revision.source
+    const chapterBound = source.kind === 'chapter' || source.kind === 'automation'
+    if (chapterBound && beforeChapterIndex !== undefined && source.chapterIndex >= beforeChapterIndex) continue
+    let problem = sourceProblem(novel, source) || automationTimeProblem(novel, revision)
+    if (!problem && source.kind === 'automation' && Object.entries(revision.dependencies || {}).some(([key, value]) => !equal(state[key], value))) {
+      problem = '自动推算所依赖的数据已失效'
+    }
+    for (const change of revision.changes) {
+      if (problem) {
+        delete state[change.key]
+        if (!['lastMentionChapterIndex', 'fieldOrder'].includes(change.key)) problems.set(change.key, problem)
+      } else {
+        setValue(state, change.key, change.after)
+        problems.delete(change.key)
+        if (chapterBound && change.key.startsWith('field:')) chapterFields.add(change.key)
+      }
+    }
+  }
+  // Never replay recorded history over a newer, unrecorded edit.
+  const live = dataPanelReferenceState(original)
+  for (const key of new Set([...Object.keys(head), ...Object.keys(live)])) if (!equal(head[key], live[key])) {
+    delete state[key]
+    if (!['lastMentionChapterIndex', 'fieldOrder'].includes(key)) problems.set(key, '存在未记录来源的后续修改')
+  }
+  return { state, problems, chapterFields }
+}
+
+export type DataPanelFieldTemporalKind = 'before-chapter' | 'global-setting' | 'unrecorded'
+
+export function getDataPanelFieldTemporalKind(novel: Novel, itemId: string, fieldId: string,
+  beforeChapterIndex?: number): DataPanelFieldTemporalKind {
+  const item = novel.dataPanels?.find(row => row.id === itemId)
+  const projected = item && projectionTemporal.get(item)
+  const original = projected?.original ?? item
+  if (!original?.referenceHistory) return 'unrecorded'
+  const chapterFields = projected && projected.beforeChapterIndex === beforeChapterIndex
+    ? projected.chapterFields : projectPanelState(novel, original, beforeChapterIndex).chapterFields
+  return chapterFields.has(fieldKey(fieldId)) ? 'before-chapter' : 'global-setting'
+}
+
 /** Read-only chapter projection. Invalid evidence makes the affected value unknown, never an assumed old value. */
 export function projectDataPanelReferences(novel: Novel, beforeChapterIndex?: number): { items: DataPanelItem[]; issues: string[]; unknownFields: Map<string, string[]> } {
   const items: DataPanelItem[] = [], issues: string[] = [], unknownFields = new Map<string, string[]>()
+  const characterIds = new Set((novel.characters || []).map(character => character.id))
   for (const original of novel.dataPanels || []) {
     for (const field of original.fields) for (const rule of field.automationRules || []) {
       if (beforeChapterIndex !== undefined || !rule.enabled || rule.trigger !== 'elapsed_days' || rule.sourceFieldName !== STORY_CLOCK_SOURCE
@@ -146,34 +202,7 @@ export function projectDataPanelReferences(novel: Novel, beforeChapterIndex?: nu
         issues.push(`${original.name}/${field.name}：时间规则结算来源待核对，请编辑并确认该字段后重新推算`)
       }
     }
-    const history = original.referenceHistory
-    const state = history ? clone(history.baseline) : dataPanelReferenceState(original)
-    const head = clone(state), problems = new Map<string, string>()
-    for (const revision of history?.revisions || []) {
-      for (const change of revision.changes) setValue(head, change.key, change.after)
-      const source = revision.source
-      if ((source.kind === 'chapter' || source.kind === 'automation') && beforeChapterIndex !== undefined
-        && source.chapterIndex >= beforeChapterIndex) continue
-      let problem = sourceProblem(novel, source) || automationTimeProblem(novel, revision)
-      if (!problem && source.kind === 'automation' && Object.entries(revision.dependencies || {}).some(([key, value]) => !equal(state[key], value))) {
-        problem = '自动推算所依赖的数据已失效'
-      }
-      for (const change of revision.changes) {
-        if (problem) {
-          delete state[change.key]
-          if (!['lastMentionChapterIndex', 'fieldOrder'].includes(change.key)) problems.set(change.key, problem)
-        }
-        else { setValue(state, change.key, change.after); problems.delete(change.key) }
-      }
-    }
-    // Never replay recorded history over a newer, unrecorded edit.
-    if (history) {
-      const live = dataPanelReferenceState(original)
-      for (const key of new Set([...Object.keys(head), ...Object.keys(live)])) if (!equal(head[key], live[key])) {
-        delete state[key]
-        if (!['lastMentionChapterIndex', 'fieldOrder'].includes(key)) problems.set(key, '存在未记录来源的后续修改')
-      }
-    }
+    const { state, problems, chapterFields } = projectPanelState(novel, original, beforeChapterIndex)
     for (const problem of new Set(problems.values())) issues.push(original.name + '：' + problem)
     if (problems.size) unknownFields.set(original.id, [...problems.keys()])
     if (state.$exists !== true || typeof state.name !== 'string' || typeof state.category !== 'string') continue
@@ -184,11 +213,13 @@ export function projectDataPanelReferences(novel: Novel, beforeChapterIndex?: nu
     })
     const item: DataPanelItem = { ...original, name: state.name, category: state.category as DataPanelItem['category'], fields,
       relatedKeywords: Array.isArray(state.relatedKeywords) ? state.relatedKeywords as string[] : [],
+      characterId: typeof state.characterId === 'string' && characterIds.has(state.characterId) ? state.characterId : undefined,
       ownerItemId: typeof state.ownerItemId === 'string' ? state.ownerItemId : undefined,
       equipmentState: state.equipmentState as DataPanelItem['equipmentState'],
       lastMentionChapterIndex: typeof state.lastMentionChapterIndex === 'number' ? state.lastMentionChapterIndex : undefined }
     delete item.referenceHistory; delete item.versions
     projectionUnknown.set(item, new Set(problems.keys()))
+    projectionTemporal.set(item, { original, beforeChapterIndex, chapterFields })
     calculateDataPanelFields(item)
     item.fields = item.fields.filter(field => !field.calculationError)
     items.push(item)

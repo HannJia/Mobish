@@ -7,6 +7,7 @@ const requireLocal = createRequire(path.resolve('app-main/main.js'))
 const { createUpdateController, parseRelease, validateManifest } = requireLocal('./updater.cjs')
 const { createUpdateHandshake } = requireLocal('./updateHandshake.cjs')
 const installer = 'mobish-1.0.3.exe'
+const giteeReleaseUrl = 'https://gitee.com/hannjia/Mobish/releases/tag/v1.0.3'
 function release() {
   return { tag_name: 'v1.0.3', body: '# 修复问题', published_at: '2026-09-13T08:00:00Z',
     assets: [{ name: installer, state: 'uploaded', size: 300 }, { name: 'latest.yml', state: 'uploaded', size: 200 }] }
@@ -256,5 +257,91 @@ describe('update save handshake', () => {
     await vi.advanceTimersByTimeAsync(100)
     await timeout
     expect(handshake.busy).toBe(false)
+  })
+})
+
+describe('Gitee update fallback', () => {
+  it('keeps GitHub when it is current or has a verified update', async () => {
+    const fetchGitee = vi.fn(async () => release())
+    for (const currentVersion of ['1.0.2', '1.0.3']) {
+      const { controller } = setup({ currentVersion, fetchGitee })
+      expect((await controller.check()).phase).toBe(currentVersion === '1.0.2' ? 'available' : 'current')
+      controller.dispose()
+    }
+    expect(fetchGitee).not.toHaveBeenCalled()
+  })
+
+  it.each(['network error', 'invalid release', 'timeout'])('uses Gitee latest after GitHub %s', async reason => {
+    vi.useFakeTimers()
+    const fetchGitee = vi.fn(async () => release())
+    const { controller, options } = setup({ fetchGitee, checkTimeoutMs: 50 })
+    if (reason === 'timeout') options.fetchLatest.mockImplementationOnce(() => new Promise(() => {}))
+    else if (reason === 'network error') options.fetchLatest.mockRejectedValueOnce(new Error('fetch failed'))
+    else options.fetchLatest.mockResolvedValueOnce({ ...release(), tag_name: 'v1.0.3-beta.1' })
+    const check = controller.check()
+    await vi.advanceTimersByTimeAsync(50)
+    expect(await check).toMatchObject({ phase: 'available', release: { url: giteeReleaseUrl, version: '1.0.3' } })
+    expect(fetchGitee).toHaveBeenCalledExactlyOnceWith(expect.any(AbortSignal), undefined)
+    controller.dispose()
+  })
+
+  it.each(['missing asset', 'invalid manifest'])('checks the same Gitee tag when GitHub has a %s', async reason => {
+    const fetchGitee = vi.fn(async () => release())
+    const { controller, updater, options } = setup({ fetchGitee })
+    if (reason === 'missing asset') options.fetchLatest.mockResolvedValueOnce({ ...release(), assets: [] })
+    else updater.checkForUpdates.mockRejectedValueOnce(new Error('invalid latest.yml'))
+    expect(await controller.check()).toMatchObject({ phase: 'available', release: { url: giteeReleaseUrl, canDownload: true } })
+    expect(fetchGitee).toHaveBeenCalledExactlyOnceWith(expect.any(AbortSignal), 'v1.0.3')
+    controller.dispose()
+  })
+
+  it.each(['download failed', 'SHA512 checksum mismatch'])('rechecks the entire Gitee release after %s', async message => {
+    const fetchGitee = vi.fn(async () => release())
+    const { controller, updater } = setup({ fetchGitee })
+    const clear = vi.fn(async () => undefined)
+    Object.assign(updater, { downloadedUpdateHelper: { clear } })
+    await controller.check()
+    updater.downloadUpdate.mockRejectedValueOnce(new Error(message))
+    expect(await controller.download()).toMatchObject({ phase: 'downloaded', release: { url: giteeReleaseUrl } })
+    expect(clear).toHaveBeenCalledBefore(fetchGitee)
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2)
+    expect(updater.downloadUpdate).toHaveBeenCalledTimes(2)
+    expect(updater.quitAndInstall).not.toHaveBeenCalled()
+    controller.dispose()
+  })
+
+  it('refuses a lagging mirror even when its release is newer than the installed version', async () => {
+    const fetchGitee = vi.fn(async () => release())
+    const { controller, updater, options } = setup({ fetchGitee })
+    options.fetchLatest.mockResolvedValueOnce({ ...release(), tag_name: 'v1.0.4', assets: [] })
+    expect(await controller.check()).toMatchObject({ phase: 'available', release: { version: '1.0.4', canDownload: false } })
+    expect(fetchGitee).toHaveBeenCalledExactlyOnceWith(expect.any(AbortSignal), 'v1.0.4')
+    expect(updater.checkForUpdates).not.toHaveBeenCalled()
+    controller.dispose()
+  })
+
+  it('reports failure when both sources time out', async () => {
+    vi.useFakeTimers()
+    const pending = () => new Promise(() => {})
+    const { controller } = setup({ fetchLatest: pending, fetchGitee: pending, checkTimeoutMs: 50 })
+    const check = controller.check()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(await check).toMatchObject({ phase: 'error', release: null, error: '检查更新超时。' })
+    controller.dispose()
+  })
+
+  it('never starts the fallback after a cancelled GitHub download', async () => {
+    const fetchGitee = vi.fn(async () => release())
+    const { controller, updater, token } = setup({ fetchGitee })
+    await controller.check()
+    updater.downloadUpdate.mockImplementationOnce(() => new Promise((_resolve, reject) => {
+      token.cancel.mockImplementationOnce(() => reject(new Error('cancelled')))
+    }))
+    const download = controller.download()
+    await Promise.resolve()
+    controller.cancel()
+    expect(await download).toMatchObject({ phase: 'idle', error: '' })
+    expect(fetchGitee).not.toHaveBeenCalled()
+    controller.dispose()
   })
 })

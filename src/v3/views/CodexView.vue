@@ -5,6 +5,9 @@
   <div v-else-if="!novel" class="codex-state error">作品不存在。</div>
   <div v-else class="codex-page">
     <main class="codex-main">
+      <div v-if="returnTo" class="codex-back-bar">
+        <router-link class="codex-back-btn" :to="returnTo"><span aria-hidden="true">←</span> 返回写作</router-link>
+      </div>
       <header class="codex-head"><div><h1>典籍</h1><p>你确认过的人物认知和关系，按章节整理。</p></div><div class="head-actions"><button v-if="selectedCharacter" class="m-btn sm detail-trigger" type="button" @click="detailOpen = true">人物详情</button><router-link class="m-btn sm" :to="{ path: '/plan/' + novel.id, query: { view: 'workbench', plannerTab: 'memory' } }"><V3Icon name="search" size="s" />检索典籍</router-link></div></header>
       <nav class="codex-tabs" aria-label="典籍视图"><button v-for="item in tabs" :key="item.id" type="button" :class="{ on: activeTab === item.id }" :aria-current="activeTab === item.id ? 'page' : undefined" @click="selectTab(item.id)">{{ item.label }}</button></nav>
 
@@ -14,7 +17,7 @@
 
       <section v-if="activeTab === 'knowledge'" aria-label="知情矩阵">
         <div v-if="characters.length && facts.length" ref="matrixWrap" class="matrix-wrap" :class="{ 'is-windowed': matrixVirtualized }" tabindex="0" aria-label="人物知情矩阵，可横向滚动" @scroll.passive="onMatrixScroll"><table class="matrix" :class="{ 'is-windowed': matrixVirtualized }" :aria-rowcount="characters.length + 1"><thead><tr><th scope="col">人物 \ 命题</th><th v-for="fact in facts" :key="fact.key" scope="col" :title="fact.key + '\n' + fact.scope">{{ fact.label }}<small>{{ fact.scope || '独立命题' }}</small></th></tr></thead><tbody><tr v-if="matrixWindow.start" class="matrix-window-spacer" aria-hidden="true"><td :colspan="facts.length + 1" :style="{ height: matrixWindow.start * matrixRowHeight + 'px' }" /></tr><tr v-for="row in visibleMatrixRows" :key="row.character.id" :aria-rowindex="row.index + 2"><th scope="row"><button type="button" class="matrix-person" @click="selectCharacter(row.character.id)"><CharacterAvatar :character="row.character" :size="34" /><span>{{ row.character.name }}</span></button></th><td v-for="item in row.cells" :key="item.fact.key"><button type="button" class="matrix-cell" :class="{ selected: selectedCharacter?.id === row.character.id && selectedFact?.key === item.fact.key }" :data-character-id="row.character.id" :data-fact-id="item.fact.key" :aria-pressed="selectedCharacter?.id === row.character.id && selectedFact?.key === item.fact.key" :aria-label="row.character.name + ' · ' + item.fact.label + ' · ' + item.cell.label" @click="selectCell(row.character.id, item.fact.key)"><span class="cell-state" :class="item.cell.tone"><i aria-hidden="true">{{ item.cell.symbol }}</i>{{ item.cell.label }}</span><span class="cell-source">{{ item.cell.since === undefined ? '不作额外推断' : '自第 ' + (item.cell.since! + 1) + ' 章' }}</span></button></td></tr><tr v-if="matrixWindow.end < characters.length" class="matrix-window-spacer" aria-hidden="true"><td :colspan="facts.length + 1" :style="{ height: (characters.length - matrixWindow.end) * matrixRowHeight + 'px' }" /></tr></tbody></table></div>
-        <div v-else class="empty m-panel"><h2>{{ characters.length ? '还没有可显示的人物认知' : '还没有可显示的人物' }}</h2><p>只显示到所选章节为止已确认的记录。</p><router-link class="m-btn sm" :to="'/characters/' + novel.id">管理人物资料</router-link></div>
+        <div v-else class="empty m-panel"><h2>{{ characters.length ? '还没有可显示的人物认知' : '还没有可显示的人物' }}</h2><p>只显示到所选章节为止已确认的记录。</p><router-link class="m-btn sm" :to="withReturnTo('/characters/' + novel.id)">管理人物资料</router-link></div>
         <div class="matrix-legend"><span v-for="state in knowledgeStates" :key="state" :class="state"><i aria-hidden="true">{{ stateSymbols[state] }}</i>{{ stateLabel(state) }}</span><span class="unrecorded">— 未记录</span><span>未确认的候选不显示</span></div>
         <p v-if="pendingKnowledgeCount" class="pending-notice">{{ pendingKnowledgeCount }} 条知情候选尚未明确处理；请到来源章案头逐条核对。</p>
       </section>
@@ -37,8 +40,8 @@
 
       <section v-else-if="activeTab === 'timeline'" aria-label="故事时间线"><p class="timeline-explanation">左侧为已记录的故事时间，卡片按叙事章节排列；规划与来源待核对均不冒充已发生事实。</p><div class="story-timeline"><article v-for="event in timeline" :key="event.id" class="timeline-row" :class="{ planned: !isOccurredEvent(event), uncertain: event.status === 'unverified' }"><span class="timeline-when">{{ event.storyTime || '时间未记录' }}</span><div class="timeline-card m-panel"><div class="event-tags"><span>{{ event.chapterIndex < 0 ? '全书规划' : '第 ' + (event.chapterIndex + 1) + ' 章' }}</span><span>{{ event.status === 'unverified' ? '来源待核对' : isOccurredEvent(event) ? '发生记录' : '计划，非已发生' }}</span><span>{{ event.type }}</span></div><h2>{{ event.title }}</h2><p>{{ event.description || '未记录描述' }}</p><router-link class="m-link" :to="{ path: '/plan/' + novel.id, query: { view: 'workbench', plannerTab: 'timeline', plannerSelection: event.id } }">查看事件与来源</router-link></div></article></div><div v-if="!timeline.length" class="empty m-panel">截至所选章还没有有效事件或规划记录。</div></section>
 
-      <section v-else class="resource-grid"><router-link class="resource-card m-panel" :to="'/inspiration/' + novel.id"><strong>灵感记录</strong><span>查看创建阶段保留的探索对话和灵感片段</span></router-link><router-link class="resource-card m-panel" :to="'/knowledge/' + novel.id"><strong>资料库</strong><span>管理本书挂载的知识库和资料来源</span></router-link><router-link class="resource-card m-panel" :to="'/data/' + novel.id"><strong>数据面板</strong><span>查看数值、装备、公式和按章变化</span></router-link><router-link class="resource-card m-panel" :to="{ path: '/plan/' + novel.id, query: { view: 'workbench', plannerTab: 'memory' } }"><strong>故事回顾</strong><span>打开项目记忆检索和全书、分卷、场景回顾</span></router-link></section>
-      <footer class="codex-links"><router-link :to="'/characters/' + novel.id">管理人物</router-link><router-link :to="'/knowledge/' + novel.id">本书资料</router-link><router-link :to="'/data/' + novel.id">数据面板</router-link></footer>
+      <section v-else class="resource-grid"><router-link class="resource-card m-panel" :to="withReturnTo('/inspiration/' + novel.id)"><strong>灵感记录</strong><span>查看创建阶段保留的探索对话和灵感片段</span></router-link><router-link class="resource-card m-panel" :to="'/knowledge/' + novel.id"><strong>资料库</strong><span>管理本书挂载的知识库和资料来源</span></router-link><router-link class="resource-card m-panel" :to="withReturnTo('/data/' + novel.id)"><strong>数据面板</strong><span>查看数值、装备、公式和按章变化</span></router-link><router-link class="resource-card m-panel" :to="{ path: '/plan/' + novel.id, query: { view: 'workbench', plannerTab: 'memory' } }"><strong>故事回顾</strong><span>打开项目记忆检索和全书、分卷、场景回顾</span></router-link></section>
+      <footer class="codex-links"><router-link :to="withReturnTo('/characters/' + novel.id)">管理人物</router-link><router-link :to="'/knowledge/' + novel.id">本书资料</router-link><router-link :to="withReturnTo('/data/' + novel.id)">数据面板</router-link></footer>
     </main>
 
     <button v-if="detailOpen" class="detail-backdrop" type="button" aria-label="关闭人物详情" @click="detailOpen = false" />
@@ -82,6 +85,14 @@ type KnowledgeCell = { states: MemoryKnowledgeEdge[]; issues: Array<{ record: Ca
 const route = useRoute(), router = useRouter(), novels = useNovelStore(), workspace = useReconstructionWorkspaceStore()
 const novelId = computed(() => typeof route.params.novelId === 'string' ? route.params.novelId : '')
 const novel = computed(() => novels.getNovel(novelId.value))
+const returnTo = computed(() => {
+  const raw = typeof route.query.returnTo === 'string' ? route.query.returnTo.trim() : ''
+  return raw.startsWith('/') && !raw.startsWith('//') ? raw : ''
+})
+function withReturnTo(path: string, extra?: Record<string, string>) {
+  const query = { ...(extra || {}), ...(returnTo.value ? { returnTo: returnTo.value } : {}) }
+  return Object.keys(query).length ? { path, query } : path
+}
 const loading = ref(true), error = ref(''), activeTab = ref<CodexTab>('knowledge'), detailOpen = ref(false)
 const selectedCharacterId = ref(''), selectedFactId = ref(''), projectionIndex = ref<number>()
 const tabs: Array<{ id: CodexTab; label: string }> = [{ id: 'knowledge', label: '知情矩阵' }, { id: 'characters', label: '人物' }, { id: 'appearances', label: '出场对照' }, { id: 'relations', label: '关系网' }, { id: 'timeline', label: '时间线' }, { id: 'resources', label: '资料与回顾' }]
@@ -252,7 +263,7 @@ function evidenceLocation(evidence: EvidenceRef) {
   return { path: '/write/' + novelId.value + '/' + chapter.id, query: { evidenceVersion: evidence.sourceVersionId, evidenceStart: String(start), evidenceEnd: String(end) } }
 }
 function sourceChapterLabel(id?: string) { const chapter = chapters.value.find(chapter => chapter.id === id); return chapter ? '第 ' + (chapter.chapterIndex + 1) + ' 章 · ' + chapterTitleForDisplay(chapter.title, chapter.chapterIndex) : '来源章已删除或未记录' }
-function characterLocation(id: string) { return { path: '/characters/' + novelId.value, query: { character: id } } }
+function characterLocation(id: string) { return withReturnTo('/characters/' + novelId.value, { character: id }) }
 function updateQuery() { void router.replace({ query: { ...route.query, tab: activeTab.value, atChapter: atIndex.value < 0 ? undefined : String(atIndex.value + 1), character: selectedCharacter.value?.id, fact: selectedFact.value?.key } }) }
 function selectTab(tab: CodexTab) { activeTab.value = tab; updateQuery() }
 function selectChapter(index: number) { if (!chapters.value.some(chapter => chapter.chapterIndex === index)) return; projectionIndex.value = index; updateQuery() }
@@ -281,6 +292,9 @@ onMounted(async () => { try { if (!novelId.value) throw new Error('典籍缺少�
 <style scoped>
 .codex-page { position: absolute; inset: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; min-height: 0; background: var(--desk); }
 .codex-main { min-width: 0; overflow: auto; padding: 22px 28px 40px; }
+.codex-back-bar { display: flex; align-items: center; margin-bottom: 12px; }
+.codex-back-btn { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; border: 1px solid color-mix(in srgb, var(--zhu) 42%, var(--line)); border-radius: var(--r-s); background: var(--paper); color: var(--zhu); font-size: 12px; font-weight: 600; text-decoration: none; }
+.codex-back-btn:hover { background: var(--zhu-soft); border-color: var(--zhu); color: var(--zhu); }
 .codex-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
 .codex-head h1 { margin: 0 0 3px; font: 600 18px var(--f-serif); }
 .codex-head p { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.6; }

@@ -10,6 +10,10 @@ export function writeInspirationSessions(sessions: InspirationSession[]) {
 export async function loadInspirationSessions(): Promise<InspirationSession[]> {
   if (usesProjectKernel()) return (await readKernelBackup()).inspirationSessions
   await initDb()
+  return readInspirationSessionRows()
+}
+
+export function readInspirationSessionRows(): InspirationSession[] {
   return sortInspirationSessions(queryAll<{ value: string }>('SELECT value FROM inspiration_sessions').map(row => parseInspirationSession(JSON.parse(row.value))))
 }
 export async function saveInspirationSessions(sessions: InspirationSession[]) {

@@ -136,7 +136,7 @@ function dataReferenceValue(key: string, value: unknown, path: string) {
     return
   }
   const checks: Record<string, Check> = { $exists: boolean, name: text, category: dataCategory,
-    relatedKeywords: list(text), fieldOrder: list(id, 1000), ownerItemId: id,
+    relatedKeywords: list(text), fieldOrder: list(id, 1000), characterId: id, ownerItemId: id,
     equipmentState, lastMentionChapterIndex: number }
   if (!Object.prototype.hasOwnProperty.call(checks, key)) fail(path)
   checks[key](value, path)
@@ -223,12 +223,12 @@ const book = object({
     sampleRules: optional(text) }),
   writingMode: optional(oneOf('manual', 'ai')), coverId: optional(text), chatWebSearchEnabled: optional(boolean), storyClock: optional(object({
     currentDay: number, label: text, lastChapterIndex: optional(number), updatedAt: date,
-    origin: optional(storyTimeOrigin), history: optional(list(storyTimeRecord, 100_000)), confirmationSequence: optional(integer),
+    origin: optional(storyTimeOrigin), pendingOriginLabel: optional(text), history: optional(list(storyTimeRecord, 100_000)), confirmationSequence: optional(integer),
   })), settings,
   chapterLengthPolicy: optional(chapterLengthPolicy),
   status: oneOf('creating', 'writing', 'archived', 'trash', 'completed'), ...times, knowledgeBaseIds: list(id, 1000),
   volumes: list(object({ id, volumeIndex: integer, ...strings('title theme summary keyTurningPoints characterChanges'),
-    estimatedChapters: number, estimatedWordCount: number, versions }), 10_000),
+    estimatedChapters: number, estimatedWordCount: number, versions, sourceVolumeNumber: optional(integer), skeletonBeatIds: optional(list(id, 1000)) }), 10_000),
   chapters: list(object(chapterFields), 30_000),
   archivedChapters: optional(list(object({ ...chapterFields, archivedAt: date }), 30_000)),
   characters: list(object({ id, ...strings('name identity personality powerLevel faction description avatarColor'), aliases: list(text),
@@ -269,7 +269,7 @@ const book = object({
       relatedArcIds: list(id), targetChapter: optional(number), evidence: text })),
   }))),
   dataPanels: list(object({ id, category: oneOf('角色', '作物', '资源', '建筑', '任务', '装备', '道具', '自定义'), name: text,
-    referenceHistory: optional(dataReferenceHistory),
+    referenceHistory: optional(dataReferenceHistory), characterId: optional(id),
     fields: list(field, 1000), relatedKeywords: list(text), ownerItemId: optional(id), equipmentState: optional(oneOf('stored', 'equipped', 'consumed', 'lost')), lastMentionChapterIndex: optional(number), versions, ...times })),
   dataPanelChanges: list(object({ id, itemId: id, fieldId: id, ...strings('itemName fieldName oldValue newValue reason'),
     confidence: optional(oneOf('clear', 'possible', 'none')), mutation: optional(mutation),
@@ -411,7 +411,8 @@ export function validateProjectBackup(value: unknown): void {
         }
       }
       if (new Set(panel.fields.map(field => field.id)).size !== panel.fields.length) fail(`${panel.name}：重复字段 ID`)
-      for (const version of panel.versions || []) object({ name: text, category: text, fields: list(field, 1000), relatedKeywords: list(text) })(JSON.parse(version.snapshot), `${panel.name}：历史快照`)
+      for (const version of panel.versions || []) object({ name: text, category: text, fields: list(field, 1000),
+        relatedKeywords: list(text), characterId: optional(id) })(JSON.parse(version.snapshot), `${panel.name}：历史快照`)
     }
     for (const change of novel.dataPanelChanges) {
       if (change.sourceBinding && change.sourceBinding.novelId !== novel.id) fail(novel.title + '：数据提案来源属于其他作品')
@@ -425,6 +426,8 @@ export function validateProjectBackup(value: unknown): void {
       }
     }
     for (const volume of novel.volumes) {
+      if (volume.sourceVolumeNumber !== undefined && (!Number.isSafeInteger(volume.sourceVolumeNumber) || volume.sourceVolumeNumber < 1)) fail('分卷原始序号无效')
+      if (volume.skeletonBeatIds && new Set(volume.skeletonBeatIds).size !== volume.skeletonBeatIds.length) fail('分卷骨架节点重复')
       for (const version of volume.versions || []) object({ ...strings('title theme summary keyTurningPoints characterChanges'), volumeIndex: integer, estimatedChapters: number, estimatedWordCount: number })(JSON.parse(version.snapshot), `${volume.title}：历史快照`)
     }
     for (const plan of novel.chapterPlans || []) {

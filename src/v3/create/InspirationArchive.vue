@@ -26,7 +26,8 @@
       </nav>
       <div class="archive-history" ref="historyElement" tabindex="0" aria-label="灵感对话存档">
         <article v-for="message in visibleMessages" :key="message.id" class="archive-message" :class="message.role">
-          <span class="archive-avatar" aria-hidden="true">{{ message.role === 'user' ? '我' : 'AI' }}</span>
+          <span v-if="message.role === 'user'" class="archive-avatar" aria-hidden="true">我</span>
+          <img v-else :src="mojianIcon" alt="" aria-hidden="true" class="archive-avatar archive-avatar-seal" />
           <div class="archive-bubble">
             <strong class="archive-message-role">{{ message.role === 'user' ? '我' : 'AI' }}</strong>
             <time v-if="Number.isFinite(Date.parse(message.timestamp))" :datetime="message.timestamp">{{ new Date(message.timestamp).toLocaleString('zh-CN') }}</time>
@@ -53,6 +54,7 @@ import { exportInspirationArchive } from '@/services/export'
 import { formatChatReply } from '@/utils/chatPresentation'
 import { renderMd } from '@/utils/markdown'
 import ChatSearchEvidence from '@/components/ChatSearchEvidence.vue'
+import mojianIcon from '@/assets/v3/mojian-icon.svg'
 
 const route = useRoute()
 const store = useNovelStore()
@@ -109,10 +111,11 @@ watch(pageCount, () => { if (page.value > pageCount.value) void changePage(pageC
 .archive-message, .archive-message.user { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: start; gap: 16px; justify-content: stretch; margin-bottom: 16px; padding: 16px; border-radius: var(--r-m); }
 .archive-message.assistant { background: var(--dai-soft); }
 .archive-avatar { display: grid; place-items: center; width: 44px; height: 48px; border-radius: var(--r-s); font: 600 20px var(--f-serif); background: var(--dai-soft); color: var(--dai); }
+.archive-avatar-seal { width: 44px; height: 44px; border-radius: 10px; background: transparent; object-fit: cover; display: block; }
 .user .archive-avatar { background: var(--zhu-soft); color: var(--zhu); }
 .archive-bubble, .user .archive-bubble { max-width: none; width: 100%; padding: 0; border: 0; background: none; box-shadow: none; }
 .archive-message-role { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .archive-author, .archive-content { font-size: 15px; line-height: 1.9; }
-@media (max-width: 600px) { .archive-discussion { padding: 12px; } .archive-message, .archive-message.user { padding: 10px 0; grid-template-columns: 32px minmax(0, 1fr); gap: 10px; } .archive-avatar { width: 32px; height: 38px; font-size: 16px; } }
+@media (max-width: 600px) { .archive-discussion { padding: 12px; } .archive-message, .archive-message.user { padding: 10px 0; grid-template-columns: 32px minmax(0, 1fr); gap: 10px; } .archive-avatar { width: 32px; height: 38px; font-size: 16px; } .archive-avatar-seal { width: 32px; height: 32px; border-radius: 7px; } }
 .archive-bubble time { display: block; margin-bottom: 8px; color: var(--ink-3); font-size: 12px; }
 </style>

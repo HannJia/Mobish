@@ -1,5 +1,7 @@
 import type { StructuredChapterPlan, ScenePlan } from './reconstruction'
 
+export type CreationSurface = 'contract' | 'skeleton' | 'outline' | 'volumes' | 'ready'
+
 /** These records are editor recovery data, never approved planning or Canon. */
 export interface SceneEditorDraft {
   id: string

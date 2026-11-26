@@ -70,12 +70,18 @@ it('creates a blank project, confirms contract and manual direction, saves a pla
   await wrapper.get('textarea[aria-label="作品类型"]').setValue('悬疑')
   await wrapper.get('[aria-label="编辑主线冲突"]').trigger('click')
   await wrapper.get('textarea[aria-label="主线冲突"]').setValue('黎安追查码头失踪木箱的来源。')
+  await wrapper.get('[aria-label="编辑结局方向"]').trigger('click')
   await wrapper.get('textarea[aria-label="结局方向"]').setValue('黎安公开交接记录，找回木箱。')
-  for (const button of wrapper.findAll('.card-heading button')) {
+  for (const button of wrapper.findAll('.card-heading .confirm-toggle')) {
     await button.trigger('click')
     await flushPromises()
+    const acceptBlank = wrapper.find('.blank-confirm .blank-accept')
+    if (acceptBlank.exists()) {
+      await acceptBlank.trigger('click')
+      await flushPromises()
+    }
   }
-  expect(wrapper.get('.confirmation-count').text()).toContain('8 / 8')
+  expect(wrapper.get('.confirmation-count').text()).toContain('9 / 9')
   await click('确认契约并继续')
   await vi.waitFor(() => expect(wrapper!.find('.manual-outline').exists()).toBe(true), { timeout: 10000 })
   await wrapper.get('textarea[aria-label="手写或粘贴大纲"]').setValue([
@@ -92,13 +98,12 @@ it('creates a blank project, confirms contract and manual direction, saves a pla
   await vi.waitFor(() => expect(wrapper!.find('.creation-planning').exists()).toBe(true), { timeout: 10000 })
   expect(novels.getNovel(novelId)?.volumes).toHaveLength(1)
   expect(novels.getNovel(novelId)?.chapters).toHaveLength(0)
-  await click('编辑章节计划')
-  await click('新建计划')
-  await wrapper.get('input[placeholder="例如：抵达锚点七号"]').setValue('清点木箱')
-  await wrapper.get('input[placeholder="完成后必须发生什么变化"]').setValue('发现编号被涂改并保留原始收据。')
-  await click('确认并保存')
+  await click('手写一条')
+  await wrapper.get('input[aria-label="章纲标题"]').setValue('清点木箱')
+  await wrapper.get('textarea[aria-label="这几章的目标"]').setValue('发现编号被涂改并保留原始收据。')
+  await click('保存')
   await vi.waitFor(() => expect(novels.getNovel(novelId)?.chapterPlans).toHaveLength(1), { timeout: 10000 })
-  await click('确认分卷与章节计划')
+  await click('确认分卷与章纲')
   await vi.waitFor(() => expect(wrapper!.find('.ready-card').exists()).toBe(true), { timeout: 10000 })
   await click('开始写第一章')
   await vi.waitFor(() => expect(wrapper!.find('[data-test="writing-destination"]').exists()).toBe(true), { timeout: 10000 })

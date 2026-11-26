@@ -168,13 +168,13 @@
               <span v-if="selectedEntry.visibility" class="entry-size">{{ selectedEntry.visibility.mode === 'never' ? '仅供作者查看' : `第 ${selectedEntry.visibility.chapter} 章起可供 AI 使用` }}</span>
             </div>
             <div class="entry-detail-tools">
-              <button v-if="entryOutline.length > 1 && !outlineInView" type="button" class="m-btn sm" @click="scrollToOutline"><V3Icon name="layers" size="s" />目录</button>
+              <button v-if="entryOutline.length > 0 && !outlineInView" type="button" class="m-btn sm" @click="scrollToOutline"><V3Icon name="layers" size="s" />目录</button>
               <button v-if="!entryListInView" type="button" class="m-btn sm" @click="scrollToEntryList"><V3Icon name="chevR" size="s" class="back-up-icon" />返回条目列表</button>
               <button v-if="canUseKnowledgeEntry(selectedEntry) && selectedEntry.content.trim()" type="button" class="m-btn sm" @click="showCanonDraft = true">提取设定</button>
               <button type="button" class="m-btn sm" @click="editEntry(selectedEntry)">编辑</button>
             </div>
           </div>
-          <details v-if="entryOutline.length > 1" ref="outlinePanel" class="entry-outline" open>
+          <details v-if="entryOutline.length > 0" ref="outlinePanel" class="entry-outline" open>
             <summary>目录<small>{{ entryOutline.length }} 项 · 点击跳转</small></summary>
             <nav ref="outlineList" class="entry-outline-list" aria-label="条目目录">
               <button v-for="item in entryOutline" :key="item.index" type="button" class="entry-outline-item" :class="`outline-level-${item.level}`" @click="jumpToHeading(item.index)">{{ item.title }}</button>

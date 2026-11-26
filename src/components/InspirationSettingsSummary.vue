@@ -77,7 +77,7 @@ function saveEdit() {
 <style scoped>
 .inspiration-settings {
   display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 9px;
-  min-width: 0; min-height: 0; max-height: min(510px, 82%); padding: 12px;
+  align-self: stretch; min-width: 0; min-height: 0; height: 100%; padding: 12px;
 }
 .summary-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 8px; }
 .summary-heading h2 { font-size: 17px; margin: 0; }

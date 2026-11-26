@@ -68,6 +68,53 @@ async function existing(backup: ProjectBackup) {
 }
 
 describe('desktop project kernel integration', () => {
+  it('keeps character bindings and their history across desktop transactions and reopen', async () => {
+    const backup = await fixture()
+    const { id: novelId, characters: [character] } = backup.novels[0]
+    await existing(backup)
+    const { useNovelStore } = await import('@/stores/novel')
+    const store = useNovelStore()
+    await store.initStore()
+    const panel = await store.addDataPanelItem(novelId, { category: '角色', name: '修炼册', characterId: character.id })
+    const reopened = await createProjectKernel({ root, validateBackup })
+    const state = await reopened.read() as ProjectLibraryState
+    expect(state.backup?.novels[0].dataPanels).toMatchObject([{
+      id: panel?.id, characterId: character.id, referenceHistory: {
+        revisions: [{ changes: expect.arrayContaining([{ key: 'characterId', after: character.id }]) }],
+      },
+    }])
+    await store.deleteCharacter(novelId, character.id)
+    const afterDelete = await reopened.read() as ProjectLibraryState
+    const savedPanel = afterDelete.backup?.novels[0].dataPanels[0]
+    expect(savedPanel?.characterId).toBeUndefined()
+    expect(savedPanel?.referenceHistory?.revisions[1]?.changes).toEqual([{ key: 'characterId', before: character.id }])
+  })
+
+  it('publishes knowledge merges and deletion intent together on retry', async () => {
+    const backup = await fixture()
+    const [target] = backup.knowledgeBases
+    const entry = { id: 'local-entry', title: '原文', category: '其他', content: '旧城资料', summary: '',
+      tags: [], createdAt: target.createdAt, updatedAt: target.createdAt }
+    target.entries = [entry]
+    backup.knowledgeBases.push({ ...target, id: 'cloud', entries: [{ ...entry, id: 'cloud-entry' }] })
+    backup.novels[0].knowledgeBaseIds.push('cloud')
+    const { kernel } = await existing(backup)
+    const { commitLocalKnowledgeMerge, readLocalKnowledgeMergePreview } = await import('./db/cloudSync')
+    const confirmation = (await readLocalKnowledgeMergePreview({ targetId: target.id, duplicateId: 'cloud' }))!
+    failure = true
+    const before = await kernel.read()
+    await expect(commitLocalKnowledgeMerge(confirmation)).rejects.toThrow('测试磁盘失败')
+    expect(await kernel.read()).toEqual(before)
+    failure = false
+    expect((await commitLocalKnowledgeMerge(confirmation)).result.entryIds).toEqual([{ from: 'cloud-entry', to: 'local-entry' }])
+    const reopened = await createProjectKernel({ root, validateBackup })
+    const state = await reopened.read() as ProjectLibraryState
+    expect(state.backup?.knowledgeBases).toEqual([target])
+    expect(state.backup?.novels[0].knowledgeBaseIds).toEqual([target.id])
+    expect(Object.keys(state.sync.state!.knowledgeMergeDeletions!['knowledge:cloud'].requiredHashes))
+      .toEqual([`knowledge:${target.id}`, `novel:${backup.novels[0].id}`])
+  })
+
   it('restores review segments from the real kernel and rejects corrupted reports', async () => {
     const backup = await fixture(), novel = backup.novels[0], chapter = novel.chapters[0]
     chapter.content = '甲'.repeat(5000); chapter.wordCount = 5000

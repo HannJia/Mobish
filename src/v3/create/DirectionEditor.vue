@@ -1,104 +1,198 @@
 <template>
-  <div class="generate-page fade-in" :class="{ 'outline-ready': isDone && !showContractEditor, 'choosing-skeleton': choosingSkeleton }" id="generate-outline-page">
-    <!-- 生成动画头部 -->
-    <div v-if="!showContractEditor" class="generate-header">
-      <h2>{{ !contractConfirmed ? '先确认作品契约' : choosingSkeleton ? '先确认故事骨架' : isDone ? '检查大纲候选' : generationBusy ? 'AI 正在构思...' : '准备故事规划' }}</h2>
-      <p v-if="isDone" class="generate-ready-hint">先检查和调整，再继续规划。</p>
-      <p v-if="creationDraft" class="structured-plan-status" role="status">
-        创作流程：{{ creationStageLabel }}<span v-if="creationDraft.skeletons.length"> · 已提取 {{ creationDraft.skeletons.length }} 个故事骨架候选</span>
-      </p>
-      <p v-if="generationBusy && !hasError" class="generate-hint">
-        正在生成候选；已有方向、你的输入和生成记录会保留。
-      </p>
+  <div class="generate-page fade-in" :class="{ 'outline-ready': isDone && !showContractEditor && !viewingSkeleton, 'choosing-skeleton': choosingSkeleton && !isDone }" id="generate-outline-page">
+    <!-- 页头：非契约编辑时显示 -->
+    <header v-if="!showContractEditor" class="generate-header">
+      <div class="generate-header-row">
+        <div>
+          <h2>{{ choosingSkeleton && (viewingSkeleton || !isDone) ? '故事骨架' : isDone ? '检查大纲候选' : generationBusy ? 'AI 正在构思…' : '准备故事规划' }}</h2>
+          <p v-if="creationDraft" class="structured-plan-status" role="status">
+            创作流程：{{ creationStageLabel }}<span v-if="creationDraft.skeletons.length"> · {{ creationDraft.skeletons.length }} 个故事骨架候选</span>
+          </p>
+        </div>
+        <div v-if="contractConfirmed" class="head-links">
+          <button type="button" class="m-btn sm drawer-toggle" aria-label="契约、起点与记录" :aria-expanded="drawerOpen" @click="openDrawerTab('contract')">
+            <span>作品契约</span><span class="drawer-tag qing">已确认</span>
+          </button>
+          <button v-if="creationDraft?.initialInput && creationDraft.initialInput.method !== 'custom'" type="button" class="m-btn sm ghost" @click="openDrawerTab('origin')">创建起点</button>
+          <button type="button" class="m-btn sm ghost" @click="openDrawerTab('records')">
+            <span>版本与生成记录</span><span v-if="drawerBadgeCount" class="drawer-badge">{{ drawerBadgeCount }}</span>
+          </button>
+          <button v-if="creationDraft?.editorDrafts?.length" type="button" class="m-btn sm warn" @click="openDrawerTab('drafts')">
+            暂存输入 {{ creationDraft.editorDrafts.length }}
+          </button>
+        </div>
+      </div>
+      <p v-if="generationBusy && !hasError" class="generate-hint">正在生成候选；已有方向、你的输入和生成记录会保留。</p>
       <p v-if="hasError" class="generate-error">{{ errorMessage }}</p>
-    </div>
+    </header>
     <p v-if="showContractEditor && hasError" class="generate-error" role="alert">{{ errorMessage }}</p>
 
+    <!-- 1. 作品契约页 -->
     <StoryContractEditor v-if="creationDraft && (!contractConfirmed || editingContract)" :contract="contractInput || creationDraft.contract"
-      :exploration="contractExploration" :flush="flushContractRecovery" :busy="initializing || contractBusy || generationBusy || acceptingOutline"
+      :exploration="contractExploration" :knowledge-ids="novel?.knowledgeBaseIds" :story-clock="novel?.storyClock"
+      :flush="flushContractRecovery" :busy="initializing || contractBusy || generationBusy || acceptingOutline"
       :cancelable="editingContract && contractConfirmed"
-      @change="changeContractInput" @exploring="setContractExploring" @save="saveContract" @confirm="confirmContract" @cancel="editingContract = false" />
-    <button v-else-if="contractConfirmed" type="button" class="m-btn" :disabled="generationBusy || acceptingOutline || editingOutline" @click="openContractEditor">查看或修改作品契约</button>
-    <CreationEntrySource v-if="creationDraft?.initialInput && creationDraft.initialInput.method !== 'custom'" :input="creationDraft.initialInput" />
+      @change="changeContractInput" @exploring="setContractExploring" @save="saveContract" @confirm="confirmContract" @cancel="closeContractEditor" @update-origin="saveStoryOrigin" />
 
-    <StorySkeletonPicker v-if="choosingSkeleton && creationDraft"
-      :skeletons="skeletonOptions" :selected-id="selectedSkeletonId"
-      :confirmed-id="skeletonConfirmed ? creationDraft.selectedSkeletonId : undefined" :dirty="!!skeletonDraft"
-      :busy="generationBusy || contractBusy || acceptingOutline" :has-outline="isDone" @select="selectSkeleton" @edit="editSkeleton" @confirm="confirmSkeletonAndGenerate"
-      @save="saveSkeleton" @create="createSkeleton" @mix="mixSkeletons" @regenerate="requestSkeletonGeneration()" />
-    <StorySkeletonHistory v-if="creationDraft && !editingContract" :history="creationDraft.skeletonHistory || []" :attempts="creationDraft.skeletonAttempts || []"
-      :busy="generationBusy || contractBusy || acceptingOutline" @restore="restoreSkeleton" @recover="recoverSkeletonOutput"
-      @retry="id => requestSkeletonGeneration('retry', id)" @continue="id => requestSkeletonGeneration('continue', id)" />
-    <section v-if="creationDraft?.editorDrafts?.length" class="paper-panel recovery-panel" aria-label="暂存输入恢复">
-      <h3>暂存的输入</h3><p>这里有尚未保存的修改，可以恢复后继续编辑。</p>
-      <button v-for="draft in creationDraft.editorDrafts" :key="draft.id" :disabled="generationBusy || contractBusy" @click="restoreEditorDraft(draft)">恢复 {{ draft.updatedAt }} 的输入（{{ draft.savedAt ? '已保存版本' : '未提交' }}）</button>
-      <button type="button" class="m-btn sm" :disabled="generationBusy || contractBusy" @click="rebindEditorDraft">已核对当前设定，另存输入草稿</button>
-    </section>
-    <button v-if="contractConfirmed && !editingContract && !generationBusy && !isDone && !creationDraft?.skeletons.length" type="button" class="m-btn pri"
-      :disabled="contractBusy" @click="requestSkeletonGeneration()"><V3Icon name="spark" size="s" />生成故事骨架候选</button>
-    <button v-if="generationBusy" type="button" class="m-btn" @click="cancelGeneration"><V3Icon name="stop" size="s" />停止生成并保留输出</button>
-    <button v-if="skeletonConfirmed && !generationBusy && !isDone" type="button" class="m-btn pri" @click="startGenerate"><V3Icon name="spark" size="s" />按已确认方向生成大纲</button>
-    <section v-if="contractConfirmed && !editingContract && !generationBusy && !isDone" class="manual-outline paper-panel" aria-label="手动准备大纲">
-      <h3>已有大纲或手动设计</h3>
-      <p>可以粘贴已有大纲，或直接写下故事前提、分卷方向和结局，再检查提取出的故事骨架。</p>
-      <V3Input v-model:value="manualOutline" type="textarea" :rows="10" aria-label="手写或粘贴大纲" placeholder="例如：## 小说简介、## 第一卷、## 结局方向" />
-      <button type="button" class="m-btn" :disabled="!manualOutline.trim() || contractBusy" @click="saveManualOutline">保存大纲并核对骨架</button>
-    </section>
+    <!-- 2. 故事骨架阶段（含空白起步/手动大纲或方案对照/泳道/方案台） -->
+    <template v-else-if="viewingSkeleton || (!isDone && !streamContent && !editingOutline)">
+      <div v-if="generationBusy" class="busy-bar">
+        <button type="button" class="m-btn" @click="cancelGeneration"><V3Icon name="stop" size="s" />停止生成并保留输出</button>
+      </div>
+      <div v-if="skeletonConfirmed && !generationBusy && !isDone" class="ready-outline-bar">
+        <span>已确认正式方向「{{ selectedSkeleton?.title }}」，可以开始展开大纲。</span>
+        <button type="button" class="m-btn zhu" @click="startGenerate"><V3Icon name="spark" size="s" />按已确认方向生成大纲</button>
+      </div>
+      <div v-if="viewingSkeleton && skeletonConfirmed && isDone" class="ready-outline-bar">
+        <span>已生成大纲候选，切换方向或检查后可回到大纲页。</span>
+        <button type="button" class="m-btn pri" @click="continueToOutline">检查大纲候选</button>
+      </div>
 
-    <!-- 流式输出内容 -->
-    <div class="output-container paper-panel" v-if="!showContractEditor && (streamContent || isDone || editingOutline)">
-      <div v-if="isDone || editingOutline" class="outline-edit-toolbar" role="toolbar" aria-label="大纲编辑操作">
-        <h3>大纲候选 <span>已生成</span></h3>
-        <span v-if="acceptingOutline" class="outline-edit-status" role="status">正在规划分卷，完成后可在工作区编辑大纲</span>
-        <button v-if="!editingOutline" type="button" class="m-btn sm" :disabled="acceptingOutline || generationBusy || contractBusy" @click="startOutlineEdit">
-          <V3Icon name="edit" size="s" />编辑大纲
-        </button>
-        <template v-else>
-          <button type="button" class="m-btn sm ghost" :disabled="contractBusy" @click="editingOutline = false">取消修改</button>
-          <button type="button" class="m-btn sm pri" :aria-busy="contractBusy" :disabled="contractBusy || generationBusy || !outlineDraft.trim()" @click="saveOutlineEdit">
-            <V3Icon name="check" size="s" />保存修改
+      <StorySkeletonPicker v-if="creationDraft"
+        :skeletons="skeletonOptions" :selected-id="selectedSkeletonId"
+        :confirmed-id="skeletonConfirmed ? creationDraft.selectedSkeletonId : undefined" :dirty="!!skeletonDraft"
+        :busy="generationBusy || contractBusy || acceptingOutline" :has-outline="isDone"
+        @select="selectSkeleton" @edit="editSkeleton" @confirm="confirmSkeletonAndGenerate"
+        @save="saveSkeleton" @create="createSkeleton" @mix="mixSkeletons" @regenerate="requestSkeletonGeneration()" />
+
+      <div v-if="contractConfirmed && !generationBusy && !isDone && !creationDraft?.skeletons.length" class="skeleton-start-scroll">
+        <div class="start-actions-row">
+          <button type="button" class="m-btn zhu" :disabled="contractBusy" @click="requestSkeletonGeneration()"><V3Icon name="spark" size="s" />生成故事骨架候选</button>
+        </div>
+        <section class="manual-outline paper-panel" aria-label="手动准备大纲">
+          <h3>已有大纲或手动设计</h3>
+          <p>可以粘贴已有大纲，或直接写下故事前提、分卷方向和结局，再检查提取出的故事骨架。</p>
+          <V3Input v-model:value="manualOutline" type="textarea" :rows="10" aria-label="手写或粘贴大纲" placeholder="例如：## 小说简介、## 第一卷、## 结局方向" />
+          <button type="button" class="m-btn" :disabled="!manualOutline.trim() || contractBusy" @click="saveManualOutline">保存大纲并核对骨架</button>
+        </section>
+      </div>
+    </template>
+
+    <!-- 3. 大纲候选单独成页（顶部红框正式方向条 + 三栏：8项目录 / 大纲正文 / 书名候选 + 底部常驻栏） -->
+    <div v-else class="outline-stage">
+      <section v-if="skeletonConfirmed && selectedSkeleton" class="dir-bar" aria-label="已确认故事骨架">
+        <span class="dir-seal" aria-hidden="true">正</span>
+        <div class="dir-info">
+          <div class="dir-title-row">
+            <span class="confirmed-pill">✓ 正式方向</span>
+            <h3>{{ selectedSkeleton.title }}</h3>
+          </div>
+          <p>{{ selectedSkeleton.logline }}</p>
+        </div>
+        <button type="button" class="m-btn sm zhu-outline" :disabled="generationBusy || acceptingOutline || contractBusy" @click="reopenSkeleton">返回重选方向</button>
+      </section>
+
+      <div class="ol-grid">
+        <aside class="ol-toc" aria-label="大纲 8 项必备结构检查">
+          <h3>大纲必备结构</h3>
+          <button v-for="sec in outlineTocItems" :key="sec.label" type="button" @click="scrollOutlineHeading(sec.label)">
+            <span class="tick" :class="sec.ok ? 'done' : generationBusy ? 'doing' : ''">{{ sec.ok ? '✓' : '' }}</span>
+            <span>{{ sec.label }}</span>
           </button>
-        </template>
+        </aside>
+
+        <div class="ol-doc">
+          <div class="outline-edit-toolbar" role="toolbar" aria-label="大纲编辑操作">
+            <h3>大纲候选 <span v-if="isDone">已生成</span><span v-else-if="generationBusy">生成中…</span></h3>
+            <span v-if="acceptingOutline" class="outline-edit-status" role="status">正在规划分卷，完成后可在工作区编辑大纲</span>
+            <button v-if="generationBusy" type="button" class="m-btn sm" @click="cancelGeneration"><V3Icon name="stop" size="s" />停止生成并保留输出</button>
+            <button v-else-if="isDone && !editingOutline" type="button" class="m-btn sm" :disabled="acceptingOutline || contractBusy" @click="startOutlineEdit">
+              <V3Icon name="edit" size="s" />编辑大纲
+            </button>
+            <template v-else-if="editingOutline">
+              <button type="button" class="m-btn sm ghost" :disabled="contractBusy" @click="editingOutline = false">取消修改</button>
+              <button type="button" class="m-btn sm pri" :aria-busy="contractBusy" :disabled="contractBusy || generationBusy || !outlineDraft.trim()" @click="saveOutlineEdit">
+                <V3Icon name="check" size="s" />保存修改
+              </button>
+            </template>
+          </div>
+          <div class="outline-output-scroll" tabindex="0" aria-label="大纲正文">
+            <V3Input v-if="editingOutline" v-model:value="outlineDraft" :disabled="contractBusy || generationBusy" type="textarea" :rows="24" aria-label="编辑生成的大纲" />
+            <div v-else class="output-content" v-html="renderedContent"></div>
+            <div v-if="generationBusy && !hasError" class="typing-cursor">▌</div>
+          </div>
+        </div>
+
+        <aside class="ol-side" aria-label="书名与作品名称">
+          <h3>推荐书名</h3>
+          <p class="side-current-title">当前书名：<strong>{{ creationDraft?.contract.title || '未命名作品' }}</strong></p>
+          <div v-if="creationDraft?.outlineCandidate?.source === 'model' || outlineTitles.length" class="outline-title-options" role="group" aria-label="大纲书名候选">
+            <button v-for="option in outlineTitles" :key="option.title" type="button" class="title-opt"
+              :aria-pressed="creationDraft?.contract.title === option.title" :disabled="outlineActionsBusy" @click="chooseOutlineTitle(option.title)">
+              <strong>{{ option.title }}</strong><small v-if="option.reason">{{ option.reason }}</small>
+            </button>
+            <button type="button" class="m-btn sm" :disabled="outlineActionsBusy || titleBusy" @click="refreshOutlineTitles">
+              {{ titleBusy ? '正在推荐书名…' : outlineTitles.length ? '换一批' : 'AI 推荐书名' }}
+            </button>
+            <p v-if="titleError" class="side-err" role="alert">{{ titleError }}</p>
+          </div>
+          <p v-else class="side-hint">大纲生成完成后会提取推荐书名，也可点击下方按钮让 AI 推荐。</p>
+        </aside>
       </div>
-      <div class="outline-output-scroll" tabindex="0" aria-label="大纲正文">
-        <V3Input v-if="editingOutline" v-model:value="outlineDraft" :disabled="contractBusy || generationBusy" type="textarea" :rows="24" aria-label="编辑生成的大纲" />
-        <div v-else class="output-content" v-html="renderedContent"></div>
-        <div v-if="generationBusy && !hasError" class="typing-cursor">▌</div>
-      </div>
+
+      <footer v-if="isDone" class="ol-footer">
+        <div class="ol-footer-status">
+          <span class="lamp" :class="outlineTocItems.every(i => i.ok) ? 'ok' : 'warn'"></span>
+          <span>必备结构 {{ outlineTocItems.filter(i => i.ok).length }} / {{ outlineTocItems.length }} 项</span>
+          <div class="ol-checks"><span v-for="sec in outlineTocItems" :key="sec.label" :class="{ ok: sec.ok }" :title="sec.label"></span></div>
+        </div>
+        <div class="ol-footer-acts">
+          <button type="button" class="m-btn" :disabled="acceptingOutline || editingOutline || editingContract || !skeletonConfirmed" @click="regenerate">重新生成</button>
+          <button type="button" class="m-btn zhu" :aria-busy="acceptingOutline" :disabled="acceptingOutline || generationBusy || contractBusy || editingOutline || editingContract || !skeletonConfirmed || !visibleOutlineContent || creationDraft?.outlineCandidate?.complete === false" @click="acceptOutline">确认并规划分卷</button>
+        </div>
+      </footer>
     </div>
 
-    <section v-if="!showContractEditor && isDone && skeletonConfirmed && selectedSkeleton" class="skeleton-candidates paper-panel" aria-label="已确认故事骨架">
-      <div class="skeleton-candidates-header">
-        <div><h3>已确认方向：{{ selectedSkeleton.title }}</h3><p>{{ selectedSkeleton.logline }}</p></div>
-      </div>
-    </section>
-
-    <!-- 操作按钮 -->
-    <div class="generate-actions" v-if="!showContractEditor && isDone">
-      <p>作品名称：{{ creationDraft?.contract.title }}（可在作品契约中修改）</p>
-      <div v-if="creationDraft?.outlineCandidate?.source === 'model' || outlineTitles.length" class="outline-title-options" role="group" aria-label="大纲书名候选">
-        <button v-for="option in outlineTitles" :key="option.title" type="button" class="m-btn"
-          :disabled="outlineActionsBusy" @click="chooseOutlineTitle(option.title)">
-          <strong>{{ option.title }}</strong><small>{{ option.reason }}</small>
-        </button>
-        <button type="button" class="m-btn" :disabled="outlineActionsBusy || titleBusy" @click="refreshOutlineTitles">
-          {{ titleBusy ? '正在推荐书名…' : outlineTitles.length ? '换一批' : 'AI 推荐书名' }}
-        </button>
-        <p v-if="titleError" role="alert">{{ titleError }}</p>
-      </div>
-      <button type="button" class="m-btn lg" :disabled="acceptingOutline || editingOutline || editingContract || !skeletonConfirmed" @click="regenerate">重新生成</button>
-      <button type="button" class="m-btn pri lg" :aria-busy="acceptingOutline" :disabled="acceptingOutline || generationBusy || contractBusy || editingOutline || editingContract || !skeletonConfirmed || !visibleOutlineContent || creationDraft?.outlineCandidate?.complete === false" @click="acceptOutline">确认并规划分卷</button>
+    <!-- 右侧滑出抽屉：作品契约 / 创建起点 / 版本与生成记录 / 暂存输入 -->
+    <div v-if="contractConfirmed && !showContractEditor && drawerOpen" class="drawer-scrim" @click.self="drawerOpen = false">
+      <aside class="direction-drawer" aria-label="契约、起点与历史记录">
+        <header class="drawer-head">
+          <h3>资料与记录</h3>
+          <div class="drawer-head-actions">
+            <button type="button" class="m-btn sm" :disabled="generationBusy || acceptingOutline || editingOutline" @click="openContractEditor">查看或修改作品契约</button>
+            <button type="button" class="m-btn sm ghost" @click="drawerOpen = false">关闭</button>
+          </div>
+        </header>
+        <div class="drawer-tabs" role="tablist">
+          <button type="button" :aria-selected="drawerTab === 'contract'" @click="drawerTab = 'contract'">作品契约</button>
+          <button v-if="creationDraft?.initialInput && creationDraft.initialInput.method !== 'custom'" type="button" :aria-selected="drawerTab === 'origin'" @click="drawerTab = 'origin'">创建起点</button>
+          <button type="button" :aria-selected="drawerTab === 'records'" @click="drawerTab = 'records'">版本与记录</button>
+          <button v-if="creationDraft?.editorDrafts?.length" type="button" :aria-selected="drawerTab === 'drafts'" @click="drawerTab = 'drafts'">暂存输入 ({{ creationDraft.editorDrafts.length }})</button>
+        </div>
+        <div class="drawer-body">
+          <div v-if="drawerTab === 'contract' && creationDraft" class="drawer-contract-kv">
+            <div class="kv"><b>作品名称</b><span>{{ creationDraft.contract.title || '未命名' }}</span></div>
+            <div class="kv"><b>类型与读者</b><span>{{ [creationDraft.contract.genre, creationDraft.contract.subGenre, creationDraft.contract.audience].filter(Boolean).join(' · ') || '暂不确定' }}</span></div>
+            <div class="kv"><b>视角与文风</b><span>{{ [creationDraft.contract.pointOfView, creationDraft.contract.styleDirection].filter(Boolean).join(' · ') || '暂不确定' }}</span></div>
+            <div class="kv"><b>核心主题</b><span>{{ creationDraft.contract.coreTheme || '暂不确定' }}</span></div>
+            <div class="kv"><b>主角设定</b><span>{{ [creationDraft.contract.protagonistPremise, creationDraft.contract.protagonistGoal].filter(Boolean).join(' · ') || '暂不确定' }}</span></div>
+            <div class="kv"><b>主线冲突</b><span>{{ creationDraft.contract.centralConflict || '暂不确定' }}</span></div>
+            <div class="kv"><b>感情线</b><span>{{ creationDraft.contract.romanceDirection || '暂不确定' }}</span></div>
+            <div class="kv"><b>结局方向</b><span>{{ creationDraft.contract.endingDirection || '暂不确定' }}</span></div>
+          </div>
+          <CreationEntrySource v-else-if="drawerTab === 'origin' && creationDraft?.initialInput && creationDraft.initialInput.method !== 'custom'" :input="creationDraft.initialInput" />
+          <StorySkeletonHistory v-else-if="drawerTab === 'records' && creationDraft && !editingContract" :history="creationDraft.skeletonHistory || []" :attempts="creationDraft.skeletonAttempts || []"
+            :busy="generationBusy || contractBusy || acceptingOutline" @restore="restoreSkeleton" @recover="recoverSkeletonOutput"
+            @retry="id => requestSkeletonGeneration('retry', id)" @continue="id => requestSkeletonGeneration('continue', id)" />
+          <section v-else-if="drawerTab === 'drafts' && creationDraft?.editorDrafts?.length" class="recovery-panel" aria-label="暂存输入恢复">
+            <p>这里有尚未保存的修改，可以恢复后继续编辑。</p>
+            <button v-for="draft in creationDraft.editorDrafts" :key="draft.id" type="button" class="m-btn sm" :disabled="generationBusy || contractBusy" @click="restoreEditorDraft(draft)">
+              恢复 {{ new Date(draft.updatedAt).toLocaleString('zh-CN') }} 的输入（{{ draft.savedAt ? '已保存版本' : '未提交' }}）
+            </button>
+            <button type="button" class="m-btn sm" :disabled="generationBusy || contractBusy" @click="rebindEditorDraft">已核对当前设定，另存输入草稿</button>
+          </section>
+        </div>
+      </aside>
     </div>
 
     <div class="generate-actions" v-if="hasError">
-      <button type="button" class="m-btn lg ghost" @click="$router.push('/')">返回书架</button>
-      <button type="button" class="m-btn lg" @click="$router.push('/settings')">检查设置</button>
-      <button v-if="skeletonConfirmed" type="button" class="m-btn pri lg" :disabled="generationBusy" @click="startGenerate">重试大纲生成</button>
-      <button type="button" class="m-btn lg" :disabled="generationBusy || contractBusy" @click="retryRecoverySaves">重试保存保留的输入与输出</button>
+      <button type="button" class="m-btn ghost" @click="$router.push('/')">返回书架</button>
+      <button type="button" class="m-btn" @click="$router.push('/settings')">检查设置</button>
+      <button v-if="skeletonConfirmed" type="button" class="m-btn pri" :disabled="generationBusy" @click="startGenerate">重试大纲生成</button>
+      <button type="button" class="m-btn" :disabled="generationBusy || contractBusy" @click="retryRecoverySaves">重试保存保留的输入与输出</button>
     </div>
 
-    <!-- 未配置提示 -->
-    <div class="no-config-hint" v-if="!configStore.isConfigured && !streamContent && !hasError">
+    <div class="no-config-hint" v-if="!configStore.isConfigured && !streamContent && !hasError && !showContractEditor">
       <div class="no-config-card" role="alert">
         <strong><V3Icon name="info" size="s" />未配置 AI 模型</strong>
         <p>请先在设置页面配置 API 密钥才能使用 AI 功能。</p>
@@ -116,12 +210,16 @@ import { useMessage } from '@/v3/feedback'
 import V3Icon from '@/v3/components/V3Icon.vue'
 import V3Input from '@/v3/components/form/V3Input.vue'
 import { useNovelStore } from '@/stores/novel'
+import { useKnowledgeStore } from '@/stores/knowledge'
 import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspace'
 import { useConfigStore } from '@/stores/config'
+import { syncDiscussionKnowledgeBaseForBook } from '@/services/chatKnowledgeDocument'
 import { callAI, applySkillInstructions } from '@/services/ai'
 import { startAiActivity, finishAiActivity, activeAiCount, type AiActivity } from '@/services/aiActivity'
 import { registerDraftSaver, type DraftFlushToken } from '@/services/appLifecycle'
 import { skeletonCompletionIssues } from '@/services/creationDraft'
+import { resolveCreationSurface } from '@/services/planningRecovery'
+import type { CreationSurface } from '@/types/planningRecovery'
 import { buildOutlinePrompt } from '@/services/prompts'
 import { outlineTitleSuggestions, suggestTitles, type TitleSuggestion } from '@/services/titleSuggestions'
 import { renderMd } from '@/utils/markdown'
@@ -154,6 +252,50 @@ const skeletonOptions = computed(() => {
 })
 const selectedSkeleton = computed(() => creationDraft.value?.skeletons.find(item => item.id === creationDraft.value?.selectedSkeletonId))
 const editingContract = ref(false)
+const drawerOpen = ref(false)
+const drawerTab = ref<'contract' | 'origin' | 'records' | 'drafts'>('contract')
+function openDrawerTab(tab: 'contract' | 'origin' | 'records' | 'drafts') {
+  if (drawerOpen.value && drawerTab.value === tab) { drawerOpen.value = false; return }
+  drawerTab.value = tab
+  drawerOpen.value = true
+}
+const drawerBadgeCount = computed(() =>
+  (creationDraft.value?.skeletonHistory?.length || 0)
+  + (creationDraft.value?.editorDrafts?.length || 0))
+const outlineTocItems = computed(() => {
+  const text = visibleOutlineContent.value
+  return [
+    { label: '推荐书名', ok: /推荐书名/.test(text) },
+    { label: '小说简介', ok: /小说简介/.test(text) },
+    { label: '主线剧情走向', ok: /主线剧情走向/.test(text) },
+    { label: '主要角色表', ok: /主要角色表/.test(text) },
+    { label: '核心冲突', ok: /核心冲突/.test(text) },
+    { label: '分卷建议', ok: /分卷建议/.test(text) },
+    { label: '预估总字数分配', ok: /预估总字数分配|总字数分配/.test(text) },
+    { label: '全书伏笔', ok: /全书伏笔|伏笔线|伏笔设计/.test(text) },
+  ]
+})
+function scrollOutlineHeading(label: string) {
+  const container = document.querySelector('.outline-output-scroll')
+  if (!container) return
+  const heading = Array.from(container.querySelectorAll('h1,h2,h3,h4,strong')).find(el => el.textContent?.includes(label))
+  heading?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+async function saveStoryOrigin(origin: { day?: number; label: string }) {
+  if (!novel.value) return
+  try {
+    if (origin.day !== undefined) {
+      await novelStore.setStoryClock(novelId, origin.day, origin.label)
+    } else {
+      const now = new Date().toISOString()
+      novel.value.storyClock = origin.label ? { currentDay: 0, label: origin.label, pendingOriginLabel: origin.label, updatedAt: now } : undefined
+      await novelStore.saveNovelNow(novelId)
+    }
+    message.success('故事起点已保存')
+  } catch (error) {
+    message.error(errorText(error, '故事起点保存失败'))
+  }
+}
 const initializing = ref(true)
 const contractBusy = ref(false)
 const contractInput = ref<StoryContract>()
@@ -179,6 +321,15 @@ async function commitCreation(edit: CreationEdit, baseline = pageBaseline) {
 function openContractEditor() {
   pageBaseline = reconstructionWorkspaceStore.captureCreationEditBaseline(novelId)
   editingContract.value = true
+  checkpointSurface('contract')
+}
+function closeContractEditor() {
+  editingContract.value = false
+  checkpointSurface(viewingSkeleton.value || !skeletonConfirmed.value ? 'skeleton' : 'outline')
+}
+function continueToOutline() {
+  viewingSkeleton.value = false
+  checkpointSurface('outline')
 }
 /** 外层步骤条点回“作品契约”时调用；生成或保存进行中时不打断。 */
 function reopenContract(): boolean {
@@ -187,7 +338,13 @@ function reopenContract(): boolean {
   openContractEditor()
   return true
 }
-defineExpose({ reopenContract })
+function reopenSkeleton() {
+  if (generationBusy.value || contractBusy.value || acceptingOutline.value || contractExploring.value) return
+  editingContract.value = false
+  viewingSkeleton.value = true
+  checkpointSurface('skeleton')
+}
+defineExpose({ reopenContract, reopenSkeleton })
 
 const streamContent = ref('')
 const isDone = ref(false)
@@ -195,6 +352,7 @@ const hasError = ref(false)
 const errorMessage = ref('')
 const acceptingOutline = ref(false)
 const editingOutline = ref(false)
+const viewingSkeleton = ref(false)
 const outlineDraft = ref('')
 const generationBusy = ref(false)
 const manualOutline = ref('')
@@ -209,7 +367,18 @@ let manualBaseline = ''
 let editorWrite: Promise<unknown> = Promise.resolve()
 const pendingEditors = new Map<string, CreationEditorDraft>()
 const pendingAttempts = new Map<string, SkeletonGenerationAttempt>()
-watch(() => showContractEditor.value ? 1 : isDone.value ? 3 : 2, value => emit('step', value), { immediate: true })
+watch(() => showContractEditor.value ? 1 : 2, value => emit('step', value), { immediate: true })
+let pendingSurface: CreationSurface | undefined
+async function saveSurface(token?: DraftFlushToken) {
+  const value = pendingSurface
+  if (!value) return
+  await reconstructionWorkspaceStore.saveCreationSurface(novelId, value, token)
+  if (pendingSurface === value) pendingSurface = undefined
+}
+function checkpointSurface(value: CreationSurface) {
+  pendingSurface = value
+  void saveSurface().catch(() => message.warning('创作步骤暂存失败，关闭前将重试'))
+}
 function setContractExploring(value: boolean) {
   contractExploring.value = value
   if (disposed && !value && !generationBusy.value && !pendingEditors.size && !pendingAttempts.size) unregisterDraftSaver()
@@ -243,6 +412,7 @@ function queueEditorDraft(draft: CreationEditorDraft, token?: DraftFlushToken) {
   return editorWrite
 }
 const unregisterDraftSaver = registerDraftSaver(async token => {
+  await saveSurface(token)
   do {
     await editorWrite.catch(() => undefined)
     let failure: unknown
@@ -376,13 +546,20 @@ async function storeContract(contract: StoryContract, confirm: boolean) {
   if (initializing.value || !creationDraft.value || contractBusy.value || contractExploring.value || generationBusy.value || acceptingOutline.value) return
   contractBusy.value = true
   try {
+    const previousTitle = novel.value?.title
     await editorWrite
     await commitCreation({ action: 'contract', contract, confirm }, contractBaseline || pageBaseline)
+    if (novel.value?.knowledgeBaseIds?.length && novel.value.title !== previousTitle) {
+      const knowledgeStore = useKnowledgeStore()
+      const synced = syncDiscussionKnowledgeBaseForBook(knowledgeStore, novel.value, previousTitle)
+      if (synced.renamedKbId) void knowledgeStore.flushPendingSaves()
+    }
     await markEditorSaved(contractSessionId)
     contractInput.value = JSON.parse(JSON.stringify(creationDraft.value.contract))
     contractBaseline = pageBaseline; contractSessionId = crypto.randomUUID()
     if (confirm) {
       editingContract.value = false
+      viewingSkeleton.value = true
       hasError.value = false
     }
     message.success(confirm ? '作品契约已确认' : '作品契约已保存')
@@ -486,6 +663,7 @@ async function confirmSkeletonAndGenerate() {
   try {
     await editorWrite
     await commitCreation({ action: 'confirm-skeleton' })
+    continueToOutline()
     message.success('正式故事方向已确认；需要 AI 展开时请点击生成大纲')
   } catch (error) { message.error(safeAiErrorMessage(error, configStore.models.map(model => model.apiKey))) }
   finally { contractBusy.value = false }
@@ -706,6 +884,9 @@ onMounted(async () => {
     await reconstructionWorkspaceStore.hydrateFromPersistence(novelId)
     pageBaseline = reconstructionWorkspaceStore.captureCreationEditBaseline(novelId)
     await commitCreation({ action: 'initialize' })
+    const surface = resolveCreationSurface(creationDraft.value)
+    viewingSkeleton.value = surface === 'skeleton'
+    editingContract.value = surface === 'contract' && contractConfirmed.value
     if (!activeAiCount.value) for (const prior of creationDraft.value?.skeletonAttempts || []) {
       if (prior.status === 'queued' || prior.status === 'running') await queueAttempt({ ...prior, status: 'interrupted',
         error: '上次请求未完成，保留已存输出；可以选择继续或重试。', updatedAt: new Date().toISOString() })
@@ -721,7 +902,7 @@ onMounted(async () => {
     const editors = creationDraft.value?.editorDrafts?.filter(item => !item.savedAt) || []
     const contractEditor = creationDraft.value?.editorDrafts?.filter(item => item.surface === 'contract').slice(-1)[0]
     if (contractEditor?.savedAt && contractEditor.exploration) contractExploration.value = JSON.parse(JSON.stringify(contractEditor.exploration))
-    if (contractEditor && !contractEditor.savedAt) restoreEditorDraft(contractEditor, false)
+    if (contractEditor && !contractEditor.savedAt && surface === 'contract') restoreEditorDraft(contractEditor, false)
     for (const surface of ['skeleton', 'manual-outline', 'outline'] as const) {
       const editor = editors.filter(item => item.surface === surface || !item.surface).slice(-1)[0]
       if (editor && (editor.skeleton || editor.manualOutline || editor.outlineText && editor.outlineText !== text)) restoreEditorDraft(editor, false)
@@ -737,16 +918,28 @@ onUnmounted(() => {
   disposed = true
   abortController?.abort()
   titleRequest?.abort()
-  if (!pendingEditors.size && !pendingAttempts.size && !generationBusy.value && !contractExploring.value) unregisterDraftSaver()
+  if (!pendingSurface && !pendingEditors.size && !pendingAttempts.size && !generationBusy.value && !contractExploring.value) unregisterDraftSaver()
 })
 
 </script>
 
 <style scoped>
-.outline-title-options { display: grid; gap: 8px; }
-.outline-title-options button { height: auto; padding-block: 6px; text-align: left; }
-.outline-title-options button:has(small) { align-items: flex-start; flex-direction: column; }
-.outline-title-options small { color: var(--ink-3); }
+.outline-title-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; width: 100%; }
+.outline-title-options button {
+  width: 100%; height: auto; padding: 8px 10px; text-align: left;
+  white-space: normal; overflow-wrap: anywhere;
+}
+.outline-title-options button:has(small) { display: flex; align-items: flex-start; flex-direction: column; gap: 3px; }
+.outline-title-options small { color: var(--ink-3); font-size: 11px; line-height: 1.45; white-space: normal; }
+.generate-header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; width: 100%; flex-wrap: wrap; }
+.drawer-toggle { display: inline-flex; align-items: center; gap: 6px; }
+.drawer-badge { padding: 1px 6px; border-radius: 999px; background: var(--zhu-soft); color: var(--zhu); font-size: 11px; font-weight: 600; }
+.direction-drawer { width: 100%; max-width: 1160px; display: grid; gap: 12px; padding: 16px 18px; box-sizing: border-box; border-color: var(--line-2); }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.drawer-head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.confirmed-pill { display: inline-block; margin-bottom: 4px; padding: 1px 7px; border-radius: 4px; background: var(--zhu); color: #fff; font-size: 11px; font-weight: 600; }
+.zhu-outline { border-color: var(--zhu); color: var(--zhu); background: var(--paper); flex-shrink: 0; }
+.zhu-outline:hover:not(:disabled) { background: var(--zhu-soft); }
 
 .recovery-panel { width:100%; max-width:1100px; padding:20px; box-sizing:border-box; }
 .recovery-panel button { margin:6px; }
@@ -875,23 +1068,18 @@ onUnmounted(() => {
 
 /* 操作按钮 */
 .generate-actions {
-  position: sticky;
-  bottom: 0;
-  z-index: 5;
+  flex: none;
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  align-items: stretch;
-  gap: 12px;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
   width: 100%;
-  max-width: 920px;
-  padding: 16px;
-  border: 1px solid var(--line-2);
-  border-radius: 8px;
+  max-width: none;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
   background: var(--paper);
-  box-shadow: 0 2px 12px rgba(43, 42, 40, 0.08);
-  backdrop-filter: blur(12px);
-  flex-shrink: 0;
 }
 .outline-edit-toolbar {
   flex: 0 0 auto;
@@ -1051,38 +1239,117 @@ onUnmounted(() => {
 @media (max-width: 900px) { .generate-page.outline-ready { grid-template-columns: minmax(0, 1fr); padding: 24px; } .outline-ready .generate-header { grid-template-columns: minmax(0, 1fr); gap: 12px; } }
 @media (max-width: 550px) { .generate-page.outline-ready { padding: 20px 16px; } .outline-ready .generate-header h2 { font-size: 30px; } .outline-ready .outline-output-scroll { padding: 20px; } .outline-ready .generate-actions { padding: 20px; } .outline-edit-toolbar h3 { font-size: 20px; } }
 .generate-page {
-  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
   flex-direction: column;
-  display: flex; width: 100%; height: auto; min-height: 0; padding: 20px 0 48px; overflow: visible; align-items: stretch; gap: 18px; color: var(--ink); }
-.generate-animation {
-  justify-content: center;
-  align-items: center;
-  margin: 0 auto var(--space-lg);
-  height: 80px;
-  width: 80px;
-  position: relative; display: none; }
-.generate-header {
-  flex-shrink: 0;
-  margin-bottom: 0; max-width: 100%; text-align: left; }
-.generate-header h2 {
-  margin-bottom: 10px;
-  font-weight: 600;
-  font-size: 24px;
-  font-family: var(--f-serif); margin: 0; color: var(--ink); font: 600 20px/1.5 var(--f-serif); }
-.generate-header p { color: var(--ink-3); }
-.structured-plan-status { font-size: 12px; margin-top: 8px; width: fit-content; max-width: 100%; box-sizing: border-box; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink-3); }
-.generate-page.outline-ready { overflow-y: auto; width: 100%; display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(280px, .8fr); align-items: start; gap: 16px; max-width: none; padding: 20px 0 48px; margin: 0; overflow: visible; }
-.outline-ready .generate-header { width: 100%; padding: 0; margin: 0 0 8px; text-align: left; grid-template-columns: minmax(0, 1fr) auto; display: grid; grid-column: 1 / -1; }
-.generate-page.choosing-skeleton { display: flex; flex-direction: column; align-items: stretch; }
-.outline-ready .generate-header h2 { margin: 0; font: 700 38px var(--f-serif); font-size: 23px; }
-.outline-ready .output-container { align-self: stretch; margin: 0; max-width: none; width: 100%; min-height: 460px; border-color: var(--line); border-radius: 8px; background: var(--paper); }
-.outline-ready .generate-actions { box-shadow: none; border: 1px solid var(--line-2); margin: 0; max-width: none; width: 100%; gap: 16px; align-items: stretch; flex-direction: column; display: flex; bottom: auto; position: sticky; top: 16px; align-self: start; padding: 20px; border-color: var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); }
-:deep(.paper-panel) { border-color: var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); }
-@media (max-width: 900px) {
-  .generate-page.outline-ready { grid-template-columns: minmax(0, 1fr); }
+  align-items: stretch;
+  gap: 10px;
+  overflow: hidden;
+  padding: 0;
+  color: var(--ink);
 }
-@media (max-width: 900px) {
-  .outline-ready .generate-actions { position: static; }
+.generate-header { flex: none; text-align: left; }
+.generate-header-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.generate-header h2 { margin: 0; color: var(--ink); font: 600 22px/1.3 var(--f-serif); }
+.structured-plan-status { font-size: 12.5px; margin: 3px 0 0; color: var(--ink-3); }
+.head-links { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.drawer-tag.qing { margin-left: 4px; padding: 0 6px; border-radius: 4px; background: var(--qing-soft); color: var(--qing); font-size: 11px; font-weight: 600; }
+.drawer-badge { margin-left: 4px; min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px; background: var(--panel-2); color: var(--ink-3); font: 600 10.5px/17px var(--f-num); display: inline-grid; place-items: center; }
+.m-btn.warn { border-color: color-mix(in srgb, var(--jin), transparent 55%); color: var(--jin); background: var(--jin-soft); }
+.m-btn.zhu-outline { border-color: var(--zhu); color: var(--zhu); background: var(--paper); font-weight: 600; }
+.m-btn.zhu-outline:hover:not(:disabled) { background: var(--zhu-soft); }
+
+.busy-bar, .ready-outline-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  font-size: 13px;
+}
+.skeleton-start-scroll { flex: 1; min-height: 0; overflow: auto; display: grid; align-content: start; gap: 14px; padding-bottom: 12px; }
+.start-actions-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* 大纲候选单独成页 */
+.outline-stage { flex: 1; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 10px; }
+.dir-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  border: 1px solid var(--zhu);
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: 0 0 0 1px var(--zhu), 0 0 0 4px var(--zhu-soft);
+}
+.dir-seal { width: 30px; height: 30px; flex: none; border-radius: 7px; display: grid; place-items: center; background: var(--zhu); color: #fff; font: 600 15px/1 var(--f-kai); }
+.dir-info { flex: 1; min-width: 0; }
+.dir-title-row { display: flex; align-items: center; gap: 8px; }
+.dir-title-row h3 { margin: 0; font: 600 15px/1.3 var(--f-serif); }
+.confirmed-pill { padding: 1px 7px; border-radius: 4px; background: var(--zhu); color: #fff; font-size: 11px; font-weight: 600; }
+.dir-info p { margin: 2px 0 0; color: var(--ink-2); font: 13px/1.5 var(--f-serif); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.ol-grid { min-height: 0; display: grid; grid-template-columns: 176px minmax(0, 1fr) 250px; gap: 12px; }
+.ol-toc, .ol-doc, .ol-side { min-height: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); box-shadow: var(--shadow-1); overflow: hidden; display: flex; flex-direction: column; }
+.ol-toc { padding: 10px 8px; overflow: auto; }
+.ol-toc h3, .ol-side h3 { margin: 2px 6px 8px; color: var(--ink-3); font-size: 11.5px; font-weight: 600; }
+.ol-toc button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px; border-radius: 6px; font-size: 12.5px; color: var(--ink-2); text-align: left; }
+.ol-toc button:hover { background: var(--panel); }
+.tick { width: 16px; height: 16px; flex: none; border-radius: 50%; border: 1.5px solid var(--line-2); display: grid; place-items: center; font-size: 10px; color: transparent; }
+.tick.done { border-color: var(--qing); background: var(--qing); color: #fff; }
+.tick.doing { border-color: var(--jin); border-top-color: transparent; animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.ol-doc .outline-edit-toolbar { padding: 10px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; flex: none; }
+.ol-doc .outline-edit-toolbar h3 { margin: 0 auto 0 0; font: 600 16px var(--f-serif); }
+.ol-doc .outline-output-scroll { flex: 1; min-height: 0; overflow: auto; padding: 18px clamp(16px, 3vw, 36px) 28px; max-height: none; }
+.ol-side { padding: 12px; overflow: auto; gap: 8px; }
+.side-current-title { margin: 0; font-size: 12px; color: var(--ink-3); }
+.side-current-title strong { color: var(--ink); }
+.ol-side .outline-title-options { display: grid; gap: 8px; }
+.title-opt { display: grid; gap: 2px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--paper); text-align: left; cursor: pointer; }
+.title-opt:hover, .title-opt[aria-pressed="true"] { border-color: var(--zhu); background: var(--zhu-soft); }
+.title-opt strong { font: 600 14px/1.4 var(--f-serif); color: var(--ink); }
+.title-opt small { color: var(--ink-3); font-size: 11.5px; line-height: 1.45; }
+.side-hint { margin: 0; font-size: 12px; color: var(--ink-3); line-height: 1.6; }
+.side-err { margin: 0; font-size: 12px; color: var(--zhu); }
+
+.ol-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; padding: 8px 12px 8px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.ol-footer-status { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--ink-2); }
+.ol-footer-status .lamp { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-4); }
+.ol-footer-status .lamp.ok { background: var(--qing); }
+.ol-footer-status .lamp.warn { background: var(--jin); }
+.ol-checks { display: flex; gap: 4px; }
+.ol-checks span { width: 8px; height: 8px; border-radius: 2px; background: var(--line-2); }
+.ol-checks span.ok { background: var(--qing); }
+.ol-footer-acts { display: flex; gap: 8px; }
+
+/* 右侧滑出抽屉 */
+.drawer-scrim { position: fixed; inset: 0; z-index: 600; background: #00000033; display: flex; justify-content: flex-end; }
+.direction-drawer { width: min(460px, 92vw); height: 100%; display: grid; grid-template-rows: auto auto minmax(0, 1fr); background: var(--paper); border-left: 1px solid var(--line); box-shadow: var(--shadow-3); }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+.drawer-head h3 { margin: 0; font: 600 17px var(--f-serif); }
+.drawer-head-actions { display: flex; gap: 6px; }
+.drawer-tabs { display: flex; gap: 4px; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel); overflow-x: auto; }
+.drawer-tabs button { padding: 4px 10px; border-radius: 6px; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.drawer-tabs button[aria-selected="true"] { background: var(--paper); color: var(--zhu); font-weight: 600; box-shadow: var(--shadow-1); }
+.drawer-body { overflow: auto; padding: 12px 16px 24px; display: grid; align-content: start; gap: 10px; }
+.drawer-contract-kv .kv { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.drawer-contract-kv .kv b { color: var(--ink-3); font-size: 12px; }
+.recovery-panel { display: grid; gap: 8px; }
+:deep(.paper-panel) { border-color: var(--line); border-radius: 10px; background: var(--paper); color: var(--ink); }
+
+@media (max-width: 960px) {
+  .ol-grid { grid-template-columns: minmax(0, 1fr); }
+  .ol-toc { display: none; }
+}
+@media (max-width: 760px) {
+  .generate-page { overflow: visible; }
 }
 
 </style>

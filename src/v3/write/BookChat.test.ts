@@ -73,4 +73,72 @@ describe('chat window background behavior', () => {
     wrapper.unmount()
     copy.mockRestore()
   })
+
+  it('renders merged inline writing directions, prefills follow-up chat, and emits explicit note/next-plan saves', async () => {
+    const store = useNovelStore()
+    const book = store.addNovel({ genre: '', subGenre: '', tags: [], targetWordCountMin: 1, targetWordCountMax: 2,
+      writingStyle: store.defaultWritingStyle(), settings: store.defaultSettings() })
+    const chapter = store.addChapter(book.id, { title: '第一章', content: '' })!
+    const suggestion = {
+      id: 'dir-1',
+      kind: 'conflict' as const,
+      title: '料行清晨催账',
+      approach: '以三家料行堵门开篇，把旧账压力和修船手艺一起摆上台面。',
+      storyEffect: '立住现实倒计时与主角守铺决心。',
+      nextBeat: '林岸推开木门板，看见三张按了红手印的欠条压在刨花上。',
+      risk: '注意不要让三家料行一口气同时讲完背景，留出周叔出场的空间。',
+      evidence: [{ sourceType: 'plan' as const, sourceLabel: '第1章章纲', excerpt: '清点三家料行旧账' }],
+    }
+    const wrapper = shallowMount(AiChatAssistant, {
+      props: {
+        novelId: book.id,
+        chapterId: chapter.id,
+        draftContent: '',
+        adviceResult: {
+          mode: 'scene',
+          focusLabel: '当前场景',
+          focusExcerpt: '',
+          contextSummary: '当前章节计划、总纲',
+          suggestions: [suggestion],
+          nextChapterPlan: null,
+          generatedAt: '2026-11-26T00:00:00Z',
+        },
+      },
+      global: { renderStubDefaultSlot: true },
+    })
+
+    expect(wrapper.find('.direction-card').text()).toContain('料行清晨催账')
+    expect(wrapper.find('.direction-card').text()).toContain('下一拍：')
+    const btn = (label: string) => wrapper.findAll('button').find(b => b.text().trim() === label)!
+    await btn('沿着聊').trigger('click')
+    expect(wrapper.get('textarea').element.value).toContain('沿着「料行清晨催账」')
+
+    await btn('记入本章笔记').trigger('click')
+    await btn('存为下一章计划').trigger('click')
+    expect(wrapper.emitted('save-direction')).toEqual([
+      [{ action: 'note', suggestion }],
+      [{ action: 'plan', suggestion }],
+    ])
+
+    await wrapper.setProps({ adviceStale: true })
+    expect(btn('记入本章笔记').attributes('disabled')).toBeDefined()
+    expect(btn('存为下一章计划').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('renders save receipts as clean status notices without copy or save-to-knowledge buttons', async () => {
+    const store = useNovelStore()
+    const book = store.addNovel({ genre: '现实', subGenre: '年代', tags: [], targetWordCountMin: 10, targetWordCountMax: 20,
+      settings: store.defaultSettings(), writingStyle: store.defaultWritingStyle() })
+    store.addChatMessage(book.id, { id: 'r1', role: 'assistant', content: '【保存成功】已归档到知识库“河岸的灯”。', timestamp: '2026-11-26T00:00:00Z' })
+    store.addChatMessage(book.id, { id: 'r2', role: 'assistant', content: '【软件保存回执】旧版回执。', timestamp: '2026-11-26T00:00:01Z' })
+    const wrapper = shallowMount(AiChatAssistant, { props: { novelId: book.id }, global: { renderStubDefaultSlot: true } })
+    const receipts = wrapper.findAll('.chat-msg.receipt')
+    expect(receipts).toHaveLength(2)
+    expect(receipts[0].text()).toContain('保存成功')
+    expect(receipts[0].text()).not.toContain('【保存成功】')
+    expect(receipts[0].findAll('.action-btn')).toHaveLength(0)
+    expect(receipts[1].findAll('.action-btn')).toHaveLength(0)
+    wrapper.unmount()
+  })
 })

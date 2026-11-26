@@ -115,7 +115,7 @@ export function readAllNovelRows(): Novel[] {
 
   for (const novel of novels) {
     // 载入分卷
-    novel.volumes = queryAll<Record<string, any>>('SELECT * FROM volumes WHERE novel_id = ? ORDER BY volume_index ASC', [novel.id]).map(r => ({
+    novel.volumes = queryAll<Record<string, any>>('SELECT v.*, m.source_number, m.beat_ids FROM volumes v LEFT JOIN volume_planning_metadata m ON m.id = v.id AND m.novel_id = v.novel_id WHERE v.novel_id = ? ORDER BY v.volume_index ASC', [novel.id]).map(r => ({
       id: r.id,
       volumeIndex: r.volume_index,
       title: r.title,
@@ -125,6 +125,8 @@ export function readAllNovelRows(): Novel[] {
       characterChanges: r.character_changes,
       estimatedChapters: r.estimated_chapters,
       estimatedWordCount: r.estimated_word_count,
+      ...(r.source_number == null ? {} : { sourceVolumeNumber: r.source_number }),
+      ...(r.beat_ids == null ? {} : { skeletonBeatIds: JSON.parse(r.beat_ids) }),
       versions: JSON.parse(r.versions || '[]'),
     }))
 
@@ -251,6 +253,7 @@ export function readAllNovelRows(): Novel[] {
       name: r.name,
       fields: JSON.parse(r.fields || '[]'),
       relatedKeywords: JSON.parse(r.related_keywords || '[]'),
+      characterId: r.character_id ?? undefined,
       ownerItemId: r.owner_item_id || undefined,
       equipmentState: r.equipment_state || undefined,
       lastMentionChapterIndex: r.last_mention_chapter_index ?? undefined,
@@ -317,10 +320,15 @@ export function writeNovelRows(novel: Novel) {
     const currentVolumeIds = new Set(novel.volumes.map(v => v.id))
     const removedVolumeIds = existingVolumeIds.filter(id => !currentVolumeIds.has(id))
     for (const id of removedVolumeIds) {
+      execute('DELETE FROM volume_planning_metadata WHERE id = ? AND novel_id = ?', [id, novel.id])
       execute('DELETE FROM volumes WHERE id = ?', [id])
     }
     for (const v of novel.volumes) {
       upsertRow('volumes', 'id, novel_id, volume_index, title, theme, summary, key_turning_points, character_changes, estimated_chapters, estimated_word_count, versions', [v.id, novel.id, v.volumeIndex, v.title, v.theme, v.summary, v.keyTurningPoints, v.characterChanges, v.estimatedChapters, v.estimatedWordCount, JSON.stringify(v.versions || [])])
+      if (v.sourceVolumeNumber !== undefined || v.skeletonBeatIds?.length) {
+        upsertRow('volume_planning_metadata', 'id, novel_id, source_number, beat_ids',
+          [v.id, novel.id, v.sourceVolumeNumber ?? null, v.skeletonBeatIds?.length ? JSON.stringify(v.skeletonBeatIds) : null])
+      } else execute('DELETE FROM volume_planning_metadata WHERE id = ? AND novel_id = ?', [v.id, novel.id])
     }
 
     // 3. 章节：只写入有变化的行 + 删除已移除的
@@ -411,9 +419,9 @@ export function writeNovelRows(novel: Novel) {
       execute('DELETE FROM data_panels WHERE id = ?', [id])
     }
     for (const item of novel.dataPanels || []) {
-      upsertRow('data_panels', 'id, novel_id, category, name, fields, related_keywords, owner_item_id, equipment_state, last_mention_chapter_index, versions, created_at, updated_at, reference_history', [
+      upsertRow('data_panels', 'id, novel_id, category, name, fields, related_keywords, character_id, owner_item_id, equipment_state, last_mention_chapter_index, versions, created_at, updated_at, reference_history', [
         item.id, novel.id, item.category, item.name, JSON.stringify(item.fields || []),
-        JSON.stringify(item.relatedKeywords || []), item.ownerItemId ?? null, item.equipmentState ?? 'stored', item.lastMentionChapterIndex ?? null,
+        JSON.stringify(item.relatedKeywords || []), item.characterId ?? null, item.ownerItemId ?? null, item.equipmentState ?? 'stored', item.lastMentionChapterIndex ?? null,
         JSON.stringify(item.versions || []), item.createdAt, item.updatedAt, item.referenceHistory ? JSON.stringify(item.referenceHistory) : null
       ])
     }
@@ -442,7 +450,7 @@ export async function deleteNovelFromDb(novelId: string) {
   await runTransaction(() => {
     for (const table of [
       'chapter_revisions', 'chat_messages', 'data_panel_changes', 'data_panels', 'story_arcs', 'story_events',
-      'characters', 'chapters', 'volumes', 'semantic_index',
+      'characters', 'chapters', 'volumes', 'volume_planning_metadata', 'semantic_index',
       'reconstruction_impact_reports', 'reconstruction_story_memories', 'reconstruction_ai_runs', 'reconstruction_canon_mutations', 'reconstruction_chapter_reviews', 'reconstruction_review_findings', 'reconstruction_candidates', 'reconstruction_creation_drafts',
     ]) {
       execute(`DELETE FROM ${table} WHERE novel_id = ?`, [novelId])
@@ -454,7 +462,7 @@ export async function deleteNovelFromDb(novelId: string) {
 export function clearNovelRows() {
     for (const table of [
       'chapter_revisions', 'chat_messages', 'data_panel_changes', 'data_panels', 'story_arcs', 'story_events',
-      'characters', 'chapters', 'volumes', 'semantic_index',
+      'characters', 'chapters', 'volumes', 'volume_planning_metadata', 'semantic_index',
       'reconstruction_impact_reports', 'reconstruction_story_memories', 'reconstruction_ai_runs', 'reconstruction_canon_mutations', 'reconstruction_chapter_reviews', 'reconstruction_review_findings', 'reconstruction_candidates', 'reconstruction_creation_drafts', 'novels',
     ]) {
       execute(`DELETE FROM ${table}`)

@@ -205,7 +205,8 @@
 .v3 .m-input, .v3 .m-select, .v3 .m-number { color: var(--ink); font: 13px var(--f-ui); }
 .v3 .m-textarea:focus, .v3 .m-select:focus, .v3 .m-number:focus { border-color: var(--ink-3); box-shadow: 0 0 0 3px var(--zhu-soft); }
 .v3 .m-input:disabled, .v3 .m-textarea:disabled { background: var(--panel); color: var(--ink-3); cursor: not-allowed; }
-.v3 .m-select { padding-right: 28px; appearance: none; cursor: pointer; background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 50%), linear-gradient(135deg, var(--ink-3) 50%, transparent 50%); background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+.v3 .m-select { padding-right: 28px; -webkit-appearance: none; -moz-appearance: none; appearance: none; cursor: pointer; background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 50%), linear-gradient(135deg, var(--ink-3) 50%, transparent 50%); background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+.v3 .m-select::picker-icon { display: none; }
 .v3 .m-multi { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 34px; }
 .v3 .m-multi .m-chip:disabled { opacity: .5; cursor: not-allowed; }
 .v3 .m-multi-empty { color: var(--ink-4); font-size: 12px; }

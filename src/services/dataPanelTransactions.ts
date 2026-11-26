@@ -15,8 +15,8 @@ export const captureDataClockBaseline = (novel: Novel) => JSON.stringify([novel.
   novel.chapters.map(chapter => [chapter.id, chapter.chapterIndex, chapter.content, chapter.status === 'locked'])])
 
 function snapshot(item: DataPanelItem): string {
-  const { category, name, fields, relatedKeywords, ownerItemId, equipmentState, lastMentionChapterIndex } = item
-  return JSON.stringify({ category, name, fields, relatedKeywords, ownerItemId, equipmentState, lastMentionChapterIndex })
+  const { category, name, fields, relatedKeywords, characterId, ownerItemId, equipmentState, lastMentionChapterIndex } = item
+  return JSON.stringify({ category, name, fields, relatedKeywords, characterId, ownerItemId, equipmentState, lastMentionChapterIndex })
 }
 
 export function recordDataPanelImpact(aggregate: StoryAggregate, before: ReturnType<typeof captureStoryImpact>,
@@ -61,14 +61,20 @@ export function editDataPanel(aggregate: StoryAggregate, edit: DataPanelEdit, ba
       try { updates = JSON.parse(version.snapshot) } catch { throw new Error('历史数据版本无效。') }
       if (!updates || !Array.isArray(updates.fields) || !Array.isArray(updates.relatedKeywords) || typeof updates.name !== 'string') throw new Error('历史数据版本不完整。')
       // An absent optional key in a snapshot must remove its current value.
+      updates.characterId ??= undefined
       updates.ownerItemId ??= undefined; updates.equipmentState ??= undefined; updates.lastMentionChapterIndex ??= undefined
     } else updates = edit.item
-    const item: DataPanelItem = current || { id: nextId(), category: '自定义', name: '未命名数据', fields: [], relatedKeywords: [], createdAt: now, updatedAt: now }
+    const item: DataPanelItem = current ? { ...current, fields: clone(current.fields) }
+      : { id: nextId(), category: '自定义', name: '未命名数据', fields: [], relatedKeywords: [], createdAt: now, updatedAt: now }
     const previous = snapshot(item)
-    for (const key of ['category', 'name', 'fields', 'relatedKeywords', 'ownerItemId', 'equipmentState', 'lastMentionChapterIndex'] as const) {
+    // A merge may leave a stale binding. An unrelated edit can safely clear it.
+    if (item.characterId && !Object.prototype.hasOwnProperty.call(updates, 'characterId')
+      && !novel.characters.some(row => row.id === item.characterId)) item.characterId = undefined
+    for (const key of ['category', 'name', 'fields', 'relatedKeywords', 'characterId', 'ownerItemId', 'equipmentState', 'lastMentionChapterIndex'] as const) {
       if (Object.prototype.hasOwnProperty.call(updates, key)) Object.assign(item, { [key]: updates[key] === undefined ? undefined : clone(updates[key]) })
     }
     if (!item.name.trim()) throw new Error('请填写数据名称。')
+    if (item.characterId && !novel.characters.some(row => row.id === item.characterId)) throw new Error('绑定的角色不存在，请重新选择。')
     if (item.ownerItemId && (item.ownerItemId === item.id || !novel.dataPanels.some(row => row.id === item.ownerItemId))) throw new Error('数据持有人不存在，请重新选择。')
     calculateDataPanelFields(item)
     if (edit.action === 'update' && beforeReference) preserveDataPanelTimeProgress(item, beforeReference)
@@ -85,9 +91,10 @@ export function editDataPanel(aggregate: StoryAggregate, edit: DataPanelEdit, ba
       : key === '$exists' ? Object.prototype.hasOwnProperty.call(updates, 'name') : Object.prototype.hasOwnProperty.call(updates, key))
     if (current && snapshot(item) === previous && !confirmedKeys.length) return { item: current, changed: false }
     if (current) item.versions = [...(item.versions || []), { id: nextId(), label: edit.action === 'restore' ? '恢复前版本' : '编辑前版本', savedAt: now, snapshot: previous }].slice(-20)
-    else novel.dataPanels.push(item)
     item.updatedAt = now
     recordDataPanelReference(item, beforeReference, { kind: 'author' }, now, nextId(), undefined, confirmedKeys)
+    if (current) Object.assign(current, item)
+    else novel.dataPanels.push(item)
   }
   novel.updatedAt = now
   recordDataPanelImpact(aggregate, before, ['dataPanels'], now, nextId)

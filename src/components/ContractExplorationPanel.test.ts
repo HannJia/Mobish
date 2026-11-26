@@ -22,7 +22,10 @@ describe('contract exploration persistence boundary', () => {
   it('flushes the author message before exactly one explicit request and requires adoption', async () => {
     const flush = vi.fn(async () => {}).mockImplementationOnce(async () => { expect(callAI).not.toHaveBeenCalled() })
     const wrapper = fixture(flush)
-    vi.mocked(callAI).mockResolvedValue({ finishReason: 'stop', content: JSON.stringify({ reply: '建议使用限知视角。', suggestions: [{ cardId: 'voice', values: { pointOfView: '第三人称限知' } }] }) })
+    const content = JSON.stringify({ reply: '建议使用限知视角。', suggestions: [
+      { cardId: 'voice', values: { pointOfView: '第三人称限知', explanation: '把悬疑留给读者。' } },
+    ] })
+    vi.mocked(callAI).mockResolvedValue({ finishReason: 'stop', content })
     await wrapper.get('textarea').setValue('从谁的视角讲？')
     expect(callAI).not.toHaveBeenCalled()
     await wrapper.get('form').trigger('submit')
@@ -30,9 +33,13 @@ describe('contract exploration persistence boundary', () => {
     expect(callAI).toHaveBeenCalledTimes(1)
     expect(vi.mocked(callAI).mock.calls[0][0].noAutomaticRetry).toBe(true)
     expect(latest(wrapper).messages[1].status).toBe('completed')
+    expect(wrapper.get('.message.assistant > p').text()).toBe('建议使用限知视角。')
+    expect(wrapper.get('.option-explain').text()).toBe('把悬疑留给读者。')
+    expect(wrapper.text()).not.toContain(content)
     expect(wrapper.emitted('adopt')).toBeUndefined()
-    await wrapper.get('details button').trigger('click')
+    await wrapper.get('.adopt-btn').trigger('click')
     expect(wrapper.emitted('adopt')).toHaveLength(1)
+    expect(wrapper.emitted('adopt')![0][0]).toMatchObject({ explanation: '把悬疑留给读者。', values: { pointOfView: '第三人称限知' } })
     wrapper.unmount()
   })
   it('prevents a paid request when the recovery flush fails and keeps input in the saved conversation', async () => {
@@ -54,7 +61,7 @@ describe('contract exploration persistence boundary', () => {
     await wrapper.get('textarea').setValue('帮我追问')
     await wrapper.get('form').trigger('submit'); await flushPromises()
     expect(latest(wrapper).messages[1]).toMatchObject({ status: 'partial', content: '{"reply":"未完' })
-    expect(wrapper.find('details').exists()).toBe(false)
+    expect(wrapper.find('.suggestion-groups').exists()).toBe(false)
     wrapper.unmount()
   })
   it('stops a running request and retains the partial stream', async () => {

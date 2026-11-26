@@ -1,8 +1,11 @@
 // 自动写作运行中心的只读派生：章节流水线阶段、预算、停止条件。不修改任何 Store。
 // 阶段来自任务里保存的候选稿和检查点，不再按章节状态猜测。
 import type { Chapter, Novel } from '@/types/novel'
-import type { AiRun, AiRunRequest } from '@/types/reconstruction'
+import type { AiRun, AiRunRequest, CandidateChange } from '@/types/reconstruction'
 import { resolveChapterLengthPolicy } from '@/services/chapterLength'
+import { buildAnalysisSourceVersionId } from '@/services/reconstructionCandidates'
+import { chapterPendingCanonRoute, selectChapterPendingCanon } from './chapterWorkflow'
+import { isCurrentPendingCandidate, summarizePendingCanon } from './candidatePreview'
 
 export type PipelineStepId = 'outline' | 'writing' | 'review' | 'revision' | 'author'
 export type PipelineStepState = 'done' | 'current' | 'waiting' | ''
@@ -31,6 +34,35 @@ const CHECKPOINT = /^chapter-(\d+):(started|completed|reviewed|checkpoint|review
 export function checkpointOf(run: AiRun | undefined): { chapterIndex: number; phase: string } | null {
   const match = run?.checkpoint?.match(CHECKPOINT)
   return match ? { chapterIndex: Number(match[1]), phase: match[2] } : null
+}
+
+/** Pending drafts must be accepted before their changes can be processed in the writing desk. */
+export function deriveCheckpointPendingCanon(novel: Pick<Novel, 'id' | 'chapters'>, run: AiRun | undefined,
+  candidates: readonly CandidateChange[]) {
+  const point = checkpointOf(run)
+  if (!run || !point || (run.status !== 'needs_author' && run.status !== 'paused')
+    || (run.targetId !== undefined && run.targetId !== novel.id)) return { total: 0, chapters: [], summary: '' }
+  const chapterById = new Map(novel.chapters.map(chapter => [chapter.id, chapter]))
+  const formalIds = new Set(candidates.filter(candidate => !candidate.novelId || candidate.novelId === novel.id).map(candidate => candidate.id))
+  const chapters = (run.chapterDrafts ?? []).flatMap(draft => {
+      const chapter = chapterById.get(draft.chapterId)
+      if (!chapter || chapter.chapterIndex !== draft.chapterIndex || draft.status === 'rejected'
+        || draft.chapterIndex < (run.chapterStart ?? 0) || draft.chapterIndex > (run.chapterEnd ?? point.chapterIndex)
+        || draft.chapterIndex > point.chapterIndex) return []
+
+      const formal = selectChapterPendingCanon(novel.id, chapter.id, chapter.content, candidates)
+      const draftVersion = buildAnalysisSourceVersionId(draft.content)
+      const draftCandidates = draft.status === 'pending' && draft.stage === 'analyzed' && chapter.content === draft.baseContent
+        ? (draft.review?.candidateChanges ?? []).filter(candidate => candidate.chapterId === chapter.id
+          && (!candidate.novelId || candidate.novelId === novel.id) && !formalIds.has(candidate.id)
+          && isCurrentPendingCandidate(candidate, draftVersion)) : []
+      const counts = summarizePendingCanon([...formal, ...draftCandidates])
+      return counts.total ? [{ ...counts, chapterId: chapter.id, chapterIndex: chapter.chapterIndex,
+        writeRoute: formal.length ? chapterPendingCanonRoute(novel.id, chapter.id) : null,
+        draftId: draftCandidates.length ? draft.id : null }] : []
+    }).sort((left, right) => left.chapterIndex - right.chapterIndex)
+  const total = chapters.reduce((count, chapter) => count + chapter.total, 0)
+  return { total, chapters, summary: total ? `本次任务已有 ${chapters.length} 章共 ${total} 条记忆候选待确认入典。` : '' }
 }
 
 function hasPlan(novel: Novel, chapter: Chapter) {

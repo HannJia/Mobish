@@ -24,7 +24,7 @@ export interface ChapterPlanEditResult { changed: boolean; plans: ChapterPlan[];
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
 /** Inputs used by chapter planning, excluding the plans this candidate batch will add. */
-export function chapterPlanningSourceVersion(novel: Novel, memories: StoryMemoryRecord[] = [], knowledge: KnowledgeBase[] = []): string {
+export function chapterPlanningSourceVersion(novel: Novel, memories: StoryMemoryRecord[] = [], knowledge: KnowledgeBase[]): string {
   return buildAnalysisSourceVersionId(JSON.stringify([novel.id, novel.title, novel.outline, novel.volumes,
     novel.characters, novel.eventLog, novel.storyArcs, novel.chapters.map(chapter => [chapter.id, chapter.chapterIndex,
       chapter.volumeIndex, chapter.title, chapter.content, chapter.summary, chapter.summarySource, chapter.status]),
@@ -41,7 +41,7 @@ function normalizePlan(data: ChapterPlanInput, id: string, now: string): Chapter
 
 /** Apply a chapter-plan mutation to a private aggregate and persist its impact report with it. */
 export function applyChapterPlanEdit(aggregate: StoryAggregate, edit: ChapterPlanEdit, now: string, id: () => string,
-  knowledge: KnowledgeBase[] = []): ChapterPlanEditResult {
+  knowledge: KnowledgeBase[]): ChapterPlanEditResult {
   const { novel, workspace } = aggregate
   const before = captureStoryImpact(novel, workspace)
   novel.chapterPlans ||= []
@@ -116,7 +116,7 @@ export function applyChapterPlanEdit(aggregate: StoryAggregate, edit: ChapterPla
   if (edit.action === 'confirm-planning' && edit.confirmCreation) {
     let draft = workspace.creationDraft
     for (const plan of draft.chapterPlans.filter(plan => plan.status !== 'archived')) draft = confirmChapterPlan(draft, plan.id, now)
-    workspace.creationDraft = { ...draft, stage: 'ready', volumes: draft.volumes.map(volume => ({ ...volume, approval: 'approved' })),
+    workspace.creationDraft = { ...draft, stage: 'ready', lastSurface: 'ready', volumes: draft.volumes.map(volume => ({ ...volume, approval: 'approved' })),
       approval: { ...draft.approval, 'volume-outline': 'approved', 'chapter-outline': 'approved' }, updatedAt: now }
   }
   const reviewChapterIds = edit.action === 'confirm-planning' && !edit.confirmCreation ? []

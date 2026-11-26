@@ -62,8 +62,9 @@
       <div v-if="!history.length && !busy" class="inspiration-empty-guide"><V3Icon name="bulb" size="l" /><h3>写下故事的第一点灵感</h3><p>人物、场景、一句台词，都可以成为起点。</p><div><button v-for="prompt in ['先帮我构思一个主角', '一起确定故事的背景', '从一个核心冲突开始']" :key="prompt" type="button" @click="input = input.trim() ? input + '\n' + prompt : prompt">{{ prompt }}</button></div></div>
       <article v-for="(item, index) in history" :key="index" :data-message-index="index"
         class="inspiration-message" :class="item.role">
+        <img v-if="item.role === 'assistant'" :src="mojianIcon" alt="" aria-hidden="true" class="inspiration-seal-avatar" />
         <strong>{{ item.role === 'user' ? '我' : isSaveReceipt(item) ? '软件' : 'AI' }}</strong>
-        <div v-html="renderMd(item.role === 'assistant' ? formatChatReply(item.content, item.search) : item.content)"></div>
+        <div v-html="renderMd(formatMessageText(item))"></div>
         <ChatSearchEvidence :record="item.search" />
         <div v-if="item.knowledgeReferences?.length || saveReminder?.index === index" class="inspiration-reply-actions">
           <button v-if="item.knowledgeReferences?.length" type="button" class="m-btn inspiration-reference-toggle"
@@ -84,6 +85,7 @@
         </div>
       </article>
       <article v-if="streamReplyText" data-streaming-assistant class="inspiration-message assistant">
+        <img :src="mojianIcon" alt="" aria-hidden="true" class="inspiration-seal-avatar" />
         <strong>AI</strong><div v-html="renderMd(streamReplyText)"></div>
       </article>
       <p v-else-if="busy" class="inspiration-progress" role="status">{{ compacting
@@ -146,8 +148,8 @@
         :can-extract="canExtract" :can-finish="hasSettingsDraft || canExtract" :settings-status="settingsStatus"
         @draft-change="updateDiscussionSettings" @extract="extract" @finish="finish" @collapse="collapseSettingsPanel" />
     </div>
-    <SaveChatKnowledge :key="selectedSessionId || 'new'" v-model:show="showKnowledgeDraft" :content="knowledgeDraft" :preferred-ids="knowledgeIds"
-      @saved="knowledgeSaved" />
+    <SaveChatKnowledge :key="selectedSessionId || 'new'" v-model:show="showKnowledgeDraft" :content="knowledgeDraft"
+      mode="inspiration" :preferred-ids="knowledgeIds" @saved="knowledgeSaved" />
     <V3Modal :show="Boolean(openedReference)" title="知识库原文" size="wide"
       :description="openedReference ? [openedReference.baseName, openedReference.entryTitle, ...openedReference.path].join(' › ') : ''"
       @update:show="openedReference = null">
@@ -165,6 +167,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import V3Icon from '@/v3/components/V3Icon.vue'
 import V3Modal from '@/v3/components/V3Modal.vue'
 import V3Input from '@/v3/components/form/V3Input.vue'
+import mojianIcon from '@/assets/v3/mojian-icon.svg'
 import { useConfigStore } from '@/stores/config'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import {
@@ -207,6 +210,8 @@ const emit = defineEmits<{
   'history-change': [history: InspirationMessage[]]
   'draft-change': [form: InspirationSettingsDraft]
   'knowledge-change': [ids: string[]]
+  'session-change': [id: string | null]
+  'session-reset': []
 }>()
 const config = useConfigStore()
 const knowledge = useKnowledgeStore()
@@ -288,6 +293,10 @@ const streamText = ref('')
 const streamReplyText = computed(() => inspirationReplyText(streamText.value))
 function isSaveReceipt(item: InspirationMessage) {
   return item.role === 'assistant' && /^【(?:软件保存回执|保存成功)】/.test(item.content)
+}
+function formatMessageText(item: InspirationMessage) {
+  const base = item.role === 'assistant' ? formatChatReply(item.content, item.search) : item.content
+  return base.replace(/\n?〔拆书记录\s+breakdown-[^〕]+〕/g, '')
 }
 const latestDiscussionIndex = computed(() => {
   for (let index = history.value.length - 1; index >= 0; index--) {
@@ -376,9 +385,17 @@ function sessionTime(value: string): string {
   return date.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+const LAST_CREATED_INSPIRATION_SESSION_KEY = 'mojian-last-created-inspiration-session-id'
+function lastCreatedInspirationSessionId(): string | null {
+  try { return localStorage.getItem(LAST_CREATED_INSPIRATION_SESSION_KEY) } catch { return null }
+}
+
+const latestSavedSession = savedSessions.value[0]
 const initialSession = props.initialSessionId
   ? savedSessions.value.find(session => session.id === props.initialSessionId)
-  : savedSessions.value[0]
+  : latestSavedSession && latestSavedSession.id !== lastCreatedInspirationSessionId()
+    ? latestSavedSession
+    : undefined
 if (initialSession) {
   selectedSessionId.value = initialSession.id
   history.value = cloneHistory(initialSession.messages)
@@ -388,6 +405,7 @@ if (initialSession) {
   conversationContext.value = initialSession.context
   restoreDiscussionSettings(initialSession.settingsDraft, initialSession.settingsMessageCount)
 }
+watch(selectedSessionId, id => emit('session-change', id), { immediate: true })
 
 function restoreDiscussionSettings(snapshot?: string, messageCount?: number) {
   discussionSettings.value = snapshot
@@ -495,8 +513,10 @@ function loadSession(id: string | null, preserveCurrent = true) {
     input.value = ''
     error.value = ''
     selectedKnowledgeIds.value = null
+    if (props.sharedKnowledgeIds) emit('knowledge-change', [])
     conversationContext.value = undefined
     webSearch.value = false
+    emit('session-reset')
     restoreDiscussionSettings()
     return
   }
@@ -506,10 +526,11 @@ function loadSession(id: string | null, preserveCurrent = true) {
   history.value = cloneHistory(session.messages)
   selectedKnowledgeIds.value = Array.isArray(session.knowledgeIds) ? session.knowledgeIds.filter(id => typeof id === 'string') : null
   // 打开以前的讨论时，沿用它当时选的知识库
-  if (props.sharedKnowledgeIds && selectedKnowledgeIds.value) emit('knowledge-change', [...selectedKnowledgeIds.value])
+  if (props.sharedKnowledgeIds) emit('knowledge-change', selectedKnowledgeIds.value ? [...selectedKnowledgeIds.value] : [])
   input.value = session.draft
   webSearch.value = session.webSearch
   conversationContext.value = session.context
+  emit('session-reset')
   restoreDiscussionSettings(session.settingsDraft, session.settingsMessageCount)
   error.value = ''
   void scrollToLatestMessage()
@@ -523,8 +544,8 @@ function activateDiscussionSettings() {
     discussionSettings.value.writingMode = props.form.writingMode
     emit('draft-change', JSON.parse(JSON.stringify(discussionSettings.value)))
   } else {
-    const { titleSuggestions, storyTimeOrigin } = discussionSettings.value
-    discussionSettings.value = { ...JSON.parse(JSON.stringify(props.form)), titleSuggestions, storyTimeOrigin }
+    const { titleSuggestions, storyTimeOrigin, openingTimeSuggestion } = discussionSettings.value
+    discussionSettings.value = { ...JSON.parse(JSON.stringify(props.form)), titleSuggestions, storyTimeOrigin, openingTimeSuggestion }
   }
 }
 
@@ -544,13 +565,13 @@ function openSuggestedKnowledgeDraft(item: InspirationMessage) {
   savingSuggestedReply = true
 }
 
-function knowledgeSaved(result: { kbId: string; kbName: string; title: string }) {
+function knowledgeSaved(result: { kbId: string; kbName: string; title: string; entryTitle?: string }) {
   if (savingSuggestedReply) saveReminder.value = undefined
   savingSuggestedReply = false
-  if (selectedKnowledgeIds.value && !selectedKnowledgeIds.value.includes(result.kbId)) {
-    selectedKnowledgeIds.value = [...selectedKnowledgeIds.value, result.kbId]
+  if (!knowledgeIds.value.includes(result.kbId)) {
+    knowledgeIds.value = [...knowledgeIds.value, result.kbId]
   }
-  history.value.push({ role: 'assistant', content: `【保存成功】已保存到知识库“${result.kbName}”，条目“${result.title}”。` })
+  history.value.push({ role: 'assistant', content: `【保存成功】已归档到知识库“${result.kbName}”${result.entryTitle ? ` · ${result.entryTitle}` : ''}，目录项「${result.title}」，并已挂载至本轮讨论。` })
   persistCurrentHistory()
 }
 
@@ -744,8 +765,8 @@ function finish() {
 onMounted(() => { void scrollToLatestMessage() })
 watch(() => JSON.stringify(props.form), () => {
   if (!props.active || restoreSettingsOnOpen || restoring) return
-  const { titleSuggestions, storyTimeOrigin } = discussionSettings.value
-  const next = { ...JSON.parse(JSON.stringify(props.form)), titleSuggestions, storyTimeOrigin }
+  const { titleSuggestions, storyTimeOrigin, openingTimeSuggestion } = discussionSettings.value
+  const next = { ...JSON.parse(JSON.stringify(props.form)), titleSuggestions, storyTimeOrigin, openingTimeSuggestion }
   if (inspirationSettingsSnapshot(next) === inspirationSettingsSnapshot(discussionSettings.value)
     && props.form.writingMode === discussionSettings.value.writingMode) return
   discussionSettings.value = next
@@ -786,7 +807,7 @@ onBeforeUnmount(() => { persistCurrentHistory(); stop() })
 .inspiration-panel-switch { display: none; }
 .inspiration-workspace {
   flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) clamp(232px, 25%, 315px);
-  grid-template-rows: minmax(0, 1fr); align-items: start; gap: 12px; min-height: 0;
+  grid-template-rows: minmax(0, 1fr); align-items: stretch; gap: 12px; min-height: 0;
 }
 .inspiration-workspace.settings-collapsed { grid-template-columns: minmax(0, 1fr); }
 .inspiration-conversation {
@@ -854,17 +875,20 @@ onBeforeUnmount(() => { persistCurrentHistory(); stop() })
 .inspiration-message.user { margin-left: auto; background: var(--zhu-soft); border-color: transparent; }
 .inspiration-message.user > strong { color: var(--zhu); text-align: right; }
 .inspiration-message.assistant {
-  max-width: calc(100% - 31px); margin-left: 31px; position: relative; background: var(--paper);
+  max-width: calc(100% - 34px); margin-left: 34px; position: relative; background: var(--paper);
 }
-.inspiration-message.assistant:has(.inspiration-reply-actions) { width: calc(100% - 31px); }
-.inspiration-message.assistant::before {
-  content: '墨'; position: absolute; top: 4px; left: -31px; display: grid; place-items: center;
-  width: 24px; height: 26px; border-radius: 50%; background: var(--zhu);
-  color: var(--on-accent); font: 16px var(--f-serif);
+.inspiration-message.assistant:has(.inspiration-reply-actions) { width: calc(100% - 34px); }
+.inspiration-seal-avatar {
+  position: absolute; top: 4px; left: -34px; width: 26px; height: 26px;
+  border-radius: 6px; object-fit: cover; display: block;
 }
 .inspiration-message.assistant > strong { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .inspiration-message :deep(p + p) { margin-top: 10px; }
 .inspiration-message :deep(ul), .inspiration-message :deep(ol) { padding-left: 22px; }
+.inspiration-message :deep(a.md-hash-link) {
+  color: var(--zhu); text-decoration: underline; text-underline-offset: 2px; font-weight: 500;
+}
+.inspiration-message :deep(a.md-hash-link:hover) { opacity: .82; }
 .inspiration-reply-actions {
   display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; justify-items: start; gap: 6px 8px; min-width: 0;
   margin-top: 9px; color: var(--ink-2); font-size: 12px;

@@ -17,6 +17,7 @@ import type { ChapterSelectionRevision } from '@/types/novel'
 import { validateSelectionRevision } from '@/services/selectionRevisionMetadata'
 import { buildChapterReviewSignature, buildReviewContextVersion } from '@/services/reconstructionReviewVersion'
 import { buildBoundKnowledgeSignature } from '@/services/knowledgeContext'
+import { syncDiscussionKnowledgeBaseForBook } from '@/services/chatKnowledgeDocument'
 import { useKnowledgeStore } from './knowledge'
 import { useReconstructionWorkspaceStore } from './reconstructionWorkspace'
 import { createChapterSourceBinding } from '@/services/derivedSources'
@@ -54,10 +55,12 @@ export function createNovelDraft(form: CreateWizardForm, now = new Date().toISOS
   const { genreLabel, subGenreLabel } = findGenreLabels(genre, subGenre)
   if (form.workingTitle !== undefined && typeof form.workingTitle !== 'string') throw new Error('作品名称必须是文字')
   const origin = form.storyTimeOrigin
-  if (origin !== undefined && (!origin || typeof origin !== 'object' || typeof origin.day !== 'number'
-    || !Number.isFinite(origin.day) || origin.day < 0 || (origin.label !== undefined && typeof origin.label !== 'string'))) {
-    throw new Error('创建时的故事起点必须是有效的数字。')
+  if (origin !== undefined && (!origin || typeof origin !== 'object' || Array.isArray(origin)
+    || (origin.day !== undefined && (!Number.isFinite(origin.day) || origin.day < 0 || origin.day > 100_000_000))
+    || (origin.label !== undefined && (typeof origin.label !== 'string' || origin.label.trim().length > 200)))) {
+    throw new Error('创建时的故事起点格式无效。')
   }
+  const originLabel = origin?.label?.trim()
   return {
     id,
     title: form.workingTitle?.trim() || '未命名小说',
@@ -86,7 +89,8 @@ export function createNovelDraft(form: CreateWizardForm, now = new Date().toISOS
     storyStateProposals: [],
     dataPanels: [],
     dataPanelChanges: [],
-    storyClock: origin === undefined ? undefined : createStoryClock(id, now, origin.day, origin.label),
+    storyClock: origin?.day !== undefined ? createStoryClock(id, now, origin.day, originLabel)
+      : originLabel ? { currentDay: 0, label: originLabel, pendingOriginLabel: originLabel, updatedAt: now } : undefined,
     status: 'creating',
     createdAt: now,
     updatedAt: now,
@@ -241,6 +245,7 @@ export const useNovelStore = defineStore('novel', () => {
   function addNovel(form: CreateWizardForm): Novel {
     const novel = createNovelDraft(form)
     novels.value.unshift(novel)
+    if (novel.knowledgeBaseIds?.length) syncDiscussionKnowledgeBaseForBook(useKnowledgeStore(), novel)
     persistence.markDirty(novel.id)
     return novel
   }
@@ -256,6 +261,7 @@ export const useNovelStore = defineStore('novel', () => {
     if (existing) return existing
     const published = JSON.parse(JSON.stringify(novel)) as Novel
     novels.value.unshift(published)
+    if (published.knowledgeBaseIds?.length) syncDiscussionKnowledgeBaseForBook(useKnowledgeStore(), published)
     return published
   }
 
@@ -595,7 +601,9 @@ export const useNovelStore = defineStore('novel', () => {
   function updateTitle(id: string, title: string) {
     const novel = novels.value.find(n => n.id === id)
     if (novel) {
+      const previousTitle = novel.title
       novel.title = title
+      if (novel.knowledgeBaseIds?.length) syncDiscussionKnowledgeBaseForBook(useKnowledgeStore(), novel, previousTitle)
       touchNovel(novel, new Date().toISOString())
     }
   }
@@ -644,8 +652,10 @@ export const useNovelStore = defineStore('novel', () => {
         title: String(snapshot.title || volume.title), theme: String(snapshot.theme || ''),
         summary: String(snapshot.summary || ''), keyTurningPoints: String(snapshot.keyTurningPoints || ''),
         characterChanges: String(snapshot.characterChanges || ''),
-        estimatedChapters: Number(snapshot.estimatedChapters) || volume.estimatedChapters,
-        estimatedWordCount: Number(snapshot.estimatedWordCount) || volume.estimatedWordCount,
+        estimatedChapters: snapshot.estimatedChapters ?? volume.estimatedChapters,
+        estimatedWordCount: snapshot.estimatedWordCount ?? volume.estimatedWordCount,
+        sourceVolumeNumber: snapshot.sourceVolumeNumber,
+        skeletonBeatIds: snapshot.skeletonBeatIds,
       })
       return true
     } catch { return false }
@@ -751,7 +761,13 @@ export const useNovelStore = defineStore('novel', () => {
   }
 
   async function updateTitleWithImpact(novelId: string, title: string) {
-    return commitStoryContext(novelId, { title }, ['title'])
+    const previousTitle = getNovel(novelId)?.title
+    const changed = await commitStoryContext(novelId, { title }, ['title'])
+    const novel = getNovel(novelId)
+    if (changed && novel?.title === title && novel.knowledgeBaseIds?.length) {
+      syncDiscussionKnowledgeBaseForBook(useKnowledgeStore(), novel, previousTitle)
+    }
+    return changed
   }
 
   function capturePlanningEditBaseline(novelId: string, volumeId?: string) {
@@ -779,7 +795,8 @@ export const useNovelStore = defineStore('novel', () => {
   async function updateVolumeWithImpact(novelId: string, volumeId: string, updates: Partial<Volume>, baseline = capturePlanningEditBaseline(novelId, volumeId)) {
     const novel = getNovel(novelId), current = novel?.volumes.find(volume => volume.id === volumeId)
     if (!novel || !current) throw new Error('分卷不存在，请刷新后重试。')
-    const expected = { ...baseline }, captured = JSON.parse(JSON.stringify(updates)) as Partial<Volume>
+    const expected = { ...baseline }, captured = { ...updates }
+    if (captured.skeletonBeatIds) captured.skeletonBeatIds = [...captured.skeletonBeatIds]
     return useReconstructionWorkspaceStore().transactStory(novelId, aggregate => {
       assertPlanningEditBaseline(aggregate.novel, expected)
       return editVolumeWithImpact(aggregate, volumeId, expected.volume, captured, new Date().toISOString(), generateId)
@@ -901,7 +918,7 @@ export const useNovelStore = defineStore('novel', () => {
   async function commitChapterPlanEdit(novelId: string, input: ChapterPlanEdit) {
     const edit = JSON.parse(JSON.stringify(input)) as ChapterPlanEdit
     const result = await useReconstructionWorkspaceStore().transactStory(novelId, aggregate =>
-      applyChapterPlanEdit(aggregate, edit, new Date().toISOString(), generateId), value => !value.changed)
+      applyChapterPlanEdit(aggregate, edit, new Date().toISOString(), generateId, useKnowledgeStore().knowledgeBases), value => !value.changed)
     return result.created || null
   }
 

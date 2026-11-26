@@ -1,6 +1,6 @@
 import type { EntityDefinitionEdit } from './entityDefinitionEditing'
 import type { Novel, Volume } from '@/types/novel'
-import { parseVolumesFromText } from './volumeParsing'
+import { normalizeVolumeTitle, parseVolumesFromText } from './volumeParsing'
 
 export interface CreationOutlineImport {
   volumes: Volume[]
@@ -102,6 +102,8 @@ function mergeVolumePlanning(existing: Volume, parsed: Volume): Volume {
   const next = copy(existing)
   next.volumeIndex = parsed.volumeIndex
   next.title = parsed.title
+  if (parsed.sourceVolumeNumber !== undefined) next.sourceVolumeNumber = parsed.sourceVolumeNumber
+  if (parsed.skeletonBeatIds) next.skeletonBeatIds = parsed.skeletonBeatIds
   if (parsed.theme) next.theme = parsed.theme
   if (parsed.summary) next.summary = parsed.summary
   if (parsed.keyTurningPoints) next.keyTurningPoints = parsed.keyTurningPoints
@@ -114,7 +116,7 @@ function mergeVolumePlanning(existing: Volume, parsed: Volume): Volume {
 function mergeParsedVolumes(novel: Novel, parsed: Volume[]): Volume[] {
   return parsed.map(volume => {
     const existing = novel.volumes.find(item => item.volumeIndex === volume.volumeIndex
-      && identityKey(item.title) === identityKey(volume.title))
+      && identityKey(normalizeVolumeTitle(item.title).title || item.title) === identityKey(volume.title))
     return existing ? mergeVolumePlanning(existing, volume) : copy(volume)
   })
 }
@@ -123,8 +125,8 @@ function mergeParsedVolumes(novel: Novel, parsed: Volume[]): Volume[] {
  * Extracts the author-confirmed planning payload from an onboarding outline.
  * The novel is read only; persistence and all transaction effects belong to the caller.
  */
-export function buildCreationOutlineImport(novel: Novel, outlineText: string): CreationOutlineImport {
-  const parsedVolumes = parseVolumesFromText(outlineText)
+export function buildCreationOutlineImport(novel: Novel, outlineText: string, allowedBeatIds?: readonly string[]): CreationOutlineImport {
+  const parsedVolumes = parseVolumesFromText(outlineText, allowedBeatIds)
   const definitions: EntityDefinitionEdit[] = []
   parseForeshadowing(outlineText, novel.eventLog, definitions)
   parseCharacters(outlineText, novel.characters, definitions)

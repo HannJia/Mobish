@@ -15,6 +15,7 @@ import { useCloudSyncStore } from './stores/cloudSync'
 import { useCloudPreferencesStore } from './stores/cloudPreferences'
 import { useInspirationSessionsStore } from './stores/inspirationSessions'
 import { initializeProjectKernel } from './services/projectKernelClient'
+import { windowCloseContext } from './services/windowClose'
 
 // 全局样式
 import './v3/styles/base.css'
@@ -61,6 +62,7 @@ async function bootstrap() {
         configStore.saveConfig(),
       ])
       if (CLOUD_SYNC_AVAILABLE) await useCloudSyncStore().flushBeforeClose()
+      return windowCloseContext(router.currentRoute.value.path)
     })
     window.electronAPI?.onBeforeUpdate?.(prepareUpdateInstall)
   } catch (err) {

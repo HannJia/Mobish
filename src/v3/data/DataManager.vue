@@ -110,6 +110,7 @@
             <div class="object-card-header">
               <div>
                 <span class="m-tag">{{ item.category }}</span>
+                <span v-if="characterName(item.characterId)" class="m-tag qing">人物：{{ characterName(item.characterId) }}</span>
                 <h3>{{ item.name }}</h3>
               </div>
               <div class="icon-actions">
@@ -142,7 +143,7 @@
 
       <aside class="timeline-section">
         <section v-if="selectedItem" class="selected-data-detail">
-          <div class="selected-data-title"><h3>{{ selectedItem.name }}</h3><span class="m-tag">{{ selectedItem.category }}</span></div>
+          <div class="selected-data-title"><h3>{{ selectedItem.name }}</h3><span class="m-tag">{{ selectedItem.category }}</span><span v-if="characterName(selectedItem.characterId)" class="m-tag qing">绑定人物：{{ characterName(selectedItem.characterId) }}</span></div>
           <p v-if="selectedItem.relatedKeywords.length" class="selected-data-keywords">{{ selectedItem.relatedKeywords.join(' · ') }}</p>
           <div class="selected-data-header"><h4>基础信息</h4><button type="button" class="m-link" :disabled="dataSaving" @click="openEditor(selectedItem)">编辑</button></div>
           <dl class="selected-data-fields"><div v-for="field in selectedItem.fields" :key="field.id"><dt>{{ field.name }}</dt><dd>{{ field.value }}{{ field.unit ? ' ' + field.unit : '' }}</dd></div></dl>
@@ -185,6 +186,9 @@
         <div class="m-form-grid">
           <V3Field label="名称"><V3Input v-model:value="form.name" placeholder="数据对象名称" /></V3Field>
           <V3Field label="分类"><V3Select v-model:value="form.category" :options="categoryOptions" /></V3Field>
+          <V3Field v-if="!isEquipment" label="绑定人物卡" span>
+            <V3Select :value="form.characterId || null" clearable :options="characterOptions" placeholder="不绑定人物（仅作为全书数据）" aria-label="绑定人物卡" @update:value="form.characterId = $event ?? ''" />
+          </V3Field>
           <template v-if="isEquipment">
             <V3Field label="归属对象">
               <V3Select :value="form.ownerItemId || null" clearable :options="ownerOptions" placeholder="不归属任何对象" @update:value="form.ownerItemId = $event ?? ''" />
@@ -302,7 +306,7 @@ const expectedVersionBaseline = ref('')
 const versionNovelId = ref('')
 const deleteBaselines = new Map<string, string>()
 const editingItemId = ref('')
-const form = ref({ name: '', category: '自定义' as DataPanelCategory, keywords: '', automation: '', ownerItemId: '', equipmentState: 'stored' as EquipmentState })
+const form = ref({ name: '', category: '自定义' as DataPanelCategory, keywords: '', automation: '', characterId: '', ownerItemId: '', equipmentState: 'stored' as EquipmentState })
 const structuredFields = ref<DataPanelField[]>([])
 const storyDayDraft = ref<number | null>(null)
 const storyLabelDraft = ref('')
@@ -331,6 +335,13 @@ const exportOptions = [
   { label: '导出 Markdown', key: 'markdown' },
 ]
 const isEquipment = computed(() => form.value.category === '装备' || form.value.category === '道具')
+const characterOptions = computed(() => (novel.value?.characters || []).map(character => ({
+  label: character.identity ? `${character.name}（${character.identity}）` : character.name,
+  value: character.id,
+})))
+function characterName(id?: string) {
+  return id ? novel.value?.characters.find(character => character.id === id)?.name || '' : ''
+}
 const ownerOptions = computed(() => dataPanels.value
   .filter(item => item.id !== editingItemId.value && item.category === '角色')
   .map(item => ({ label: `${item.name}（${item.category}）`, value: item.id })))
@@ -340,7 +351,7 @@ const ownerOptions = computed(() => dataPanels.value
 function reloadOriginTime() {
   const id = novel.value?.id
   if (!id) return
-  storyDayDraft.value = novel.value?.storyClock?.origin?.day ?? novel.value?.storyClock?.currentDay ?? null
+  storyDayDraft.value = novel.value?.storyClock?.origin?.day ?? null
   storyLabelDraft.value = novel.value?.storyClock?.origin?.label || ''
   expectedClock.value = novelStore.captureDataClockBaseline(id)
 }
@@ -458,9 +469,10 @@ function openEditor(item?: DataPanelItem) {
         keywords: item.relatedKeywords.join('、'),
         automation: formatDataPanelAutomationRules(item.fields),
         ownerItemId: item.ownerItemId || '',
+        characterId: item.characterId || '',
         equipmentState: item.equipmentState || 'stored',
       }
-    : { name: '', category: '自定义', keywords: '', automation: '', ownerItemId: '', equipmentState: 'stored' }
+    : { name: '', category: '自定义', keywords: '', automation: '', characterId: '', ownerItemId: '', equipmentState: 'stored' }
   originalFields.value = JSON.parse(JSON.stringify(item?.fields || []))
   structuredFields.value = item ? JSON.parse(JSON.stringify(originalFields.value)) : parseDataPanelFields('')
   showEditor.value = true
@@ -510,6 +522,7 @@ function saveItem() {
       name,
       category: form.value.category,
       relatedKeywords: splitKeywords(form.value.keywords),
+      characterId: isEquipment.value ? undefined : (form.value.characterId || undefined),
       ownerItemId: form.value.ownerItemId || undefined,
       equipmentState: form.value.equipmentState,
       fields,

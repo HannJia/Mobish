@@ -23,7 +23,7 @@
     </section>
 
     <div class="planner-tabs">
-      <div class="m-tabs" role="tablist" aria-label="规划分区">
+      <div v-if="!props.plansOnly" class="m-tabs" role="tablist" aria-label="规划分区">
         <button v-for="tab in tabDefs" :id="'planner-tab-' + tab.name" :key="tab.name" type="button" role="tab" :aria-selected="activeTab === tab.name"
           :aria-controls="'planner-panel-' + tab.name" :tabindex="activeTab === tab.name ? 0 : -1" @click="selectTab(tab.name)" @keydown="onTabKey">{{ tab.label }}</button>
       </div>
@@ -55,7 +55,7 @@
           </article>
           <button type="button" class="m-btn zhu" :aria-busy="planSaving" :disabled="planSaving || showPlanModal || generatingPlans" @click="acceptPlanSuggestions">{{ planSaving ? '保存中…' : '确认这些章节计划' }}</button>
         </section>
-        <div class="plan-workbench"><div class="plan-board">
+        <div class="plan-workbench" :class="{ 'has-detail': !!selectedPlan }"><div class="plan-board">
           <section v-for="lane in planStatusLanes" :key="lane.status" class="plan-lane">
             <div class="plan-lane-header">
               <div>
@@ -562,9 +562,10 @@ import type {
   StoryArcStatus, StoryArcType, StoryStateProposal, StoryStateProposalField, StoryStateTargetType,
 } from '@/types/novel'
 
-const props = withDefaults(defineProps<{ initialTab?: string; initialSelection?: string }>(), {
+const props = withDefaults(defineProps<{ initialTab?: string; initialSelection?: string; plansOnly?: boolean }>(), {
   initialTab: 'plans',
   initialSelection: '',
+  plansOnly: false,
 })
 const emit = defineEmits<{ tabChange: [tab: string]; navigate: [target: { tab: string; selection: string }] }>()
 const route = useRoute()
@@ -1806,7 +1807,8 @@ async function removeEvent(eventId: string) {
   .relay-row { align-items: flex-start; flex-direction: column; gap: 8px; }
 }
 .planning-select-title { display: block; text-align: left; padding: 6px 0; border: 0; background: none; color: var(--ink); font: 600 20px/1.5 var(--f-serif); cursor: pointer; }
-.plan-workbench { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; padding-top: 12px; align-items: start; }
+.plan-workbench { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; padding-top: 12px; align-items: start; }
+.plan-workbench.has-detail { grid-template-columns: minmax(0, 1fr) 300px; }
 .plan-board { min-width: 0; padding: 0; }
 .plan-lane { padding: 12px; min-height: 450px; }
 .plan-card { padding: 16px; }

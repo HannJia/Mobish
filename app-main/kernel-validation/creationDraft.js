@@ -79,6 +79,8 @@ function mixSkeletonRevisions(draft, sources, now, id) {
 function applyCreationRecovery(draft, edit) {
     if ((0, planningRecovery_1.isSceneRecoveryEdit)(edit))
         return (0, planningRecovery_1.applySceneRecovery)(draft, edit);
+    if (edit.kind === 'surface')
+        return draft.lastSurface === edit.value ? draft : { ...draft, lastSurface: edit.value };
     const next = copy(draft);
     if (edit.kind === 'editor') {
         next.editorDrafts = [...(next.editorDrafts || []).filter(item => item.id !== edit.value.id), copy(edit.value)];

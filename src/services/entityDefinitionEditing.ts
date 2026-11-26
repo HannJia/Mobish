@@ -5,6 +5,7 @@ import { assertStoredRelationshipDimensions } from './characterMemoryValidation'
 import { appendEntityRevision, captureEntityRevision } from './entityProvenance'
 import { validateEntityRevision } from './entityProvenanceValidation'
 import { registerChapterReviewInvalidation } from './chapterReviewInvalidationRequests'
+import { captureDataPanelReferenceItem, recordDataPanelReference } from './dataPanelReference'
 
 export type EntityDefinitionEdit =
   | { action: 'create'; kind: 'character'; data: Partial<Character> }
@@ -99,8 +100,16 @@ export function applyEntityDefinitionEdit(novel: Novel, edit: EntityDefinitionEd
     before = copy(current); target = copy(current)
     if (edit.action === 'delete') {
       assertCanDelete(novel, edit.kind, target)
-      if (edit.kind === 'character') novel.characters = novel.characters.filter(item => item.id !== target.id)
-      else novel.eventLog = novel.eventLog.filter(item => item.id !== target.id)
+      if (edit.kind === 'character') {
+        novel.characters = novel.characters.filter(item => item.id !== target.id)
+        for (const panel of novel.dataPanels || []) {
+          if (panel.characterId !== target.id) continue
+          const previous = captureDataPanelReferenceItem(panel)
+          delete panel.characterId
+          panel.updatedAt = now
+          recordDataPanelReference(panel, previous, { kind: 'author' }, now, makeId())
+        }
+      } else novel.eventLog = novel.eventLog.filter(item => item.id !== target.id)
     } else {
       checkKeys(edit.updates, [...fields, ...displayFields])
       // Undefined is an explicit clear operation and must survive input capture.

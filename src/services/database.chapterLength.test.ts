@@ -27,3 +27,14 @@ it('rejects a database with missing required columns without altering or replaci
   await expect(db.initDb()).rejects.toThrow('不支持的旧版本')
   expect(memory.get('mojian-v3-sqlite-db')).toBe(original)
 })
+
+it('adds the optional panel binding column to existing databases and preserves old rows on reopen', async () => {
+  let db = await import('./database'); await db.initDb()
+  await db.runTransaction(() => {
+    db.execute('ALTER TABLE data_panels DROP COLUMN character_id')
+    db.execute("INSERT INTO data_panels(id,name) VALUES('legacy-panel','修炼册')")
+  })
+  vi.resetModules(); db = await import('./database'); await db.initDb()
+  expect(db.queryAll('SELECT id, name, character_id FROM data_panels')).toEqual([{ id: 'legacy-panel', name: '修炼册', character_id: null }])
+  expect(db.queryAll('PRAGMA user_version')).toEqual([{ user_version: 3 }])
+})

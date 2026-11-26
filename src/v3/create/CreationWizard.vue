@@ -41,20 +41,35 @@
       :disabled="creating" @start="startCreation" />
     <div v-if="showEntry" class="creation-entry-body">
       <section class="paper-panel creation-entry-panel">
-        <h2>{{ reviewingInspiration ? '作品契约' : setupMethod ? creationSetupLabels[setupMethod] : '' }}</h2>
-        <p v-if="reviewingInspiration">确认作品名称与故事起点。创建时会保存本次讨论和已整理的设定。</p>
-        <p v-else>保存创建输入后，依次编辑作品契约、比较骨架候选并确认规划。</p>
-        <label>作品名称（可稍后填写）<V3Input :value="form.workingTitle" :disabled="creating || !!createdNovelId" placeholder="可在作品契约中继续修改" aria-label="新作品名称" @update:value="setWorkingTitle" /></label>
-        <div v-if="reviewingInspiration || setupMethod === 'outline' && outlineSaved" class="entry-title-suggestions">
-          <div v-if="titleOptions.length" class="entry-title-options" role="group" aria-label="书名候选">
-            <button v-for="option in titleOptions" :key="option.title" type="button" class="m-btn"
-              :aria-pressed="form.workingTitle === option.title" :disabled="creating || !!createdNovelId"
-              @click="setWorkingTitle(option.title)"><strong>{{ option.title }}</strong><small>{{ option.reason }}</small></button>
+        <header class="entry-panel-head">
+          <span class="entry-seal" aria-hidden="true">墨</span>
+          <div>
+            <h2>{{ reviewingInspiration ? '作品契约' : setupMethod ? creationSetupLabels[setupMethod] : '' }}</h2>
+            <p v-if="reviewingInspiration">确认作品名称与故事起点。创建时会保存本次讨论和已整理的设定，随后进入作品契约细化。</p>
+            <p v-else>保存创建输入后，依次编辑作品契约、比较骨架候选并确认规划。</p>
           </div>
-          <button type="button" class="m-btn" :disabled="titleBusy || creating || !!createdNovelId"
-            @click="loadTitleOptions()">{{ titleBusy ? '正在推荐书名…' : titleOptions.length ? '换一批' : 'AI 推荐书名' }}</button>
-          <p v-if="titleError" role="alert">{{ titleError }}</p>
+        </header>
+
+        <div class="entry-section">
+          <div class="entry-section-head">
+            <label for="entry-title-field" class="entry-field-label">作品名称（可稍后填写）</label>
+            <button v-if="reviewingInspiration || setupMethod === 'outline' && outlineSaved" type="button" class="m-btn sm"
+              :disabled="titleBusy || creating || !!createdNovelId" @click="loadTitleOptions()">
+              {{ titleBusy ? '正在推荐书名…' : titleOptions.length ? '换一批' : 'AI 推荐书名' }}
+            </button>
+          </div>
+          <V3Input id="entry-title-field" :value="form.workingTitle" :disabled="creating || !!createdNovelId"
+            placeholder="可在作品契约中继续修改" aria-label="新作品名称" @update:value="setWorkingTitle" />
+          <div v-if="reviewingInspiration || setupMethod === 'outline' && outlineSaved" class="entry-title-suggestions">
+            <div v-if="titleOptions.length" class="entry-title-options" role="group" aria-label="书名候选">
+              <button v-for="option in titleOptions" :key="option.title" type="button" class="m-btn entry-title-card"
+                :aria-pressed="form.workingTitle === option.title" :disabled="creating || !!createdNovelId"
+                @click="setWorkingTitle(option.title)"><strong>{{ option.title }}</strong><small>{{ option.reason }}</small></button>
+            </div>
+            <p v-if="titleError" role="alert" class="entry-error">{{ titleError }}</p>
+          </div>
         </div>
+
         <div v-if="!reviewingInspiration && availableKnowledgeBases.length" class="entry-knowledge">
           <span class="entry-knowledge-label">参考知识库（选填）</span>
           <V3Select v-model:value="entryKnowledgeIds" multiple :options="entryKnowledgeOptions" :disabled="creating || !!createdNovelId" aria-label="参考知识库" />
@@ -62,23 +77,32 @@
         </div>
         <CreationOutlineInput v-if="setupMethod === 'outline'" v-model="outlineInput" :saved="outlineSaved"
           :disabled="creating || !!createdNovelId" @save="saveOutlineInput" @reading="outlineReading = $event" />
-        <p v-if="setupMethod === 'blank'">创建空白作品契约：类型、主题、冲突和大纲保持未填写。无需配置模型，可先手工保存草稿。</p>
+        <p v-if="setupMethod === 'blank'" class="entry-blank-note">创建空白作品契约：类型、主题、冲突和大纲保持未填写。无需配置模型，可先手工保存草稿。</p>
+
         <section class="entry-origin">
           <h3>故事时间起点（可暂不确定）</h3>
-          <label>起始故事日<V3Number :value="storyOriginDay" :min="0" :max="100000000" :step="0.01" clearable
-            :disabled="creating || !!createdNovelId" aria-label="创建起始故事日" placeholder="不确定可以留空"
-            @update:value="value => { storyOriginDay = value; originEdited = true }" /></label>
-          <label>起点名称（随起始日保存）<V3Input :value="storyOriginLabel" :disabled="creating || !!createdNovelId"
-            @update:value="value => { storyOriginLabel = value; originEdited = true }" /></label>
-          <p role="status">{{ storyOriginDay === null ? '未填写起始日：创建后保持未知，不自动确认故事日 0。' : `创建时确认你填写的故事日 ${storyOriginDay}` }}</p>
-          <p v-if="storyOriginDay === null && storyOriginLabel.trim()" role="alert">请填写对应的起始日，或清除起点名称以保持未知。</p>
+          <div class="entry-origin-grid">
+            <label><span>起始故事日</span><V3Number :value="storyOriginDay" :min="0" :max="100000000" :step="0.01" clearable
+              :disabled="creating || !!createdNovelId" aria-label="创建起始故事日" placeholder="不确定可以留空"
+              @update:value="value => { storyOriginDay = value; originEdited = true }" /></label>
+            <label><span>起点名称（可独立填写）</span><V3Input :value="storyOriginLabel" :disabled="creating || !!createdNovelId"
+              placeholder="例如：1992 年春 / 抵达河港当天"
+              @update:value="value => { storyOriginLabel = value; originEdited = true }" /></label>
+          </div>
+          <p class="entry-origin-status" role="status">{{ storyOriginDay === null ? '未填写起始日：创建后保持未知，不自动确认故事日 0。' : `创建时确认你填写的故事日 ${storyOriginDay}` }}</p>
         </section>
-        <button id="entry-create-btn" type="button" class="m-btn pri lg" :aria-busy="creating" :disabled="creating || (!createdNovelId && (!canProceed || outlineReading))" @click="handleCreate">{{ createdNovelId ? '打开已创建的作品' : creating ? '正在创建…' : '保存输入并创建，进入作品契约' }}</button>
-        <p v-if="createdNovelId" role="status">作品和输入已保存；再次点击只会打开这部作品。</p>
+
+        <footer class="entry-panel-footer">
+          <p v-if="createdNovelId" role="status" class="entry-saved-note">作品和输入已保存；再次点击只会打开这部作品。</p>
+          <button id="entry-create-btn" type="button" class="m-btn zhu lg" :aria-busy="creating"
+            :disabled="creating || (!createdNovelId && (!canProceed || outlineReading))" @click="handleCreate">
+            {{ createdNovelId ? '打开已创建的作品' : creating ? '正在创建…' : '保存输入并创建，进入作品契约' }}
+          </button>
+        </footer>
       </section>
     </div>
     <inspiration-chat v-show="showInspiration"
-      :active="showInspiration" :form="form" :shared-knowledge-ids="entryKnowledgeIds" @knowledge-change="ids => entryKnowledgeIds = ids" @apply="applyInspiration" @draft-change="updateInspirationDraft" @history-change="handleInspirationHistoryChange" />
+      :active="showInspiration" :form="form" :shared-knowledge-ids="entryKnowledgeIds" @knowledge-change="ids => entryKnowledgeIds = ids" @apply="applyInspiration" @draft-change="updateInspirationDraft" @history-change="handleInspirationHistoryChange" @session-change="id => activeInspirationSessionId = id" @session-reset="resetInspirationMeta" />
     <div v-show="showSettings" class="wizard-body">
 
 
@@ -543,7 +567,7 @@
           <V3Field label="起点名称（可选）">
             <V3Input v-model:value="storyOriginLabel" :disabled="creating || !!createdNovelId" placeholder="例如：玄历三年春，抵达当天" />
           </V3Field>
-          <p role="status">{{ storyOriginDay === null ? '未填写：起点保持未知，不补 0。若填写起点名称，也请填写对应故事日。' : `创建时将确认：故事日 ${storyOriginDay}${storyOriginLabel.trim() ? ` · ${storyOriginLabel.trim()}` : ''}` }}</p>
+          <p role="status">{{ storyOriginDay === null ? '故事日待确认，可单独保存起点名称。' : `创建时将确认：故事日 ${storyOriginDay}${storyOriginLabel.trim() ? ` · ${storyOriginLabel.trim()}` : ''}` }}</p>
         </section>
       </aside>
     <!-- 底部操作栏 -->
@@ -577,6 +601,7 @@ import { errorText } from '@/services/userFacingError'
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { useDialog, useMessage } from '@/v3/feedback'
+import { registerWindowCloseGuard } from '@/services/windowClose'
 import V3Icon from '@/v3/components/V3Icon.vue'
 import V3Modal from '@/v3/components/V3Modal.vue'
 import V3Field from '@/v3/components/form/V3Field.vue'
@@ -626,6 +651,8 @@ const creating = ref(false)
 const createdNovelId = ref('')
 const inspirationHistory = ref<InspirationMessage[]>([])
 const appliedInspirationHistory = ref<InspirationMessage[]>([])
+const activeInspirationSessionId = ref<string | null>(null)
+const LAST_CREATED_INSPIRATION_SESSION_KEY = 'mojian-last-created-inspiration-session-id'
 const titleOptions = ref<TitleSuggestion[]>([])
 const titleBusy = ref(false)
 const titleError = ref('')
@@ -681,14 +708,23 @@ function saveOutlineInput(value: OutlineInput) {
   }
 }
 
+function resetInspirationMeta() {
+  titleEdited.value = false
+  originEdited.value = false
+  form.workingTitle = ''
+  storyOriginDay.value = null
+  storyOriginLabel.value = ''
+  resetTitleOptions()
+}
+
 function updateInspirationDraft(settings: InspirationSettingsDraft) {
   if (!showInspiration.value || creating.value) return
-  const { workingTitle, storyTimeOrigin, titleSuggestions: _titleSuggestions, ...draft } = settings
+  const { workingTitle, storyTimeOrigin, openingTimeSuggestion, titleSuggestions: _titleSuggestions, ...draft } = settings
   Object.assign(form, draft, { workingTitle: titleEdited.value ? form.workingTitle : workingTitle || '', writingMode: form.writingMode,
     knowledgeEnabled: form.knowledgeEnabled, knowledgeBaseIds: form.knowledgeBaseIds })
   if (!originEdited.value) {
     storyOriginDay.value = storyTimeOrigin?.day ?? null
-    storyOriginLabel.value = storyTimeOrigin?.label || ''
+    storyOriginLabel.value = storyTimeOrigin?.label || openingTimeSuggestion || ''
   }
 }
 
@@ -782,8 +818,15 @@ function protectCreationInput(event: BeforeUnloadEvent) {
   event.preventDefault()
   event.returnValue = ''
 }
-onMounted(() => window.addEventListener('beforeunload', protectCreationInput))
-onBeforeUnmount(() => window.removeEventListener('beforeunload', protectCreationInput))
+let unregisterWindowClose: (() => void) | undefined
+onMounted(() => {
+  window.addEventListener('beforeunload', protectCreationInput)
+  unregisterWindowClose = registerWindowCloseGuard(() => ({ dirty: hasCreationInput.value, inspiration: showInspiration.value }))
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', protectCreationInput)
+  unregisterWindowClose?.()
+})
 
 const referenceAnalysisPrompt = `你是一名资深网文策划编辑。请根据我提供的参考小说资料，自动识别这本小说的类型、世界观、主角设定、力量体系、核心冲突、爽点结构和写作风格，并整理成适合导入“AI 小说写作软件”的新书创建配置。
 重要：不要联网搜索，不要调用 web_search、browser、插件、函数或任何外部工具；只能基于我粘贴的资料和你的类型经验进行推断，并以普通文本返回一个完整 JSON 对象。
@@ -953,8 +996,8 @@ const currentStyleSummary = computed(() => styleDimensions.map(dimension => dime
 // 是否可以进入下一步
 const canProceed = computed(() => {
   const genre = genres.find(item => item.value === form.genre)
-  const timeValid = storyOriginDay.value === null ? !storyOriginLabel.value.trim()
-    : typeof storyOriginDay.value === 'number' && Number.isFinite(storyOriginDay.value) && storyOriginDay.value >= 0 && storyOriginDay.value <= 100000000
+  const timeValid = storyOriginDay.value === null
+    || (Number.isFinite(storyOriginDay.value) && storyOriginDay.value >= 0 && storyOriginDay.value <= 100000000)
   if (!timeValid) return false
   if (setupMethod.value === 'blank') return true
   if (setupMethod.value === 'outline') return outlineSaved.value && !outlineReading.value
@@ -1253,17 +1296,21 @@ async function handleCreate() {
         ...(setupMethod.value === 'outline' ? { outline: savedOutlineInput.value } : {}) }
       assertCreationEntryInput(input)
       const prepared = prepareStoryCreation({ ...form, creationInput: input,
-        storyTimeOrigin: storyOriginDay.value === null ? undefined : { day: storyOriginDay.value, label: storyOriginLabel.value.trim() } },
+        storyTimeOrigin: { day: storyOriginDay.value ?? undefined, label: storyOriginLabel.value.trim() } },
         appliedInspirationHistory.value, setupMethod.value, now, creationId)
       await reconstructionWorkspaceStore.persistInitialCreation(prepared.novel, prepared.workspace)
       // Commit identity before publishing or navigating: a retry must reuse this saved novel.
       committedCreation = prepared
       createdNovelId.value = prepared.novel.id
+      if (setupMethod.value === 'inspiration' && activeInspirationSessionId.value) {
+        try { localStorage.setItem(LAST_CREATED_INSPIRATION_SESSION_KEY, activeInspirationSessionId.value) } catch { /* ignore storage restrictions */ }
+      }
       message.success('小说已创建，请检查并确认作品契约')
     }
     if (committedCreation) {
       novelStore.publishCreatedNovel(committedCreation.novel)
       reconstructionWorkspaceStore.publishCreatedWorkspace(committedCreation.novel.id, committedCreation.workspace)
+      void knowledgeStore.flushPendingSaves()
     }
     const failure = await router.push('/generate/' + createdNovelId.value)
     if (failure) throw new Error('页面未能打开，请点击“打开已创建的作品”重试。')
@@ -1527,10 +1574,38 @@ async function handleCreate() {
 }
 
 .back-icon { transform: rotate(180deg); }
-.entry-title-suggestions { display: grid; justify-items: start; gap: 8px; }
-.entry-title-options { display: flex; flex-wrap: wrap; gap: 8px; }
-.entry-title-options button { height: auto; align-items: start; flex-direction: column; text-align: left; }
-.entry-title-options button[aria-pressed="true"] { border-color: var(--zhu); color: var(--zhu); }
+.creation-entry-body { max-width: 960px; width: 100%; margin: 18px auto 36px; padding: 0 24px; }
+.creation-entry-panel { display: grid; gap: 18px; padding: 24px 26px; border: 1px solid var(--line); border-radius: 13px; background: var(--paper); box-shadow: var(--shadow-1); }
+.entry-panel-head { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.entry-seal { display: grid; place-items: center; flex: 0 0 38px; width: 38px; height: 38px; border-radius: 9px; background: var(--zhu); color: #fff8ee; font: 700 22px/1 var(--f-serif); }
+.entry-panel-head h2 { margin: 0 0 2px; font: 700 20px/1.3 var(--f-serif); color: var(--ink); }
+.entry-panel-head p { margin: 0; font-size: 12.5px; color: var(--ink-3); }
+.entry-section { display: grid; gap: 10px; }
+.entry-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.entry-field-label { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.entry-title-suggestions { display: grid; gap: 8px; }
+.entry-title-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
+@media (max-width: 780px) { .entry-title-options { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .entry-title-options { grid-template-columns: minmax(0, 1fr); } }
+.entry-title-options button {
+  width: 100%; height: auto; min-height: 0; padding: 9px 11px;
+  display: flex; align-items: flex-start; flex-direction: column; gap: 3px;
+  text-align: left; white-space: normal; overflow-wrap: anywhere; border-radius: 8px;
+}
+.entry-title-options button strong { font-size: 13px; font-weight: 700; color: var(--ink); }
+.entry-title-options button small { color: var(--ink-3); font-size: 11.5px; line-height: 1.45; white-space: normal; }
+.entry-title-options button[aria-pressed="true"] { border-color: var(--zhu); color: var(--zhu); background: var(--zhu-soft); }
+.entry-title-options button[aria-pressed="true"] strong { color: var(--zhu); }
+.entry-error { color: var(--zhu); font-size: 12px; }
+.entry-blank-note { font-size: 13px; color: var(--ink-3); padding: 10px 12px; border-radius: 8px; background: var(--panel); }
+.entry-origin { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+.entry-origin h3 { font: 600 14px/1.4 var(--f-serif); color: var(--ink); }
+.entry-origin-grid { display: grid; grid-template-columns: minmax(160px, 220px) minmax(0, 1fr); gap: 12px; }
+.entry-origin-grid label { display: grid; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+@media (max-width: 640px) { .entry-origin-grid { grid-template-columns: minmax(0, 1fr); } }
+.entry-origin-status { font-size: 12px; color: var(--ink-3); }
+.entry-panel-footer { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; padding-top: 14px; border-top: 1px solid var(--line); }
+.entry-saved-note { margin-right: auto; font-size: 12.5px; color: var(--qing); }
 /* 勾选框和说明文字在同一行 */
 .creation-entry-panel .entry-knowledge { display: grid; gap: 6px; }
 .creation-entry-panel .entry-knowledge-label { font-size: 13px; color: var(--ink-2); }

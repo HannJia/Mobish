@@ -2,6 +2,7 @@ import type { ChatCompletionResult, ChatMessage } from '@/services/ai'
 import type { BreakdownBlock, BreakdownPart, BreakdownSource } from './bookBreakdownSource'
 
 export const BREAKDOWN_OUTPUT_TOKENS = 1400
+export const BREAKDOWN_REQUEST_TIMEOUT_MS = 240_000
 export type BreakdownStatus = 'ready' | 'running' | 'paused' | 'budget' | 'failed' | 'complete'
 export type BreakdownScope = 'opening' | 'selected' | 'paragraph' | 'volume' | 'book'
 export interface BreakdownUsage { input: number; output: number; charged: number; estimated: boolean }

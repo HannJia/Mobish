@@ -132,7 +132,7 @@ export async function runDesktopCreationWorkflow(phase: Phase) {
 
   try {
     let novelId: string
-    let contractLayout: { width: number; contentWidth: number; sourceBelow: boolean } | undefined
+    let contractLayout: { width: number; contentWidth: number } | undefined
     if (phase === 'write') {
       assert(novels.novels.length === 0, '创建夹具拒绝修改非空书架')
       await router.push('/create')
@@ -148,9 +148,14 @@ export async function runDesktopCreationWorkflow(phase: Phase) {
       await fill('textarea[aria-label="作品类型"]', '悬疑')
       await click('编辑主线冲突', true)
       await fill('textarea[aria-label="主线冲突"]', '黎安追查码头失踪木箱的来源。')
+      await click('编辑结局方向', true)
       await fill('textarea[aria-label="结局方向"]', endings[1])
-      for (const card of contractCards) await click('确认' + card.title, true)
-      assert(document.querySelector('.confirmation-count')?.textContent?.includes('8 / 8'), '八卡确认未完成')
+      for (const card of contractCards) {
+        await click('确认' + card.title, true)
+        const acceptBlank = document.querySelector<HTMLButtonElement>('.blank-confirm .blank-accept')
+        if (acceptBlank) acceptBlank.click()
+      }
+      assert(document.querySelector('.confirmation-count')?.textContent?.includes('9 / 9'), '九卡确认未完成')
       await click('确认契约并继续')
       await until(() => document.querySelector('.manual-outline'), '确认契约后未进入骨架阶段')
       assert(Number(requests.length) === 0, '确认契约前不应自动生成')
@@ -173,15 +178,14 @@ export async function runDesktopCreationWorkflow(phase: Phase) {
       await click('确认并规划分卷')
       await until(() => document.querySelector('.creation-planning'), '规划页未显示')
       assert(novels.getNovel(novelId)?.chapters.length === 0, '规划入口提前生成正文')
-      await click('AI 生成分卷规划')
+      await click('AI 重新规划全部')
       await until(() => novels.getNovel(novelId)?.volumes[0]?.theme === '共同核对证据', 'AI 分卷没有保存')
-      await click('编辑章节计划')
-      await click('AI 生成计划')
+      await click('AI 生成本卷章纲')
       await until(() => document.querySelector('[aria-label="待确认章节计划建议"]'), '章节计划建议未显示')
       assert(novels.getNovel(novelId)?.chapterPlans?.length === 0, 'AI 章纲未确认就写入规划')
-      await click('确认这些章节计划')
+      await click('确认选中的 1 条')
       await until(() => novels.getNovel(novelId)?.chapterPlans?.length === 1, '章纲确认未保存')
-      await click('确认分卷与章节计划')
+      await click('确认分卷与章纲')
       await until(() => document.querySelector('.ready-card'), '规划确认后未就绪')
       await click('开始写第一章')
       await until(() => document.querySelector('.pte-doc[aria-label="正文"]'), '没有进入真实 V3 编辑器')
@@ -205,6 +209,7 @@ export async function runDesktopCreationWorkflow(phase: Phase) {
         assert(document.querySelector<HTMLInputElement>('input[aria-label="章节标题"]')?.value === chapterTitle,
           '重开写作台没有恢复作者标题')
         await router.push({ path: '/generate/' + novelId, query: { edit: 'direction' } })
+        await click('契约、起点与记录', true)
         await click('查看或修改作品契约')
         await click('编辑主线冲突', true)
         await fill('textarea[aria-label="主线冲突"]', revisedConflict)
@@ -215,16 +220,14 @@ export async function runDesktopCreationWorkflow(phase: Phase) {
         await assertStoredCreation(novelId, true)
         await router.push('/generate/' + novelId)
         await until(() => document.querySelector('.story-contract'), '第三进程没有显示待确认契约')
-        assert(document.querySelector('.confirmation-count')?.textContent?.includes('7 / 8')
+        assert(document.querySelector('.confirmation-count')?.textContent?.includes('8 / 9')
           && !document.querySelector('.ready-card'), '修改契约后的确认数或规划门槛错误')
         const contract = document.querySelector('.story-contract')!.getBoundingClientRect()
         const content = document.querySelector('.flow-content')!.getBoundingClientRect()
-        const source = document.querySelector('.creation-entry-source')!.getBoundingClientRect()
-        contractLayout = { width: contract.width, contentWidth: content.width,
-          sourceBelow: Math.abs(source.x - contract.x) < 1 && source.y >= contract.bottom }
+        contractLayout = { width: contract.width, contentWidth: content.width }
         assert(!document.querySelector('#generate-outline-page.outline-ready')
-          && Math.abs(contract.width - content.width) < 1 && contractLayout.sourceBelow,
-        '重开待确认契约误套大纲两栏布局，契约或来源面板被挤窄')
+          && Math.abs(contract.width - content.width) < 1,
+        '重开待确认契约误套大纲两栏布局，契约被挤窄')
       }
       assert(requests.length === 0, '重启读取或修改契约意外请求模型')
     }

@@ -141,7 +141,7 @@ describe('inspiration search controls', () => {
     expect(wrapper.get('.inspiration-follow-ups').findAll('button').map(item => item.text().replace('↗', '').trim())).toEqual(questions)
     wrapper.getComponent(SaveChatKnowledge).vm.$emit('saved', { kbId: 'test-kb', kbName: '验收资料', title: '线索' })
     await flushPromises()
-    expect(wrapper.text()).toContain('【保存成功】已保存到知识库“验收资料”，条目“线索”。')
+    expect(wrapper.text()).toContain('【保存成功】已归档到知识库“验收资料”，目录项「线索」，并已挂载至本轮讨论。')
     expect(wrapper.get('.inspiration-follow-ups').findAll('button').map(item => item.text().replace('↗', '').trim())).toEqual(questions)
     const draft = '我还没写完的想法'
     await wrapper.get('textarea').setValue(draft)
@@ -971,6 +971,33 @@ describe('inspiration search controls', () => {
     expect(changes[changes.length - 1]).toEqual([[b.id]])
     await wrapper.setProps({ sharedKnowledgeIds: [a.id, b.id] })
     expect(wrapper.get('[data-heading-knowledge]').text()).toContain('参考知识库：地方志、兵制考')
+    wrapper.unmount()
+  })
+
+  it('starts fresh when the latest saved session already created a book and clears shared knowledge on new chat', async () => {
+    const knowledge = useKnowledgeStore()
+    const a = knowledge.createKB('老城旧档')
+    useInspirationSessionsStore().adopt([parseInspirationSession({
+      id: 'created-book-session',
+      title: '上一本书的灵感',
+      updatedAt: '2026-11-26T10:00:00.000Z',
+      messages: [{ role: 'user', content: '第一本书的点子' }, { role: 'assistant', content: '第一本书的回复' }],
+      knowledgeIds: [a.id],
+    })])
+    localStorage.setItem('mojian-last-created-inspiration-session-id', 'created-book-session')
+    const wrapper = mountChat()
+    await wrapper.setProps({ sharedKnowledgeIds: [a.id] })
+    // Does not auto-load the already-used session from the previous book
+    expect(wrapper.findAll('.inspiration-message')).toHaveLength(0)
+    // User can still reopen it from history, and clicking 新对话 clears shared knowledge + resets meta
+    await selectSession(wrapper, 'created-book-session')
+    expect(wrapper.findAll('.inspiration-message')).toHaveLength(2)
+    await wrapper.get('[data-inspiration-history]').trigger('click')
+    await button(wrapper, '新建会话').trigger('click')
+    expect(wrapper.findAll('.inspiration-message')).toHaveLength(0)
+    const kbChanges = wrapper.emitted('knowledge-change')!
+    expect(kbChanges[kbChanges.length - 1]).toEqual([[]])
+    expect(wrapper.emitted('session-reset')?.length).toBeGreaterThanOrEqual(2)
     wrapper.unmount()
   })
 })

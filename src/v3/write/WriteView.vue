@@ -14,6 +14,13 @@
     </div>
   </Teleport>
   <Teleport defer to="#v3-tools">
+    <button type="button" class="top-gate-status" :title="deskReview.detail" :disabled="busy" @click="openCompletion">
+      <i :class="displayStatus === 'finalized' || gateReady ? 'ok' : session.workflow.value?.blockers.length ? 'warn' : 'todo'" />
+      <span>定稿检查 · {{ displayStatus === 'finalized' ? '已定稿' : gateReady ? '可提交定稿' : session.workflow.value?.blockers.length ? `${session.workflow.value.blockers.length} 处阻塞` : '待核对' }}</span>
+    </button>
+    <button type="button" class="m-btn top-gate-btn top-review-btn" :title="deskReview.detail" :disabled="busy || locked || !session.content.value.trim()" @click="reviewChapter"><V3Icon name="refresh" size="s" />全章审校</button>
+    <button type="button" class="m-btn zhu top-gate-btn" :title="deskReview.detail" :disabled="busy || !session.workflow.value?.primary || locked" @click="openCompletion"><V3Icon name="stamp" size="s" />{{ primaryLabel }} · 核对</button>
+    <span class="top-sep" aria-hidden="true" />
     <div class="mode-wrap">
       <div class="m-seg" role="group" aria-label="写作模式">
         <button type="button" :class="{ on: session.novel.value?.writingMode !== 'ai' }" :disabled="busy" @click="setMode('manual')">主笔</button>
@@ -42,7 +49,7 @@
     <span class="status-it"><V3Icon name="type" size="s" />本章 <b class="m-num">{{ wordCount.toLocaleString() }}</b> 字 · 目标 {{ lengthPolicy.minWords }}–{{ lengthPolicy.maxWords }}</span>
     <div ref="typographyControl" class="write-type-control" @click.stop @keydown.esc.stop.prevent="typographyOpen = false">
       <button type="button" class="status-it write-type-trigger" aria-label="正文排版" title="正文排版"
-        :aria-expanded="typographyOpen" @click="typographyOpen = !typographyOpen"><V3Icon name="type" size="s" />排版</button>
+        :aria-expanded="typographyOpen" @click="typographyOpen = !typographyOpen"><V3Icon name="type" size="s" />正文排版</button>
       <section v-if="typographyOpen" class="write-type-pop" role="dialog" aria-label="正文排版设置">
         <header><strong>正文排版</strong><button type="button" class="m-ibtn" title="恢复默认排版" aria-label="恢复默认排版" @click="resetTypography"><V3Icon name="refresh" size="s" /></button></header>
         <label class="write-type-field" for="write-font-size"><span>字号</span><output>{{ typography.fontSize }} px</output>
@@ -96,6 +103,11 @@
     <main class="write-main" @scroll.passive="selectionRect = null">
       <EditorRecoveryPicker :drafts="session.drafts.value" :busy="busy" @restore="restoreDraft" @discard="discardDraft" />
       <div v-if="session.novel.value.writingMode === 'ai'" class="write-banner"><V3Icon name="info" size="s" /><span>协作模式：AI 内容先保存为候选，由你预览、采纳或拒绝。批量起草请进入自动写作运行中心。</span></div>
+      <div v-if="previousPendingCanon?.total" class="write-banner canon-reminder-banner" role="status">
+        <V3Icon name="info" size="s" />
+        <span>{{ previousPendingCanon.summary }}</span>
+        <router-link v-if="previousPendingCanon.route" class="m-btn xs" :to="previousPendingCanon.route">去确认上一章入典</router-link>
+      </div>
       <div v-if="displayStatus === 'finalized'" class="write-banner finalized-banner"><V3Icon :name="locked ? 'lock' : 'check'" size="s" /><span>{{ locked ? '本章已锁定，正文只读。' : '本章已定稿。仍可修订，保存修改后需要重新审校。' }}</span></div>
       <section ref="paper" class="paper" :class="{ 'with-margins': showMargins }">
         <header class="paper-head">
@@ -121,19 +133,7 @@
           </div>
         </div>
         <div ref="editorHost" class="editor-host" :style="typographyStyle">
-          <PlainTextEditor ref="editor" v-model="session.content.value" :readonly="locked || busy" :marks="ai.currentMarks.value" placeholder="从这里开始写下本章……" @selection="onSelection" @scroll="onEditorHostScroll" @mark-click="onMarkClick" @layout="scheduleMargins" @ready="revealRouteEvidence">
-            <section class="chapter-gate" aria-labelledby="chapter-gate-title">
-              <div class="gate-head"><h4 id="chapter-gate-title">定稿检查</h4><span class="m-tag" :class="gateReady ? 'qing' : 'jin'">{{ displayStatus === 'finalized' ? '已定稿' : gateReady ? '可提交定稿' : '仍有项目待核对' }}</span></div>
-              <div class="gate-stats">
-                <div :class="{ bad: !!session.workflow.value?.blockers.length }"><b>{{ session.workflow.value?.blockers.length || 0 }}</b><span>阻塞问题</span></div>
-                <div><b>{{ openFindings.filter(item => item.severity !== 'blocker').length }}</b><span>其余待处理</span></div>
-                <div :class="{ bad: !deskReview.valid }"><b>{{ session.workflow.value?.coverage ? `${session.workflow.value.coverage.completed}/${session.workflow.value.coverage.total}` : '—' }}</b><span>审校分段覆盖</span></div>
-                <div><b>{{ planBeats.length }}</b><span>计划要点</span></div>
-              </div>
-              <p class="gate-detail">{{ deskReview.detail }}</p>
-              <div class="gate-actions"><button class="m-btn" type="button" :disabled="busy || locked || !session.content.value.trim()" @click="reviewChapter"><V3Icon name="refresh" size="s" />全章审校</button><button class="m-btn zhu" type="button" :disabled="busy || !session.workflow.value?.primary || locked" @click="openCompletion"><V3Icon name="stamp" size="s" />{{ primaryLabel }} · 核对</button></div>
-            </section>
-          </PlainTextEditor>
+          <PlainTextEditor ref="editor" v-model="session.content.value" :readonly="locked || busy" :marks="ai.currentMarks.value" placeholder="从这里开始写下本章……" @selection="onSelection" @scroll="onEditorHostScroll" @mark-click="onMarkClick" @layout="scheduleMargins" @ready="revealRouteEvidence" />
         </div>
         <div v-if="showMargins" class="paper-margins" aria-label="页边批注与候选" :style="{ top: marginViewport.top + 'px', height: marginViewport.height + 'px' }">
           <div v-for="item in marginItems" :key="item.id" :ref="value => setMarginElement(item.id, value)" class="margin-item" :style="{ top: (marginPositions[item.id] || 0) + 'px', visibility: marginPositions[item.id] === undefined ? 'hidden' : undefined }">
@@ -244,44 +244,48 @@
         </article>
       </section>
 
-      <section v-else-if="activeTab === 'memory'" id="desk-panel-memory" class="desk-panel memory-panel" role="tabpanel" aria-labelledby="desk-tab-memory">
-        <div class="panel-title"><strong>本章人物认知</strong><router-link class="m-link" :to="`/codex/${novelId}`">典籍 <V3Icon name="chevR" size="s" /></router-link></div>
-        <p class="context-note">人物认知取自本章之前的记录；生成时还会按需检索其他资料。</p>
-        <section class="context-section"><h4>本章涉及人物</h4>
-          <article v-for="character in relatedCharacters" :key="character.id" class="memory-person"><CharacterAvatar :character="character" :size="30" /><div><strong>{{ character.name }}</strong><small>{{ character.identity || '身份未记录' }}</small><div class="knowledge-chips"><span v-for="state in characterKnowledge(character.id)" :key="state.id" :class="state.state" :title="state.belief || state.fact">{{ knowledgeStateLabels[state.state] }} · {{ state.fact }}</span><span v-if="!characterKnowledge(character.id).length">暂无有效认知记录</span></div></div></article>
-          <p v-if="!relatedCharacters.length" class="m-muted m-tiny">正文与计划暂未关联人物。</p>
-          <p v-if="memorySnapshot.invalid.length" class="context-warning">{{ memorySnapshot.invalid.length }} 条历史来源已失效，未作为当前认知展示。</p>
-        </section>
-        <section class="context-section"><h4>相关伏笔 · 本章之前</h4><div v-for="event in openPromises" :key="event.id" class="memory-promise"><i class="m-dot" /><span>{{ event.title }}</span><small>第{{ event.chapterIndex + 1 }}章</small></div><p v-if="!openPromises.length" class="m-muted m-tiny">没有可用的未兑现伏笔记录。</p></section>
-        <section class="context-section"><h4>章纲要点 · {{ planBeats.length }} 项计划</h4><div v-for="(beat, index) in planBeats" :key="index" class="memory-beat"><V3Icon name="target" size="s" /><span>{{ beat }}</span></div><p v-if="!planBeats.length" class="m-muted m-tiny">尚无本章可用章纲。</p><router-link class="m-link" :to="{ path: `/plan/${novelId}`, query: { view: 'workbench', plannerTab: 'plans' } }">核对与修改章纲</router-link></section>
-        <section v-if="scenes.length" class="context-section"><h4>本章场景计划</h4><article v-for="scene in scenes" :key="scene.id" class="memory-scene" :class="{ on: selectedSceneId === scene.id }"><strong>{{ scene.title }}</strong><p>{{ scene.purpose }}</p><small v-if="scene.outputState">预期结束：{{ scene.outputState }}</small></article></section>
-        <ChapterTimePanel :novel="session.novel.value" :chapter="session.chapter.value" :busy="busy" :save-content="session.saveNow" @saved="session.markChanged" />
-        <div class="context-isolation"><V3Icon name="lock" size="s" /><span>只显示本章之前人物已经知道的事。</span></div>
-      </section>
-
-      <section v-if="chatMounted" v-show="activeTab === 'chat'" id="desk-panel-chat" class="desk-panel" role="tabpanel" aria-labelledby="desk-tab-chat">
-        <div class="panel-title"><strong>问 AI</strong></div>
-        <div class="chat-host"><BookChat v-if="session.novel.value" :novel-id="session.novel.value.id" :chapter-id="session.chapter.value?.id" :prefill="chatPrefill" :prefill-version="chatPrefillVersion" /></div>
-      </section>
-
-      <section v-if="activeTab === 'advisor'" id="desk-panel-advisor" class="desk-panel" role="tabpanel" aria-labelledby="desk-tab-advisor">
-        <WritingAdvisorSidebar
-          :analyzing="advisor.analyzing.value"
-          :error="advisorError"
-          :stale="advisor.stale.value"
-          :saving="advisorSaving"
-          :result="advisor.result.value"
-          :last-mode="advisor.lastMode.value"
-          :analyzing-modes="advisor.analyzingModes.value"
-          @stop="advisor.stop()"
-          @clear="advisor.clear()"
-          @analyze="advisor.analyze"
-          @analyze-all="advisor.analyzeAll"
-          @select-mode="advisor.selectMode"
-          @copy="copyAdvisorSuggestion"
-          @promote-plan="saveAdvisorSuggestion('plan', $event)"
-          @save-note="saveAdvisorSuggestion('note', $event)"
+      <section v-else-if="activeTab === 'character'" id="desk-panel-character" class="desk-panel character-panel" role="tabpanel" aria-labelledby="desk-tab-character">
+        <CharacterDeskPanel
+          :novel="session.novel.value"
+          :chapter="session.chapter.value"
+          :draft-content="session.content.value"
+          :plan-text="planBeats.join('\n')"
+          :canon-mutations="canonMutations"
         />
+      </section>
+
+      <section v-else-if="activeTab === 'memory'" id="desk-panel-memory" class="desk-panel memory-panel" role="tabpanel" aria-labelledby="desk-tab-memory">
+        <div class="panel-title"><strong>本章剧情记忆</strong><router-link class="m-link" :to="`/codex/${novelId}`">典籍 <V3Icon name="chevR" size="s" /></router-link></div>
+        <p class="context-note">汇总本章之前的伏笔、章纲要点、场景计划与本章笔记；人物状态、关系与数据请看「角色」页。</p>
+        <section class="context-section"><h4>相关伏笔 · 本章之前</h4><div v-for="event in openPromises" :key="event.id" class="memory-promise"><i class="m-dot" /><span>{{ event.title }}</span><small>第{{ event.chapterIndex + 1 }}章</small></div><p v-if="!openPromises.length" class="m-muted m-tiny">没有可用的未兑现伏笔记录。</p></section>
+        <section class="context-section"><h4>章纲要点 · {{ planBeats.length }} 项计划</h4><div v-for="(beat, index) in planBeats" :key="index" class="memory-beat"><V3Icon name="target" size="s" /><span>{{ beat }}</span></div><p v-if="!planBeats.length" class="m-muted m-tiny">尚无本章可用章纲。</p><div class="memory-plan-links"><router-link class="m-link" :to="{ path: `/plan/${novelId}`, query: { view: 'workbench', plannerTab: 'plans' } }">核对与修改章纲</router-link><button v-if="!session.content.value.trim()" type="button" class="m-btn xs zhu-soft-btn" :disabled="advisor.analyzing.value" @click="requestChatDirections()">✦ 按章纲想两个开场</button></div></section>
+        <section v-if="scenes.length" class="context-section"><h4>本章场景计划</h4><article v-for="scene in scenes" :key="scene.id" class="memory-scene" :class="{ on: selectedSceneId === scene.id }"><strong>{{ scene.title }}</strong><p>{{ scene.purpose }}</p><small v-if="scene.outputState">预期结束：{{ scene.outputState }}</small></article></section>
+        <section v-if="session.chapter.value.sceneNotes?.length" class="context-section"><h4>本章笔记 · {{ session.chapter.value.sceneNotes.length }} 条</h4><article v-for="note in session.chapter.value.sceneNotes" :key="note.id" class="memory-scene"><strong>{{ note.title }}</strong><p class="memory-note-body">{{ note.content }}</p></article></section>
+        <ChapterTimePanel :novel="session.novel.value" :chapter="session.chapter.value" :busy="busy" :save-content="session.saveNow" @saved="session.markChanged" />
+        <div class="context-isolation"><V3Icon name="lock" size="s" /><span>伏笔与剧情记忆只取本章之前已确认的记录。</span></div>
+      </section>
+
+      <section v-if="chatMounted" v-show="activeTab === 'chat'" id="desk-panel-chat" class="desk-panel chat-panel" role="tabpanel" aria-labelledby="desk-tab-chat">
+        <div class="chat-host">
+          <BookChat
+            v-if="session.novel.value"
+            :novel-id="session.novel.value.id"
+            :chapter-id="session.chapter.value?.id"
+            :draft-content="session.content.value"
+            :prefill="chatPrefill"
+            :prefill-version="chatPrefillVersion"
+            :advice-result="advisor.result.value"
+            :advice-loading="advisor.analyzing.value"
+            :advice-stale="advisor.stale.value"
+            :advice-saving="advisorSaving"
+            :advice-error="advisorError"
+            @request-directions="requestChatDirections()"
+            @stop-directions="advisor.stop()"
+            @clear-directions="advisor.clear()"
+            @save-direction="saveAdvisorSuggestion($event.action, $event.suggestion)"
+            @copy-direction="copyAdvisorSuggestion"
+          />
+        </div>
       </section>
     </aside>
   </div>
@@ -290,6 +294,7 @@
     <span>{{ selectedText.length }} 字</span>
     <template v-if="!locked">
       <button v-for="item in selectionActions" :key="item.mode" type="button" @click="runSelection(item.mode)">{{ item.label }}</button><i />
+      <button type="button" @click="openSelectionDirections">接下来怎么写</button>
       <button type="button" @click="openSelectionChat('check')">设定核对</button><button type="button" @click="openSelectionChat('chat')">问 AI</button>
     </template>
     <button type="button" @click="openSampleStyle">提炼写法</button>
@@ -301,6 +306,14 @@
     <section ref="completionDialog" class="m-modal" role="dialog" aria-modal="true" aria-labelledby="completion-title" aria-describedby="completion-description" tabindex="-1">
       <header class="m-modal-h"><div><h3 id="completion-title">{{ primaryLabel }}前核对</h3><p id="completion-description">第{{ (session.chapter.value?.chapterIndex ?? 0) + 1 }}章 · {{ chapterTitleForDisplay(session.title.value, session.chapter.value?.chapterIndex ?? 0) }}。故事变化逐条决定，定稿不会代替作者采纳或驳回。</p></div><button type="button" class="m-ibtn" :disabled="busy" aria-label="关闭定稿核对" @click="closeCompletion"><V3Icon name="x" /></button></header>
       <div class="m-modal-b">
+        <div class="gate-stats">
+          <div :class="{ bad: !!session.workflow.value?.blockers.length }"><b>{{ session.workflow.value?.blockers.length || 0 }}</b><span>阻塞问题</span></div>
+          <div><b>{{ openFindings.filter(item => item.severity !== 'blocker').length }}</b><span>其余待处理</span></div>
+          <div :class="{ bad: !deskReview.valid }"><b>{{ session.workflow.value?.coverage ? `${session.workflow.value.coverage.completed}/${session.workflow.value.coverage.total}` : '—' }}</b><span>审校分段覆盖</span></div>
+          <div><b>{{ planBeats.length }}</b><span>计划要点</span></div>
+        </div>
+        <p class="gate-detail">{{ deskReview.detail }}</p>
+        <p v-if="currentPendingCanon?.total" class="gate-canon-note" role="status">{{ currentPendingCanon.summary }}</p>
         <div class="gate-list"><div v-for="gate in session.workflow.value?.gate || []" :key="gate.key" class="gate-row"><i :class="gate.state" /><span>{{ gate.label }}</span><small>{{ gate.detail }}</small></div></div>
         <section class="completion-changes"><h4>待处理 · {{ pendingCandidates.length }} 条故事变化{{ revisionViews.length ? ` / ${revisionViews.length} 份正文修订` : '' }}</h4><p v-if="!pendingCandidates.length && !revisionViews.length" class="m-muted m-tiny">没有待处理候选。</p><p v-for="candidate in pendingCandidates" :key="candidate.id"><span class="m-tag jin">{{ candidateTypeLabel[candidate.type] }}</span>{{ previewCandidate(candidate).title }}</p><button v-if="pendingCandidates.length || revisionViews.length" type="button" class="m-btn sm" :disabled="busy" @click="handlePendingFromCompletion">去案头逐条核对</button></section>
         <section class="completion-changes"><h4>本章入典记录 · {{ chapterMutations.length }} 条</h4><p v-for="record in chapterMutations" :key="record.id"><span class="m-tag qing">{{ candidateTypeLabel[record.type] }}</span>{{ record.summary }}</p></section>
@@ -321,10 +334,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import V3Icon from '../components/V3Icon.vue'
 import PlainTextEditor, { type SelectionInfo } from '../editor/PlainTextEditor.vue'
-import CharacterAvatar from '@/components/CharacterAvatar.vue'
 import BookChat from '@/v3/write/BookChat.vue'
+import CharacterDeskPanel from '@/v3/write/CharacterDeskPanel.vue'
 import EditorRecoveryPicker from '@/components/EditorRecoveryPicker.vue'
-import WritingAdvisorSidebar from '@/v3/write/WritingAdvisorPanel.vue'
 import { useChapterSession } from './useChapterSession'
 import { chapterHeading, chapterTitleForDisplay } from './chapterNumber'
 import ChapterTimePanel from './ChapterTimePanel.vue'
@@ -337,11 +349,10 @@ import { useChapterAi } from './useChapterAi'
 import { useWritingAdvisor } from '@/composables/useWritingAdvisor'
 import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspace'
 import { useNovelStore } from '@/stores/novel'
-import { WORKFLOW_STEPS, chapterDot } from '../selectors/chapterWorkflow'
+import { WORKFLOW_STEPS, chapterDot, deriveChapterPendingCanon, derivePreviousChapterPendingCanon } from '../selectors/chapterWorkflow'
 import { anchorFindings, candidateAnchor, locateQuote, relocateFindings, revisionPreview, type Anchor } from './marks'
 import { getApprovedPlanning } from '@/services/reconstructionPlanning'
 import { resolveChapterLengthPolicy } from '@/services/chapterLength'
-import { getCharacterStateSnapshot, knowledgeStateLabels } from '@/services/reconstructionCharacterState'
 import { withCurrentStoryEntities } from '@/services/effectiveStory'
 import type { EditorDraft } from '@/types/editorRecovery'
 import type { ReviewFinding, CandidateChange } from '@/types/reconstruction'
@@ -424,23 +435,24 @@ const completionOpen = ref(false), confirmationVersion = ref(''), completionDial
 const sealVisible = ref(false)
 let completionTrigger: HTMLElement | null = null
 let sealTimer: ReturnType<typeof setTimeout> | undefined
-type DeskTab = 'review' | 'candidate' | 'memory' | 'chat' | 'advisor'
-const deskTabIds: DeskTab[] = ['advisor', 'chat', 'memory', 'candidate', 'review']
+type DeskTab = 'review' | 'candidate' | 'memory' | 'character' | 'chat'
+const deskTabIds: DeskTab[] = ['chat', 'character', 'memory', 'candidate', 'review']
 function routeTab(): DeskTab | undefined {
   const tab = route.query.tab
+  if (tab === 'advisor') return 'chat'
   return typeof tab === 'string' && (deskTabIds as string[]).includes(tab) ? tab as DeskTab : undefined
 }
-const activeTab = ref<DeskTab>(routeTab() || 'advisor')
+const activeTab = ref<DeskTab>(routeTab() || 'chat')
 /** 暂存的正文修订候选：从页边收起，仍在“候选”标签中保留。仅本次打开有效。 */
 const parkedRevisions = ref(new Set<string>())
 /** 记住每份修订候选的生成要求，换一版时沿用。 */
 const revisionInstructions = new Map<string, string>()
-watch(activeTab, tab => { if (tab === 'chat') chatMounted.value = true })
 const decisionBusy = ref(false)
 const editingCandidate = ref<CandidateChange>()
 const editingDecisionVersion = ref('')
 const causalityCandidateId = ref('')
-const chatMounted = ref(false)
+const chatMounted = ref(activeTab.value === 'chat')
+watch(activeTab, tab => { if (tab === 'chat') chatMounted.value = true })
 const selection = ref({ start: 0, end: 0, text: '' })
 const chatPrefill = ref('')
 const chatPrefillVersion = ref(0)
@@ -510,11 +522,6 @@ const planBeats = computed(() => {
 const canonMutations = computed(() => workspace.getCanonMutations(novelId.value))
 const chapterMutations = computed(() => canonMutations.value.filter(record => record.chapterId === chapterId.value))
 const effectiveNovel = computed(() => session.novel.value && session.chapter.value ? withCurrentStoryEntities(session.novel.value, session.chapter.value.chapterIndex) : undefined)
-const relatedCharacters = computed(() => (effectiveNovel.value?.characters || []).filter(character => character.firstAppearChapter <= (session.chapter.value?.chapterIndex ?? 0) + 1
-  && [character.name, ...(character.aliases || [])].some(name => name && [session.content.value, ...planBeats.value].join('\n').includes(name))))
-const memorySnapshot = computed(() => session.novel.value && session.chapter.value
-  ? getCharacterStateSnapshot(session.novel.value, canonMutations.value, session.chapter.value.chapterIndex, 'before') : { knowledge: [], invalid: [] })
-function characterKnowledge(id: string) { return memorySnapshot.value.knowledge.filter(state => state.characterId === id) }
 const openPromises = computed(() => (effectiveNovel.value?.eventLog || []).filter(event => event.type === '伏笔' && event.chapterIndex >= 0
   && event.chapterIndex < (session.chapter.value?.chapterIndex ?? 0) && !['resolved', 'abandoned', 'unverified'].includes(event.status || '')))
 const pendingRevisionRows = computed(() => session.pendingRevisions?.value ?? (session.pendingRevision.value ? [session.pendingRevision.value] : []))
@@ -645,9 +652,9 @@ const backgroundTaskLabel: Record<'pending' | 'running' | 'completed' | 'failed'
   pending: '等待中', running: '进行中', completed: '已完成', failed: '失败',
 }
 const tabs = computed(() => [
-  // 按使用时机排列：写的时候用的在前，写完后才用的审校在最后。
-  { id: 'advisor' as const, label: '顾问', count: 0 },
+  // 按使用时机排列：写的时候用的对话、角色与记忆在前，写完后的候选与审校在后。
   { id: 'chat' as const, label: '对话', count: 0 },
+  { id: 'character' as const, label: '角色', count: 0 },
   { id: 'memory' as const, label: '记忆', count: 0 },
   { id: 'candidate' as const, label: '候选', count: pendingCandidates.value.length + revisionViews.value.length },
   { id: 'review' as const, label: '审校', count: openFindings.value.length },
@@ -868,13 +875,32 @@ function finishSampleStyle() {
   message.success('已应用本书写法')
 }
 
-// 生成的修订候选直接出现在页边，与对应批注并排；不切换案头标签。
+function marginsVisible(): boolean {
+  const el = paper.value?.querySelector<HTMLElement>('.paper-margins')
+  return Boolean(el && getComputedStyle(el).display !== 'none')
+}
+
+// 生成的修订候选直接出现在页边，与对应批注并排；窄屏页边隐藏时切到“候选”标签，
+// 页边可见但锚点滚出视口时自动滚回可见位置并重排浮签。
 async function proposeRevision(mode: SelectionRevisionMode, instruction: string, range: { start: number; end: number }) {
   const before = new Set(pendingRevisionRows.value.map(row => row.id))
   await ai.generateSelection(mode, instruction, range)
   const created = pendingRevisionRows.value.find(row => !before.has(row.id))
   if (created) revisionInstructions.set(created.id, instruction)
-  if (!showMargins.value) showDesk('candidate')
+  await nextTick()
+  if (!showMargins.value || !marginsVisible()) {
+    showDesk('candidate')
+    return
+  }
+  const view = created ? revisionMap.value[created.id] : undefined
+  if (view?.current && editor.value && editorHost.value) {
+    const bounds = editorHost.value.getBoundingClientRect()
+    const coords = editor.value.coordsAtOffset(view.start)
+    if (!coords || (bounds.height > 0 && (coords.bottom < bounds.top || coords.top >= bounds.bottom))) {
+      editor.value.revealRange(view.start, view.end, { focus: false })
+    }
+    scheduleMargins()
+  }
 }
 async function runSelection(mode: SelectionRevisionMode) {
   if (!selectedText.value || locked.value) return
@@ -918,6 +944,17 @@ function openSelectionChat(kind: 'check' | 'chat') {
   chatPrefillVersion.value++
   selectionRect.value = null
   showDesk('chat')
+}
+function requestChatDirections(focusOverride?: string) {
+  advisorSaveError.value = ''
+  showDesk('chat')
+  void advisor.analyze('scene', { suggestionCount: 2, focusOverride })
+}
+function openSelectionDirections() {
+  if (!selectedText.value) return
+  const focus = selectedText.value
+  selectionRect.value = null
+  requestChatDirections(focus)
 }
 async function restoreDraft(draft: EditorDraft) {
   await runDecision(async () => { await session.restoreDraft(draft); selection.value = { start: 0, end: 0, text: '' }; selectionRect.value = null })
@@ -1017,6 +1054,7 @@ async function saveAdvisorSuggestion(action: 'plan' | 'note', suggestion: Writin
       suggestion: JSON.parse(JSON.stringify(suggestion)),
     })
     session.markChanged()
+    message.success(action === 'note' ? '已记入本章笔记，可在「记忆」页查看' : '已存为下一章计划')
   } catch (cause) {
     advisorSaveError.value = errorText(cause, String(cause))
   } finally {
@@ -1026,7 +1064,10 @@ async function saveAdvisorSuggestion(action: 'plan' | 'note', suggestion: Writin
 
 async function copyAdvisorSuggestion(suggestion: WritingAdviceSuggestion) {
   const text = `${suggestion.title}\n${suggestion.approach}${suggestion.nextBeat ? `\n下一拍：${suggestion.nextBeat}` : ''}`
-  try { await copyText(text) }
+  try {
+    await copyText(text)
+    message.success('已复制方向思路')
+  }
   catch { advisorSaveError.value = '复制失败，请手动选择文本。' }
 }
 watch([marginItems, showMargins, sideOpen, deskOpen, focused, versionOpen], () => { void nextTick(scheduleMargins) }, { flush: 'post' })
@@ -1069,19 +1110,40 @@ const foreshadowAlerts = computed(() => {
   const current = session.novel.value
   return current ? foreshadowReminders(current.eventLog || [], lastWrittenChapterIndex(current.chapters)) : []
 })
+const currentPendingCanon = computed(() => {
+  const current = session.novel.value
+  const ch = session.chapter.value
+  return current && ch ? deriveChapterPendingCanon(current.id, ch, workspace.getCandidates(current.id), '本章') : null
+})
+const previousPendingCanon = computed(() => {
+  const current = session.novel.value
+  const ch = session.chapter.value
+  return current && ch ? derivePreviousChapterPendingCanon(current, ch.id, workspace.getCandidates(current.id)) : null
+})
 </script>
 
 <style scoped>
 .foreshadow-chip { color: var(--zhu); text-decoration: none; font-weight: 600; }
 .foreshadow-chip:hover { text-decoration: underline; }
+.canon-reminder-banner { border-color: color-mix(in srgb, var(--jin) 45%, var(--line)); background: var(--jin-soft); }
+.canon-reminder-banner .m-btn { margin-left: auto; flex-shrink: 0; }
+.gate-canon-note { margin: 6px 0 10px; padding: 7px 10px; border-radius: 6px; background: var(--jin-soft); color: var(--ink-2); font-size: 12px; line-height: 1.5; }
 .lifecycle { display: flex; align-items: center; gap: 5px; color: var(--ink-4); font-size: 11px; }.lc-step { display: inline-flex; align-items: center; gap: 5px; }.lc-step i { width: 8px; height: 8px; border: 1px solid var(--line-2); border-radius: 50%; }.lc-step > span { display: none; }.lc-step.done i { background: var(--ink-3); border-color: var(--ink-3); }.lc-step.cur { color: var(--zhu); font-weight: 600; }.lc-step.cur i { background: var(--zhu); border-color: var(--zhu); box-shadow: 0 0 0 4px var(--zhu-soft); }.lc-step.cur > span { display: inline; }.lc-bar { width: 12px; height: 1px; background: var(--line-2); }
 .mode-wrap { display: flex; align-items: center; position: relative; gap: 4px; }.mode-wrap .m-seg button { padding: 0 8px; }.mode-info { width: 22px; height: 26px; color: var(--ink-4); }
 .mode-pop { display: none; position: absolute; z-index: 100; right: 0; top: calc(100% + 8px); width: 350px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); box-shadow: var(--shadow-3); white-space: normal; font-size: 12px; }
 .mode-pop.open, .mode-wrap:has(.mode-info:hover) .mode-pop, .mode-wrap:has(.mode-info:focus-visible) .mode-pop { display: block; }.mode-pop > strong { color: var(--ink-2); font-size: 12px; }.mode-pop > div { display: grid; grid-template-columns: 35px 1fr; gap: 10px; margin-top: 12px; }.mode-pop b { font-size: 13px; }.mode-pop p { margin: 0; color: var(--ink-3); line-height: 1.65; }.mode-pop small { display: flex; gap: 6px; padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--line); font-size: 11px; color: var(--ink-3); }
 .top-save { display: flex; align-items: center; gap: 6px; color: var(--ink-3); font-size: 12px; }.top-save i { width: 6px; height: 6px; border-radius: 50%; background: var(--qing); }.top-save i.warn { background: var(--jin); }.view-on { color: var(--ink-2); }.status-note { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.top-sep { width: 1px; height: 14px; background: var(--line-2); flex: none; }
+.top-gate-status { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--ink-2); font-size: 12px; white-space: nowrap; transition: background .12s, border-color .12s, color .12s; }
+.top-gate-status:hover:not(:disabled) { border-color: var(--line-2); color: var(--ink); background: var(--panel-2); }
+.top-gate-status i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.top-gate-status i.ok { background: var(--qing); }
+.top-gate-status i.warn { background: var(--zhu); }
+.top-gate-status i.todo { background: var(--jin); }
+.top-gate-btn { height: 28px; padding: 0 10px; font-size: 12px; border-radius: 6px; gap: 5px; white-space: nowrap; }
 .write-type-control { position: relative; flex: none; }
-.write-type-trigger { color: var(--ink-3); }
-.write-type-trigger:hover, .write-type-trigger[aria-expanded="true"] { color: var(--ink); }
+.write-type-trigger { height: 22px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: 5px; background: var(--paper); color: var(--ink-2); cursor: pointer; transition: background .12s, border-color .12s, color .12s; }
+.write-type-trigger:hover, .write-type-trigger[aria-expanded="true"] { border-color: color-mix(in srgb, var(--zhu) 45%, var(--line-2)); background: var(--panel-2); color: var(--ink); }
 .write-type-pop { position: absolute; z-index: 120; left: 0; bottom: calc(100% + 8px); width: min(320px, calc(100vw - 86px)); max-height: calc(100vh - 64px); overflow: auto; box-sizing: border-box; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow-3); white-space: normal; }
 .write-type-pop > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .write-type-pop > header strong { font-size: 13px; }
@@ -1095,7 +1157,7 @@ const foreshadowAlerts = computed(() => {
 .context-note { margin: 0 0 18px; font-size: 12px; color: var(--ink-3); line-height: 1.7; }.context-section { margin-bottom: 20px; }.context-section h4 { font: 600 12px var(--f-ui); color: var(--ink-3); margin: 0 0 10px; letter-spacing: .06em; }.memory-person { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); margin-bottom: 6px; }.memory-person > div { min-width: 0; }.memory-person strong { font-size: 13px; }.memory-person small { display: block; font-size: 11px; color: var(--ink-3); }.knowledge-chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }.knowledge-chips span { padding: 2px 6px; font-size: 10px; background: var(--panel-2); color: var(--ink-3); border-radius: 4px; overflow-wrap: anywhere; }.knowledge-chips .knows { background: var(--qing-soft); color: var(--qing); }.knowledge-chips .suspects { background: var(--jin-soft); color: var(--jin); }.knowledge-chips .false_belief { background: var(--zi-soft); color: var(--zi); }.context-warning { font-size: 11px; color: var(--zi); }.memory-promise { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px dashed var(--line); font-size: 12px; }.memory-promise i { background: var(--qing); }.memory-promise small { margin-left: auto; white-space: nowrap; color: var(--ink-4); font-size: 10px; }.memory-beat { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; margin: 8px 0; color: var(--ink-2); }.memory-beat .icon { color: var(--ink-4); margin-top: 3px; }.memory-scene { padding: 10px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; background: var(--paper); }.memory-scene.on { border-color: var(--zhu); }.memory-scene p { margin: 5px 0; color: var(--ink-2); }.memory-scene small { color: var(--ink-3); }.context-isolation { display: flex; gap: 8px; padding: 10px; border: 1px dashed var(--line-2); border-radius: 8px; font-size: 11px; color: var(--ink-3); line-height: 1.65; }.memory-panel :deep(.time-box) { margin: 0 0 18px; }.m-link { color: var(--dai); text-decoration: none; font-size: 12px; }.panel-title .m-link { display: inline-flex; align-items: center; }
 .completion-overlay .gate-list { padding: 0; }.completion-overlay .gate-row { grid-template-columns: 9px 110px 1fr; }.completion-changes { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 18px; }.completion-changes h4 { margin: 0 0 8px; font: 600 14px var(--f-serif); }.completion-changes p { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; line-height: 1.65; }.completion-changes .m-tag { flex: none; margin-top: 1px; }.completion-note { padding: 10px; background: var(--panel); color: var(--ink-3); font-size: 12px; line-height: 1.7; }
 .seal-overlay { position: fixed; inset: 0; z-index: 910; pointer-events: none; display: grid; place-content: center; justify-items: center; gap: 30px; background: color-mix(in srgb, var(--paper) 60%, transparent); }.chapter-seal { width: 172px; height: 172px; display: grid; place-items: center; border: 6px solid var(--zhu); color: var(--zhu); font: 700 54px/1 var(--f-kai); letter-spacing: .08em; writing-mode: vertical-rl; border-radius: 8px; transform: rotate(-8deg); box-shadow: inset 0 0 0 3px var(--paper), inset 0 0 0 5px var(--zhu); animation: chapter-stamp .7s var(--ease); }.seal-overlay > span { font-size: 12px; color: var(--ink-2); }@keyframes chapter-stamp { 0% { opacity: 0; transform: rotate(-18deg) scale(2.4); }65% { opacity: 1; transform: rotate(-8deg) scale(.94); }100% { transform: rotate(-8deg) scale(1); } }
-.write-page { --side-w: 220px; --desk-w: 320px; position: absolute; inset: 0; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr) var(--desk-w); min-height: 0; background: var(--desk); }
+.write-page { --side-w: 220px; --desk-w: 368px; position: absolute; inset: 0; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr) var(--desk-w); min-height: 0; background: var(--desk); }
 .write-page.no-side { --side-w: 0px; }.write-page.no-desk { --desk-w: 0px; }
 .write-main { grid-column: 2; min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 28px; position: relative; }
 .write-main > .editor-recovery, .write-main > .write-banner { flex: none; }
@@ -1118,7 +1180,6 @@ const foreshadowAlerts = computed(() => {
 .paper { --paper-inset: 48px; --margin-w: 198px; flex: 1 1 0; min-height: 0; width: 100%; max-width: 840px; margin: 0 auto; display: flex; flex-direction: column; background: var(--paper); border-radius: 4px; box-shadow: var(--shadow-2); padding: 56px var(--margin-w) 64px var(--paper-inset); position: relative; }
 .paper:not(.with-margins) { padding-right: var(--paper-inset); }
 .paper:not(.with-margins) :deep(.pte-doc) { padding-right: 0; }
-.paper:not(.with-margins) .chapter-gate { margin-right: 0; }
 .paper.with-margins::before { content: ''; position: absolute; top: 150px; bottom: 40px; right: var(--margin-w); border-left: 1px dashed var(--line-2); }
 .paper::after { content: ''; position: absolute; inset: 10px; border: 1px solid var(--line); border-radius: 2px; pointer-events: none; opacity: .55; }
 .paper-head { position: relative; flex: none; margin-bottom: 32px; }.paper-kicker { color: var(--zhu); font: 500 13px/1 var(--f-serif); letter-spacing: .35em; margin-bottom: 12px; }
@@ -1136,10 +1197,14 @@ const foreshadowAlerts = computed(() => {
 .slip-story { font: 14px/1.6 var(--f-serif); margin: 0 0 5px; }.slip-detail { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 140px; overflow: auto; font-size: 11px; color: var(--ink-2); margin: 0 0 8px; }.slip-acts { display: flex; gap: 4px; margin-top: 9px; flex-wrap: wrap; }.slip-acts .m-btn { height: 24px; padding: 0 6px; font-size: 11px; }
 .version-panel { flex: none; margin: -8px 24px 20px 0; padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); }.version-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }.version-panel p { margin: 5px 0 10px; }.version-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }.version-select { min-width: 0; width: 100%; padding: 6px 8px; border: 1px solid var(--line-2); border-radius: 5px; background: var(--paper); color: var(--ink); }
 .editor-host { flex: 1 1 0; min-height: 0; overflow: hidden; }
-.chapter-gate { flex: none; margin: 40px 24px 0 0; border: 1px solid var(--line); border-radius: var(--r-m); padding: 18px 20px; background: var(--panel); }.gate-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }.gate-head h4 { margin: 0; font: 600 15px var(--f-serif); }.gate-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 14px 0; }.gate-stats > div { padding: 10px 8px; border-radius: 8px; background: var(--paper); border: 1px solid var(--line); }.gate-stats b { display: block; font: 600 20px/1.2 var(--f-num); }.gate-stats span { font-size: 10px; color: var(--ink-3); }.gate-stats .bad b { color: var(--zhu); }.gate-detail { font-size: 11px; line-height: 1.6; color: var(--ink-3); }.gate-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.gate-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0 0 12px; }.gate-stats > div { padding: 10px 8px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); }.gate-stats b { display: block; font: 600 20px/1.2 var(--f-num); }.gate-stats span { font-size: 10px; color: var(--ink-3); }.gate-stats .bad b { color: var(--zhu); }.gate-detail { margin: 0 0 10px; font-size: 12px; line-height: 1.6; color: var(--ink-3); }
 .desk-tabs { display: flex; border-bottom: 1px solid var(--line); overflow-x: auto; }.desk-tabs button { flex: 1; min-width: 54px; padding: 14px 6px 11px; font-size: 12px; color: var(--ink-3); border-bottom: 2px solid transparent; white-space: nowrap; }.desk-tabs button.on { color: var(--zhu); border-bottom-color: var(--zhu); }.desk-tabs b { margin-left: 3px; font-size: 10px; }
 .desk-panel { flex: 1; overflow: auto; }.desk-empty { padding: 20px 16px; line-height: 1.7; }.finding, .candidate { padding: 14px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }.finding:hover, .candidate:hover { background: var(--panel-2); }.finding-head { display: flex; align-items: flex-start; gap: 7px; font-size: 12.5px; line-height: 1.5; }.finding p, .candidate p { margin: 8px 0 0; font-size: 12px; line-height: 1.65; color: var(--ink-3); }.finding.accepted, .finding.intentional { opacity: .6; }.finding-actions { display: flex; gap: 5px; margin-top: 9px; flex-wrap: wrap; }.quote { padding-left: 9px; border-left: 2px solid var(--zhu-mid); color: var(--ink-2) !important; }.review-report { margin: 12px 16px; padding: 10px; background: var(--panel-2); white-space: pre-wrap; font-size: 11px; line-height: 1.6; max-height: 260px; overflow: auto; }
-.chat-host { min-height: 520px; }.chat-host :deep(.ai-chat-wrapper) { height: 100%; }.chat-host :deep(.chat-window) { width: auto; height: 100%; max-height: none; border: 0; box-shadow: none; border-radius: 0; }.chat-host :deep(.chat-header) { display: none; }.chat-host :deep(.chat-search-notice) { margin-top: 12px; }
+.desk-panel.chat-panel { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.chat-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.memory-plan-links { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.memory-note-body { white-space: pre-wrap; word-break: break-word; }
+.zhu-soft-btn { border-color: color-mix(in srgb, var(--zhu) 45%, var(--line)); background: var(--zhu-soft); color: var(--zhu); font-weight: 600; }
 .coverage { position: relative; margin: 12px 16px; height: 7px; border-radius: 5px; background: var(--panel-2); overflow: hidden; }.coverage span { display: block; height: 100%; background: var(--zhu); }.coverage small { display: block; margin-top: 7px; color: var(--ink-4); font-size: 10px; }
 .background-checks, .banned-report { margin: 12px 16px; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); font-size: 12px; }
 .background-checks > strong, .banned-report > strong { display: block; margin-bottom: 7px; }
@@ -1187,9 +1252,9 @@ const foreshadowAlerts = computed(() => {
 .candidate .finding-title { font-size: 13px; }
 .candidate .quote { margin: 6px 0 8px !important; padding: 6px 10px; background: var(--panel); border-left-color: var(--zhu-mid); border-radius: 0 4px 4px 0; font: 13px/1.7 var(--f-serif); }
 .write-loading, .write-error { padding: 60px; color: var(--ink-2); }.write-error { color: var(--zhu); }.write-toast { position: fixed; right: 24px; bottom: 52px; z-index: 30; display: flex; align-items: center; gap: 10px; max-width: 520px; padding: 10px 14px; background: var(--rail); color: var(--rail-hi); border-radius: 8px; box-shadow: var(--shadow-3); font-size: 12.5px; }
-@media (min-width: 1600px) { .write-page { --side-w: 248px; --desk-w: 360px; }.write-page.no-side { --side-w: 0px; }.write-page.no-desk { --desk-w: 0px; }.paper { --paper-inset: 64px; --margin-w: 214px; padding-left: 64px; } }
-@media (max-width: 1120px) { .write-page { --desk-w: 0px; }.desk-side { grid-area: auto; position: absolute; z-index: 25; right: 0; top: 0; bottom: 0; width: min(360px, 85%); box-shadow: var(--shadow-3); }.top-save { font-size: 0; gap: 0; }.top-save i { margin: 0; }.crumb-volume { display: none; } }
-@media (max-width: 800px) { .write-page { --side-w: 0px; }.tree-side { grid-area: auto; position: absolute; z-index: 26; left: 0; top: 0; bottom: 0; width: 235px; box-shadow: var(--shadow-3); }.write-main { padding: 18px 16px 24px; }.paper { --paper-inset: 32px; --margin-w: 170px; padding-left: 32px; padding-top: 40px; }.paper-meta { gap: 5px 8px; }.chapter-title { font-size: 26px; }.gate-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }.chapter-gate { padding: 14px; }.lifecycle { gap: 3px; }.lc-bar { width: 6px; } }
-@media (max-width: 600px) { .paper { --paper-inset: 24px; --margin-w: 0px; padding: 30px 24px 40px; min-height: 0 !important; }.paper::before, .paper-mnote, .paper-margins { display: none; }.write-main { padding: 12px 10px 20px; }.paper :deep(.pte-doc) { padding-right: 0; }.chapter-gate { margin-right: 0; }.top-save { display: none; }.mode-info { display: none; }.selection-tools { flex-wrap: wrap; height: auto; padding: 6px; }.selection-tools span { display: none; }.completion-overlay .m-modal-f { flex-wrap: wrap; }.completion-overlay .m-modal-f .l { width: 100%; } }
+@media (min-width: 1600px) { .write-page { --side-w: 248px; --desk-w: 410px; }.write-page.no-side { --side-w: 0px; }.write-page.no-desk { --desk-w: 0px; }.paper { --paper-inset: 64px; --margin-w: 214px; padding-left: 64px; } }
+@media (max-width: 1120px) { .write-page { --desk-w: 0px; }.desk-side { grid-area: auto; position: absolute; z-index: 25; right: 0; top: 0; bottom: 0; width: min(390px, 88%); box-shadow: var(--shadow-3); }.top-save { font-size: 0; gap: 0; }.top-save i { margin: 0; }.top-gate-status { display: none; }.crumb-volume { display: none; } }
+@media (max-width: 800px) { .write-page { --side-w: 0px; }.tree-side { grid-area: auto; position: absolute; z-index: 26; left: 0; top: 0; bottom: 0; width: 235px; box-shadow: var(--shadow-3); }.write-main { padding: 18px 16px 24px; }.paper { --paper-inset: 32px; --margin-w: 170px; padding-left: 32px; padding-top: 40px; }.paper-meta { gap: 5px 8px; }.chapter-title { font-size: 26px; }.gate-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }.lifecycle { gap: 3px; }.lc-bar { width: 6px; } }
+@media (max-width: 600px) { .paper { --paper-inset: 24px; --margin-w: 0px; padding: 30px 24px 40px; min-height: 0 !important; }.paper::before, .paper-mnote, .paper-margins { display: none; }.write-main { padding: 12px 10px 20px; }.paper :deep(.pte-doc) { padding-right: 0; }.top-save { display: none; }.top-sep, .top-review-btn { display: none; }.mode-info { display: none; }.selection-tools { flex-wrap: wrap; height: auto; padding: 6px; }.selection-tools span { display: none; }.completion-overlay .m-modal-f { flex-wrap: wrap; }.completion-overlay .m-modal-f .l { width: 100%; } }
 @media (prefers-reduced-motion: reduce) { .chapter-seal { animation: none; }.margin-note:hover { transform: none; } }
 </style>

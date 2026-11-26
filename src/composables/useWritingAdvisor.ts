@@ -22,6 +22,11 @@ interface UseWritingAdvisorOptions {
   onWarning?: (message: string) => void
 }
 
+interface WritingAnalysisOptions {
+  suggestionCount?: number
+  focusOverride?: string
+}
+
 const modes: WritingAdviceMode[] = ['paragraph', 'scene', 'chapter']
 function emptyAdviceState() {
   return { result: null as WritingAdviceResult | null, signature: '', error: '', analyzing: false, rejectedStale: false }
@@ -76,7 +81,7 @@ export function useWritingAdvisor(options: UseWritingAdvisorOptions) {
     states[mode].analyzing = false
   }
 
-  async function analyze(mode: WritingAdviceMode = lastMode.value) {
+  async function analyze(mode: WritingAdviceMode = lastMode.value, analysisOptions?: WritingAnalysisOptions) {
     selectMode(mode)
     if (states[mode].analyzing) return
     const novel = options.currentNovel.value
@@ -89,9 +94,13 @@ export function useWritingAdvisor(options: UseWritingAdvisorOptions) {
     }
 
     const textarea = options.textarea.value
-    const selectionStart = textarea?.selectionStart ?? options.currentContent.value.length
+    const content = options.currentContent.value
+    const selectionStart = textarea?.selectionStart ?? content.length
     const selectionEnd = textarea?.selectionEnd ?? selectionStart
-    const focus = extractWritingFocus(options.currentContent.value, selectionStart, selectionEnd)
+    const focusOverride = analysisOptions?.focusOverride?.trim()
+    const focus = focusOverride
+      ? extractWritingFocus(focusOverride, 0, focusOverride.length)
+      : extractWritingFocus(content, selectionStart, selectionEnd)
     const snapshotNovelId = novel.id
     const snapshotChapterId = chapter.id
     const snapshotSignature = inputSignature.value
@@ -111,9 +120,10 @@ export function useWritingAdvisor(options: UseWritingAdvisorOptions) {
         model: { ...model },
         novel,
         chapter,
-        content: options.currentContent.value,
+        content,
         focus,
         mode,
+        suggestionCount: analysisOptions?.suggestionCount,
         embeddingConfig: options.embeddingConfig,
         signal: request.signal,
       })

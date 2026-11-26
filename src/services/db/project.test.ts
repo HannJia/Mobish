@@ -7,6 +7,7 @@ import { loadAllNovelsFromDb } from './novels'
 import { loadAllKnowledgeBasesFromDb } from './knowledge'
 import { loadProjectChapterRevisions } from './chapterRevisions'
 import { execute, queryAll, runTransaction } from '../database'
+import { applyEntityDefinitionEdit } from '../entityDefinitionEditing'
 
 describe('whole-project replacement', () => {
   it('atomically restores books, knowledge, versions and pending drafts; failure leaves the old project intact', async () => {
@@ -19,6 +20,9 @@ describe('whole-project replacement', () => {
       settings: store.defaultSettings(), writingStyle: store.defaultWritingStyle() })
     const chapter = store.addChapter(book.id, { title: '原章节', content: '原正文' })!
     store.bindKnowledgeBase(book.id, 'kb')
+    const character = applyEntityDefinitionEdit(book, { action: 'create', kind: 'character', data: { name: '苏禾' } }, book.createdAt, () => 'su').entity!
+    book.dataPanels = [{ id: 'cultivation', name: '修炼册', category: '角色', characterId: character.id,
+      fields: [], relatedKeywords: [], createdAt: book.createdAt, updatedAt: book.updatedAt }]
     const backup = createProjectBackup([store.getNovel(book.id)!], [{
       id: 'kb', name: '设定库', description: '', createdAt: book.createdAt,
       entries: [{ id: 'entry', title: '世界规则', content: '规则原文', summary: '规则', category: '世界观', tags: [], createdAt: book.createdAt, updatedAt: book.updatedAt }],
@@ -27,6 +31,7 @@ describe('whole-project replacement', () => {
       diff: '+待确认草稿', reason: '创作建议', source: 'ai', status: 'pending', createdAt: book.createdAt, updatedAt: book.updatedAt,
     }])
     await replaceProjectInDb(backup)
+    expect((await loadAllNovelsFromDb())[0].dataPanels[0].characterId).toBe(character.id)
     expect((await loadAllKnowledgeBasesFromDb())[0].entries[0].content).toBe('规则原文')
     expect((await loadProjectChapterRevisions())[0].proposedContent).toBe('待确认草稿')
     const changed = JSON.parse(JSON.stringify(backup))

@@ -6,10 +6,14 @@ const crypto = require('crypto')
 const { fileURLToPath } = require('url')
 const { spawnSync } = require('child_process')
 const { writeAtomicFile, preserveRecoveryFiles } = require('./durableFiles.cjs')
-const { createUpdateController, LATEST_API } = require('./updater.cjs')
+const { createUpdateController, releaseVersion, LATEST_API, GITEE_API } = require('./updater.cjs')
+const { createElectronUpdateFetch, createUpdateTransport, fetchReleaseJson, verifyDownloadedFile } = require('./updateTransport.cjs')
+// A release build may set a fixed HTTPS directory containing <tag>/latest.yml and <tag>/mobish-<version>.exe.
+const GITEE_STATIC_UPDATE_BASE = undefined
 const { createUpdateHandshake } = require('./updateHandshake.cjs')
 const { createCloudSessionStorage } = require('./cloudSession.cjs')
 const { createProjectKernelHandler, validateBackup } = require('./projectKernelRpc.cjs')
+const { finishWindowClose, approveWindowUnload } = require('./windowClose.cjs')
 const { createClipboardWriter } = require('./clipboard.cjs')
 const { createWebSearchProxy } = require('./webSearchProxy.cjs')
 
@@ -60,6 +64,8 @@ const isDev = !app.isPackaged
 
 let mainWindow = null
 let closeHandshakeInFlight = false
+let closeRequestId = 0
+let closeSaveFailed = false
 let closeApproval = null
 let closeHandshakeTimer = null
 let recoveryPrepared = false
@@ -79,20 +85,23 @@ function getUpdates() {
   if (preferencePath) {
     try { autoCheck = JSON.parse(fs.readFileSync(preferencePath, 'utf8')).autoCheck !== false } catch { /* Default on first launch. */ }
   }
+  const fetchImpl = createElectronUpdateFetch(net)
   updates = createUpdateController({
     supported, autoCheck, currentVersion: app.getVersion(), arch: process.arch,
     getUpdater: () => require('electron-updater').autoUpdater,
-    fetchLatest: async () => {
-      const response = await net.fetch(LATEST_API, {
-        headers: { Accept: 'application/vnd.github+json' },
-        signal: AbortSignal.timeout(15000),
-      })
-      if (response.status === 403 || response.status === 429) throw new Error('GitHub 暂时限制了检查频率，请稍后重试。')
-      if (!response.ok) throw new Error(`更新服务暂不可用（${response.status}），请稍后重试。`)
-      const body = await response.text()
-      if (body.length > 1024 * 1024) throw new Error('更新服务返回的数据过大。')
-      return JSON.parse(body)
+    fetchLatest: signal => fetchReleaseJson(LATEST_API, 'github', signal, fetchImpl),
+    fetchGitee: async (signal, tag) => {
+      if (tag) return fetchReleaseJson(`${GITEE_API}/tags/${encodeURIComponent(tag)}`, 'gitee', signal, fetchImpl)
+      for (let page = 1; ; page++) {
+        const releases = await fetchReleaseJson(`${GITEE_API}?per_page=50&page=${page}`, 'gitee', signal, fetchImpl)
+        if (!Array.isArray(releases) || releases.length > 50) throw new Error('Gitee 发行版列表无效。')
+        const formal = releases.find(releaseVersion)
+        if (formal || releases.length < 50) return formal
+      }
     },
+    giteeStaticBase: GITEE_STATIC_UPDATE_BASE,
+    makeTransport: (release, signal) => createUpdateTransport(release, { metadataSignal: signal, fetchImpl }),
+    verifyDownload: verifyDownloadedFile,
     publish: state => {
       if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
         mainWindow.webContents.send('update:state', state)
@@ -356,19 +365,19 @@ function clearCloseHandshakeTimer() {
   closeHandshakeTimer = null
 }
 
-async function finishCloseHandshake({ event, ok, error = '' }) {
-  if (!isMainWindowSender(event)) return
+function finishCloseHandshake({ requestId, ok, context, error = '' }) {
+  if (!closeHandshakeInFlight || closeSaveFailed || requestId !== closeRequestId) return
   clearCloseHandshakeTimer()
-  closeHandshakeInFlight = false
 
   if (ok) {
-    closeApproval = 'saved'
-    mainWindow.close()
-    if (isSmokeTest && process.env.AI_NOVEL_WRITER_SMOKE_WORKFLOW) setImmediate(() => app.exit(0))
+    const workflowSmoke = isSmokeTest && process.env.AI_NOVEL_WRITER_SMOKE_WORKFLOW
+    const closed = finishWindowClose(mainWindow, dialog, workflowSmoke ? undefined : context, value => { closeApproval = value })
+    closeHandshakeInFlight = false
+    if (closed && closeApproval && workflowSmoke) setImmediate(() => app.exit(0))
     return
   }
 
-  // 发送到渲染进程显示自定义对话框
+  closeSaveFailed = true
   mainWindow.webContents.send('app:exit-confirm', {
     errorDetail: error || '本地数据保存失败。建议：取消退出，重试保存。',
   })
@@ -376,6 +385,7 @@ async function finishCloseHandshake({ event, ok, error = '' }) {
 
 function createWindow() {
   closeHandshakeInFlight = false
+  closeSaveFailed = false
   closeApproval = null
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -401,35 +411,19 @@ function createWindow() {
     if (updateHandshake.busy || updates?.snapshot().phase === 'installing') return
     if (closeHandshakeInFlight) return
     closeHandshakeInFlight = true
-    mainWindow.webContents.send('app:before-close')
+    const requestId = ++closeRequestId
+    mainWindow.webContents.send('app:before-close', requestId)
     closeHandshakeTimer = setTimeout(() => {
       if (!mainWindow || mainWindow.isDestroyed()) return
-      void finishCloseHandshake({
-        event: { sender: mainWindow.webContents },
+      finishCloseHandshake({
+        requestId,
         ok: false,
         error: '保存响应超时。',
       })
     }, 30_000)
   })
   mainWindow.webContents.on('will-prevent-unload', event => {
-    if (closeApproval === 'discard') {
-      event.preventDefault()
-      return
-    }
-    if (closeApproval !== 'saved') return
-    const choice = dialog.showMessageBoxSync(mainWindow, {
-      type: 'warning',
-      title: '退出墨笔生花？',
-      message: '当前页面还有未保存的修改。',
-      detail: '继续退出会丢弃这些修改。已保存的灵感对话和输入框草稿可从历史会话恢复。',
-      buttons: ['继续编辑', '退出'],
-      defaultId: 0,
-      cancelId: 0,
-      noLink: true,
-    })
-    // In Electron this permits the unload the renderer tried to cancel.
-    if (choice === 1) event.preventDefault()
-    else closeApproval = null
+    approveWindowUnload(event, mainWindow, dialog, closeApproval, () => { closeApproval = null })
   })
   mainWindow.webContents.on('did-finish-load', () => getUpdates().start())
   if (isSmokeTest) {
@@ -1045,18 +1039,23 @@ ipcMain.handle('config:write', async (event, data) => {
 })
 
 ipcMain.on('app:close-ready', (event, result = {}) => {
-  if (!isMainWindowSender(event)) return
-  void finishCloseHandshake({ event, ok: result.ok === true, error: String(result.error || '') })
+  if (!isMainWindowSender(event) || event.senderFrame !== mainWindow.webContents.mainFrame
+    || !isTrustedRendererUrl(event.senderFrame?.url) || !result || typeof result !== 'object') return
+  const context = result.context && {
+    dirty: result.context.dirty === true,
+    inspiration: result.context.inspiration === true,
+  }
+  finishCloseHandshake({ requestId: result.requestId, ok: result.ok === true, context, error: String(result.error || '') })
 })
 
 ipcMain.on('app:exit-choice', (event, confirmed) => {
   if (!isMainWindowSender(event) || event.senderFrame !== mainWindow.webContents.mainFrame
-    || !isTrustedRendererUrl(event.senderFrame?.url)) return
+    || !isTrustedRendererUrl(event.senderFrame?.url) || !closeSaveFailed) return
+  closeSaveFailed = false
+  closeHandshakeInFlight = false
   if (confirmed === true) {
     closeApproval = 'discard'
     mainWindow.close()
-  } else {
-    closeHandshakeInFlight = false
   }
 })
 

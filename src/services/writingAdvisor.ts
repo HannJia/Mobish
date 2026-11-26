@@ -59,6 +59,7 @@ export interface WritingAdviceRequest {
   content: string
   focus: string
   mode: WritingAdviceMode
+  suggestionCount?: number
   embeddingConfig?: EmbeddingConfig
   signal?: AbortSignal
 }
@@ -143,14 +144,20 @@ export function buildWritingAdvicePrompt(
   mode: WritingAdviceMode,
   context: WritingContext,
   currentContent = chapter.content,
+  suggestionCount?: number,
 ): ChatMessage[] {
   const contextText = context.outlineContext.slice(0, 7000)
   // 作者已批准的禁揭信息与后续场景不能被任意截掉，否则建议会遗漏关键约束。
   const planText = context.chapterGuidance
   const summaryText = context.previousSummary.slice(-2200)
   const previousEnding = context.lastParagraph.slice(-1000)
-  const chapterContent = limitText(currentContent, 6000)
+  const chapterContent = currentContent.length > 6000
+    ? `${currentContent.slice(0, 3000)}\n（中段省略）\n${currentContent.slice(-3000)}`
+    : limitText(currentContent, 6000)
   const modeLabel = MODE_LABELS[mode]
+  const suggestionRequirement = suggestionCount === undefined
+    ? '3-4 个彼此不同的方向'
+    : `${suggestionCount} 个彼此不同且聚焦的下一步走法，每个走法都要围绕作者正在编辑的内容`
   return [
     {
       role: 'system',
@@ -201,7 +208,7 @@ ${context.structuredState || '暂无已确认状态；不得推定角色不知�
   "nextChapterPlan": {"title":"下一章标题方向","objective":"下一章目标","beats":["节拍1","节拍2","节拍3"]}
 }
 
-规则：suggestions 返回 3-4 个彼此不同的方向；不得输出正文段落、完整对话或超过 2 句的文学描写。nextChapterPlan 只能是规划草案，不得假设作者一定采用。`,
+规则：suggestions 返回 ${suggestionRequirement}；不得输出正文段落、完整对话或超过 2 句的文学描写。nextChapterPlan 只能是规划草案，不得假设作者一定采用。`,
     },
   ]
 }
@@ -211,6 +218,7 @@ export function parseWritingAdviceResult(
   mode: WritingAdviceMode,
   focus: string,
   context: WritingContext,
+  suggestionCount = 4,
 ): WritingAdviceResult {
   const parsed = parseAiJsonObject<Record<string, unknown>>(raw)
   if (!parsed) throw new Error('AI 返回的写作建议不是有效 JSON')
@@ -238,7 +246,7 @@ export function parseWritingAdviceResult(
       } satisfies WritingAdviceSuggestion
     })
     .filter((item): item is WritingAdviceSuggestion => Boolean(item))
-    .slice(0, 4)
+    .slice(0, suggestionCount)
   if (suggestions.length === 0) throw new Error('AI 没有返回可用的写作方向')
   return {
     mode,
@@ -268,11 +276,15 @@ export async function requestWritingAdvice(request: WritingAdviceRequest): Promi
   const result = await callAI({
     model: request.model,
     skillTask: 'planning',
+    stream: true,
+    onChunk: () => {},
     noAutomaticRetry: true,
-    messages: buildWritingAdvicePrompt(request.novel, request.chapter, request.focus, request.mode, context, request.content),
+    messages: buildWritingAdvicePrompt(
+      request.novel, request.chapter, request.focus, request.mode, context, request.content, request.suggestionCount,
+    ),
     maxTokens: Math.min(request.model.maxTokens || 2400, 2600),
     signal: request.signal,
   })
   assertStructuredOutputComplete(result, '写作建议')
-  return parseWritingAdviceResult(result.content, request.mode, request.focus, context)
+  return parseWritingAdviceResult(result.content, request.mode, request.focus, context, request.suggestionCount)
 }

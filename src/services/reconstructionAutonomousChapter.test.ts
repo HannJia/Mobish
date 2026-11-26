@@ -25,8 +25,6 @@ vi.mock('@/services/context', () => ({
 }))
 vi.mock('@/services/prompts', () => ({ buildChapterPrompt: mocks.buildChapterPrompt }))
 vi.mock('@/services/chapterReview', () => ({ requestCoveredContentReview: mocks.requestCoveredContentReview }))
-vi.mock('@/services/chapterGeneration', () => ({ chapterOutputTokenBudget: vi.fn(() => 4000) }))
-vi.mock('@/services/chapterLength', () => ({ resolveChapterLengthPolicy: vi.fn(() => ({ targetWords: 1200 })) }))
 vi.mock('@/services/contentReview', () => ({ contentReviewVerdict: mocks.contentReviewVerdict }))
 
 import { createAutonomousEmptyChapterProcessor } from './reconstructionAutonomousChapter'
@@ -111,12 +109,15 @@ beforeEach(async () => {
 describe('isolated autonomous chapter drafts', () => {
   it('reports empty charged output with safe diagnostics and stops before review', async () => {
     const novel = makeNovel(), runtime = makeRuntime(novel).runtime
-    mocks.callAI.mockResolvedValueOnce({ content: '', finishReason: 'length', usage: { completion_tokens: 6012, completion_tokens_details: { reasoning_tokens: 6012 } } })
+    runtime.writingModel = { ...model, maxTokens: 16384 }
+    mocks.callAI.mockResolvedValueOnce({ content: '', finishReason: 'length', usage: { completion_tokens: 16384, completion_tokens_details: { reasoning_tokens: 16384 } } })
     const result = await execute(novel, runtime)
+    expect(mocks.callAI).toHaveBeenCalledWith(expect.objectContaining({ maxTokens: 16384 }))
     expect(result.status).toBe('needs_author')
     expect(result.error).toContain('结束原因：length')
     expect(result.error).toContain('正文长度：0')
-    expect(result.error).toContain('推理用量：6012')
+    expect(result.error).toContain('推理用量：16384')
+    expect(result.error).toContain('调高该模型的「最大输出 Token 数」')
     expect(result.chapterDrafts || []).toEqual([])
     expect(mocks.requestCoveredContentReview).not.toHaveBeenCalled()
     expect(novel.chapters[0].content).toBe('')
@@ -164,7 +165,13 @@ describe('isolated autonomous chapter drafts', () => {
   it('keeps exact generated content and review in the run without changing the formal manuscript', async () => {
     const novel = makeNovel(), before = JSON.stringify(novel), { runtime, saved, structuredReviews } = makeRuntime(novel)
     const content = String.fromCharCode(10) + '这是生成的正文。' + String.fromCharCode(10)
-    mocks.callAI.mockResolvedValue({ content })
+    mocks.callAI.mockImplementationOnce(async ({ stream, onChunk }) => {
+      expect(stream).toBe(true)
+      expect(onChunk).toEqual(expect.any(Function))
+      onChunk(content.slice(0, 3))
+      onChunk(content.slice(3))
+      return { content, finishReason: 'stop' }
+    })
     const result = await execute(novel, runtime)
     expect(result.status).toBe('completed')
     expect(result.chapterDrafts?.[0]).toMatchObject({ content, status: 'pending', stage: 'analyzed', report: '审核通过', review: { status: 'ready_to_finalize' } })

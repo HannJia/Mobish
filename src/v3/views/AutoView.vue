@@ -72,6 +72,15 @@
         </div>
       </section>
       <p v-if="latestRun?.error && latestRun.status !== 'completed'" class="run-note" role="status">{{ latestRun.error }}</p>
+      <section v-if="checkpointPendingCanon.total" class="ckpt-canon-reminder" role="status" aria-label="检查点待确认记忆候选">
+        <p>{{ checkpointPendingCanon.summary }}</p>
+        <div class="ckpt-canon-links">
+          <template v-for="item in checkpointPendingCanon.chapters" :key="item.chapterId">
+            <router-link v-if="item.writeRoute" class="m-btn xs" :to="item.writeRoute">第 {{ item.chapterIndex + 1 }} 章去确认入典（{{ item.total }}）</router-link>
+            <button v-else-if="item.draftId" class="m-btn xs" type="button" @click="openDraftReview(item.chapterId)">第 {{ item.chapterIndex + 1 }} 章审阅候选稿（{{ item.total }}）</button>
+          </template>
+        </div>
+      </section>
 
       <article v-for="row in pipeline" :key="row.chapter.id" class="rch" :class="row.stage">
         <div class="rch-h">
@@ -127,7 +136,7 @@ import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspac
 import ChapterList from '@/v3/chapters/ChapterTasks.vue'
 import V3Icon from '../components/V3Icon.vue'
 import { toast, toastError } from '../shell'
-import { PIPELINE_STEPS, checkpointOf, deriveBudget, deriveLedger, derivePipeline, lengthRange, phaseLabel, stopConditions, type PipelineRow } from '../selectors/autoRun'
+import { PIPELINE_STEPS, checkpointOf, deriveBudget, deriveCheckpointPendingCanon, deriveLedger, derivePipeline, lengthRange, phaseLabel, stopConditions, type PipelineRow } from '../selectors/autoRun'
 import { isAutonomousRunActive } from '@/services/reconstructionAutonomous'
 import { resolveChapterLengthPolicy, type ChapterLengthPolicy } from '@/services/chapterLength'
 import type { AiRun, AiRunRequest } from '@/types/reconstruction'
@@ -172,12 +181,16 @@ async function invokeRunControl(name: RunControlName) {
 /** 章节卡片上的“对比审阅”：直接打开该章候选稿，不必先进任务控制抽屉找。 */
 async function openDraftReview(chapterId: string) {
   controlMounted.value = true
+  controlOpen.value = true
   await nextTick()
   try {
     if (!await chapterListRef.value?.openChapterDraft(chapterId)) toast('没有找到这一章可审阅的候选稿。', { error: true })
   } catch (cause) { toastError(cause, '候选稿打开失败。') }
 }
 const pipeline = computed<PipelineRow[]>(() => novel.value ? derivePipeline(novel.value, latestRun.value) : [])
+const checkpointPendingCanon = computed(() => novel.value
+  ? deriveCheckpointPendingCanon(novel.value, latestRun.value, workspace.getCandidates(novel.value.id))
+  : { total: 0, chapters: [], summary: '' })
 const budget = computed(() => deriveBudget(latestRun.value))
 const ledger = computed(() => deriveLedger(latestRun.value))
 const stops = computed(() => stopConditions(latestRun.value))
@@ -283,9 +296,14 @@ function showCheckpoint(row: PipelineRow) {
   return !!latestRun.value?.checkpointEvery && point?.phase === 'checkpoint' && point.chapterIndex === row.chapter.chapterIndex
 }
 
+function formatLogTime(iso?: string) {
+  if (!iso) return ''
+  const parsed = new Date(iso)
+  return Number.isNaN(parsed.getTime()) ? iso.slice(11, 19) : parsed.toLocaleTimeString('zh-CN', { hour12: false })
+}
 const logRows = computed(() => (latestRun.value?.requests || []).slice(-8).reverse().map(request => ({
   id: request.id, chapter: request.chapterIndex + 1, phase: phaseLabel[request.phase], status: requestStatus(request.status),
-  time: (request.completedAt || request.startedAt || '').slice(11, 19),
+  time: formatLogTime(request.completedAt || request.startedAt),
 })))
 
 function fmt(value: number | undefined) { return value === undefined ? '—' : value.toLocaleString() }
@@ -400,6 +418,9 @@ onMounted(async () => {
 .run-top-status.running { color: var(--qing); }
 .run-top-status.needs_author, .run-top-status.paused { color: var(--jin); }
 .run-top-status.failed { color: var(--zhu); }
+.ckpt-canon-reminder { margin: 12px 0 16px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--jin) 45%, var(--line)); border-radius: 8px; background: var(--jin-soft); display: grid; gap: 8px; }
+.ckpt-canon-reminder p { margin: 0; font-size: 12.5px; color: var(--ink); }
+.ckpt-canon-links { display: flex; flex-wrap: wrap; gap: 8px; }
 
 @media (max-width: 1180px) {
   /* 参照原型保留配置栏与流水线双列，账本在窄屏收起，避免把运行中心压成纵向长页。 */

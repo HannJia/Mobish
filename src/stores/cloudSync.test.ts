@@ -6,7 +6,8 @@ import { useKnowledgeStore } from './knowledge'
 import { useInspirationSessionsStore } from './inspirationSessions'
 import { parseInspirationSession } from '@/services/inspirationSessions'
 import { useCloudSyncStore } from './cloudSync'
-import { canonicalJson, emptySyncState, hashPayload, type CloudRecord } from '@/services/cloudSyncModel'
+import { canonicalJson, emptySyncState, hashKnowledgeMergeFields, hashPayload, projectDocuments, type CloudRecord } from '@/services/cloudSyncModel'
+import { captureProjectSnapshot } from '@/services/projectSnapshot'
 import { cloudPreferencesBusy } from '@/services/appLifecycle'
 import { emptyProjectWorkspace, plannedProjectWorkspace } from '@/test/projectBackupFixture'
 import { useReconstructionWorkspaceStore } from './reconstructionWorkspace'
@@ -123,6 +124,64 @@ async function remoteEdit(key: string, title: string | null) {
 }
 
 describe('首次下载与本机内容确认', () => {
+  it('keeps the cloud duplicate through an interrupted migration and deletes it after all references arrive', async () => {
+    const novel = addBook()
+    const entry = { id: 'local-entry', title: '同一条', category: '其他', content: '完整正文', summary: '',
+      tags: [], createdAt: novel.createdAt, updatedAt: novel.updatedAt }
+    const target = { id: 'target', name: '资料', description: '', createdAt: novel.createdAt, entries: [entry] }
+    const duplicate = { ...target, id: 'duplicate', entries: [{ ...entry, id: 'remote-entry' }] }
+    const knowledge = useKnowledgeStore()
+    knowledge.adoptImportedKnowledgeBases([target, duplicate])
+    novel.knowledgeBaseIds = [duplicate.id]
+    const inspiration = useInspirationSessionsStore()
+    const idea = parseInspirationSession({ id: 'idea', title: '灵感', updatedAt: novel.updatedAt,
+      messages: [], knowledgeIds: [duplicate.id] })
+    inspiration.adopt([idea])
+    await loginAndEnable()
+    const novelKey = `novel:${novel.id}`
+    const ideaKey = `inspiration:${idea.id}`
+    const duplicateKey = `knowledge:${duplicate.id}`
+    const targetKey = `knowledge:${target.id}`
+    const unique = { ...entry, id: 'added-entry', title: '另一条', content: '合并来的资料' }
+    knowledge.adoptImportedKnowledgeBases([{ ...target, entries: [entry, unique] }])
+    novel.knowledgeBaseIds = [target.id]
+    inspiration.adopt([{ ...idea, knowledgeIds: [target.id] }])
+    // Simulate restarting after a durable local merge, with both devices previously in sync.
+    sync.dispose()
+    setActivePinia(createPinia())
+    await useNovelStore().initStore()
+    useNovelStore().adoptImportedNovels([novel])
+    await useKnowledgeStore().initStore()
+    useKnowledgeStore().adoptImportedKnowledgeBases([{ ...target, entries: [entry, unique] }])
+    await useInspirationSessionsStore().initialize()
+    useInspirationSessionsStore().adopt([{ ...idea, knowledgeIds: [target.id] }])
+    useReconstructionWorkspaceStore().adoptProjectWorkspaces([emptyProjectWorkspace(novel.id)])
+    const migrated = projectDocuments(await captureProjectSnapshot())
+    const requiredHashes = Object.fromEntries(await Promise.all([targetKey, novelKey, ideaKey]
+      .map(async key => [key, await hashKnowledgeMergeFields(key, migrated.get(key)!)])))
+    memory.state.knowledgeMergeDeletions = {
+      [duplicateKey]: { sourceHash: memory.records.get(duplicateKey).hash, requiredHashes },
+    }
+    sync = useCloudSyncStore()
+    await sync.initialize()
+    let pushes = 0
+    memory.onPush = async () => {
+      if (++pushes === 2) throw new Error('连接中断')
+    }
+    await sync.syncNow()
+    expect(sync.error).toBe('连接中断')
+    expect(JSON.parse(memory.records.get(targetKey).payload).knowledge.entries).toHaveLength(2)
+    expect(memory.records.get(duplicateKey).payload).not.toBeNull()
+    expect(memory.state.knowledgeMergeDeletions[duplicateKey]).toBeDefined()
+
+    memory.onPush = null
+    await sync.syncNow()
+    expect(JSON.parse(memory.records.get(novelKey).payload).novel.knowledgeBaseIds).toEqual([target.id])
+    expect(JSON.parse(memory.records.get(ideaKey).payload).inspiration.knowledgeIds).toEqual([target.id])
+    expect(memory.records.get(duplicateKey).payload).toBeNull()
+    expect(memory.state.knowledgeMergeDeletions).toEqual({})
+  })
+
   it('applies V3 planning to the live workspace only after durable cloud commit and retains it on failure', async () => {
     const novel = addBook()
     const localState = plannedProjectWorkspace(novel)

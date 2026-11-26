@@ -1,6 +1,7 @@
 // 知识库按标题分段检索：把每份资料按标题切成小节（带标题路径），按关键词挑出最相关的小节交给 AI。
 // 不调用模型、不花费用；读到的是原文。没有标题的资料按段落切成约一千字的小块。
 import type { KBEntry } from '@/types/knowledge'
+import { createMarkdownFenceTracker } from '@/utils/markdownStructure'
 
 export interface KnowledgeSection {
   /** 标题路径，如 ['二、完整时间线', '阶段四 · 全面市场化', '1998年7月3日｜房改 23 号文']。 */
@@ -54,12 +55,16 @@ export function knowledgeSections(entry: KBEntry): KnowledgeSection[] {
   const cached = cache.get(entry)
   if (cached && cached.content === entry.content) return cached.sections
   const content = entry.content
-  const hasMarkdown = /^#{1,4}[ \t]+[^\r\n]+/m.test(content)
-  const headingOf = (line: string): { level: number; title: string } | null => {
-    const markdown = MARKDOWN_HEADING.exec(line)
-    if (markdown) return { level: markdown[1].length, title: cleanTitle(markdown[2]) }
-    if (!hasMarkdown && CHINESE_HEADING.test(line)) return { level: 2, title: cleanTitle(line) }
-    return null
+  const fence = createMarkdownFenceTracker()
+  const boundaries = []
+  let hasMarkdown = false
+  for (const line of content.matchAll(/([^\r\n]*)(?:\r\n|\r|\n|$)/g)) {
+    if (fence.includes(line[1])) continue
+    const markdown = MARKDOWN_HEADING.exec(line[1])
+    hasMarkdown ||= Boolean(markdown)
+    if (markdown || CHINESE_HEADING.test(line[1]) || /^[ \t]*---+[ \t]*$/.test(line[1])) {
+      boundaries.push({ line, markdown, separator: /^[ \t]*---+[ \t]*$/.test(line[1]) })
+    }
   }
   const sections: KnowledgeSection[] = []
   const stack: Array<{ level: number; title: string }> = []
@@ -69,15 +74,15 @@ export function knowledgeSections(entry: KBEntry): KnowledgeSection[] {
     const path = stack.map(item => item.title)
     sections.push(...chunk(path.length ? path : [entry.title], content, start, end, !path.length, counter))
   }
-  for (const match of content.matchAll(/([^\r\n]*)(?:\r\n|\r|\n|$)/g)) {
-    const line = match[1]
-    const heading = headingOf(line)
-    if (!heading && !/^[ \t]*---+[ \t]*$/.test(line)) continue
-    flush(match.index)
-    start = match.index + match[0].length
-    if (!heading) continue
-    while (stack.length && stack[stack.length - 1].level >= heading.level) stack.pop()
-    stack.push(heading)
+  for (const { line, markdown, separator } of boundaries) {
+    if (!markdown && !separator && hasMarkdown) continue
+    flush(line.index)
+    start = line.index + line[0].length
+    if (separator) continue
+    const level = markdown ? markdown[1].length : 2
+    const title = cleanTitle(markdown ? markdown[2] : line[1])
+    while (stack.length && stack[stack.length - 1].level >= level) stack.pop()
+    stack.push({ level, title })
   }
   flush(content.length)
   cache.set(entry, { content, sections })
@@ -128,7 +133,9 @@ export function retrieveKnowledgeSections<T>(items: Array<{ source: T; entry: KB
 /** 一份资料的简短目录（一、二级标题），让 AI 知道资料里有哪些内容。 */
 export function knowledgeOutlineText(entry: KBEntry, maxChars = 300): string {
   const titles: string[] = []
+  const fence = createMarkdownFenceTracker()
   for (const line of entry.content.replace(/\r\n?/g, '\n').split('\n')) {
+    if (fence.includes(line)) continue
     const match = /^(#{1,2})[ \t]+(.+?)[ \t]*#*[ \t]*$/.exec(line)
     if (match && cleanTitle(match[2]) !== entry.title.trim()) titles.push(cleanTitle(match[2]))
   }

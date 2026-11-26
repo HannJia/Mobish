@@ -63,6 +63,7 @@ export function mixSkeletonRevisions(draft: CreationDraft, sources: SkeletonSour
 
 export type CreationRecoveryEdit =
   | SceneRecoveryEdit
+  | { kind: 'surface'; value: import('@/types/planningRecovery').CreationSurface }
   | { kind: 'editor'; value: CreationEditorDraft }
   | { kind: 'discard-editor'; id: string; expected: string }
   | { kind: 'attempt'; value: SkeletonGenerationAttempt }
@@ -70,6 +71,7 @@ export type CreationRecoveryEdit =
 /** Recovery writes cannot change formal direction, candidates, Canon or manuscript. */
 export function applyCreationRecovery(draft: CreationDraft, edit: CreationRecoveryEdit): CreationDraft {
   if (isSceneRecoveryEdit(edit)) return applySceneRecovery(draft, edit)
+  if (edit.kind === 'surface') return draft.lastSurface === edit.value ? draft : { ...draft, lastSurface: edit.value }
   const next = copy(draft)
   if (edit.kind === 'editor') {
     next.editorDrafts = [...(next.editorDrafts || []).filter(item => item.id !== edit.value.id), copy(edit.value)]

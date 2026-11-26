@@ -1,10 +1,88 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getCurrentChapterSummary, getChapterSummaryStatus } from '@/services/derivedSources'
 import { createPinia, setActivePinia } from 'pinia'
-import { useNovelStore } from '@/stores/novel'
+import { createNovelDraft, useNovelStore } from '@/stores/novel'
+import { useKnowledgeStore } from '@/stores/knowledge'
 import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspace'
 import { bindStoryProposalSource } from '@/services/storyProposalSource'
+import { chapterPlanningSourceVersion, type ChapterPlanInput } from '@/services/storyPlanTransactions'
 import * as storyAggregate from '@/services/storyAggregate'
+import { INSPIRATION_KB_DESC } from '@/services/chatKnowledgeDocument'
+
+describe('novels with bound discussion libraries', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+  afterEach(() => vi.restoreAllMocks())
+
+  function setup() {
+    const novels = useNovelStore()
+    const knowledge = useKnowledgeStore()
+    const base = knowledge.createKB('待命名', INSPIRATION_KB_DESC)
+    const note = knowledge.addEntry(base.id, { title: '灵感讨论笔记', content: '旧港设定', category: '地点', summary: '', tags: [] })!
+    const form = { genre: 'fantasy', subGenre: 'xuanhuan', tags: [], targetWordCountMin: 20, targetWordCountMax: 30,
+      workingTitle: '旧港', writingStyle: novels.defaultWritingStyle(), settings: novels.defaultSettings(), knowledgeBaseIds: [base.id] }
+    return { novels, knowledge, base, note, form }
+  }
+
+  it.each(['add', 'publish'])('renames a bound discussion library during %s creation after a valid title is set', method => {
+    const { novels, knowledge, base, note, form } = setup()
+    const draft = createNovelDraft(form)
+    expect(knowledge.getKB(base.id)?.name).toBe('待命名')
+    const novel = method === 'add' ? novels.addNovel(form) : novels.publishCreatedNovel(draft)
+    expect(novel.knowledgeBaseIds).toEqual([base.id])
+    expect(knowledge.getKB(base.id)?.name).toBe('旧港')
+    expect(note.title).toBe('《旧港》讨论笔记')
+    novels.updateTitle(novel.id, '新港')
+    expect(knowledge.getKB(base.id)?.name).toBe('新港')
+    expect(note.title).toBe('《新港》讨论笔记')
+  })
+
+  it('syncs a shelf rename only after the new title is committed', async () => {
+    const { novels, knowledge, base, note, form } = setup()
+    const novel = novels.publishCreatedNovel(createNovelDraft({ ...form, workingTitle: '' }))
+    vi.spyOn(knowledge, 'flushPendingSaves').mockResolvedValue()
+    vi.spyOn(storyAggregate, 'readStoryAggregate').mockResolvedValue({ novel: null, workspace: {
+      candidates: [], reviewFindings: [], canonMutations: [], chapterReviews: [], aiRuns: [],
+    } })
+    const save = vi.spyOn(storyAggregate, 'saveStoryAggregate').mockRejectedValueOnce(new Error('synthetic disk failure'))
+      .mockResolvedValueOnce()
+    await expect(novels.updateTitleWithImpact(novel.id, '旧港')).rejects.toThrow('synthetic disk failure')
+    expect(knowledge.getKB(base.id)?.name).toBe('待命名')
+    expect(note.title).toBe('灵感讨论笔记')
+    await expect(novels.updateTitleWithImpact(novel.id, '旧港')).resolves.toBe(true)
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(knowledge.getKB(base.id)?.name).toBe('旧港')
+    expect(note.title).toBe('《旧港》讨论笔记')
+  })
+
+  it('creates and renames a book safely when its bound library has not loaded', () => {
+    const { novels, form } = setup()
+    const novel = novels.addNovel({ ...form, knowledgeBaseIds: ['missing'] })
+    expect(() => novels.updateTitle(novel.id, '新港')).not.toThrow()
+    expect(novel.title).toBe('新港')
+  })
+
+  it('commits a chapter plan batch generated with a bound knowledge base', async () => {
+    const { novels, knowledge, form } = setup()
+    const novel = novels.addNovel(form)
+    const workspace = useReconstructionWorkspaceStore()
+    vi.spyOn(knowledge, 'flushPendingSaves').mockResolvedValue()
+    vi.spyOn(storyAggregate, 'readStoryAggregate').mockResolvedValue({ novel: null, workspace: {
+      candidates: [], reviewFindings: [], canonMutations: [], chapterReviews: [], aiRuns: [],
+    } })
+    const save = vi.spyOn(storyAggregate, 'saveStoryAggregate').mockResolvedValue()
+    const planningSourceVersion = chapterPlanningSourceVersion(novel, workspace.getStoryMemories(novel.id), knowledge.knowledgeBases)
+    const plan: ChapterPlanInput = {
+      horizon: 'next', title: '调查旧港', objective: '找到旧港的登记册', summary: '', beats: [],
+      targetChapterStart: 0, targetChapterEnd: 0, relatedArcIds: [], relatedEventIds: [], status: 'planned', source: 'ai',
+    }
+    const plans = [plan, { ...plan, title: '核对线索', targetChapterStart: 1, targetChapterEnd: 1 }]
+
+    await novels.commitChapterPlanEdit(novel.id, { action: 'create-batch', planningSourceVersion, plans })
+
+    expect(novel.chapterPlans).toMatchObject(plans)
+    expect(save).toHaveBeenCalledTimes(1)
+  })
+})
 
 
 describe('chapter deletion transactions', () => {

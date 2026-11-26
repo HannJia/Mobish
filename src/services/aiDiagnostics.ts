@@ -31,9 +31,12 @@ export function structuredOutputDiagnostic(result: ChatCompletionResult): string
   const finish = !result.finishReason ? '未提供' : FINISH_REASONS.has(result.finishReason) ? result.finishReason : '未知'
   const tokens = result.usage?.completion_tokens
   const reasoningTokens = result.usage?.completion_tokens_details?.reasoning_tokens
+  const hasReasoningUsage = isTokenCount(reasoningTokens)
+  const reasoningOnlyTruncation = result.finishReason === 'length' && hasReasoningUsage && reasoningTokens > 0 && !result.content.trim()
   return `结束原因：${finish}；正文长度：${result.content.length} 字符`
     + (isTokenCount(tokens) ? `；输出用量：${tokens} Token` : '')
-    + (isTokenCount(reasoningTokens) ? `；推理用量：${reasoningTokens} Token` : '')
+    + (hasReasoningUsage ? `；推理用量：${reasoningTokens} Token` : '')
+    + (reasoningOnlyTruncation ? '。思考过程用光了输出上限。请在「设置 → 模型配置」中调高该模型的「最大输出 Token 数」后重试。' : '')
 }
 
 export function assertStructuredOutputComplete(result: ChatCompletionResult, task: string): void {

@@ -14,7 +14,7 @@ import type { TitleSuggestion } from './titleSuggestions'
 
 export type InspirationMessage = { role: 'user' | 'assistant'; content: string; search?: ChatSearchRecord; questions?: string[]; knowledgeReferences?: InspirationKnowledgeReference[] }
 export type InspirationContext = { content: string; messageCount: number }
-export type InspirationSettingsDraft = CreateWizardForm & { titleSuggestions?: TitleSuggestion[] }
+export type InspirationSettingsDraft = CreateWizardForm & { titleSuggestions?: TitleSuggestion[]; openingTimeSuggestion?: string }
 
 const QUESTIONS_OPEN = '<inspiration-questions>'
 const QUESTIONS_CLOSE = '</inspiration-questions>'
@@ -66,7 +66,7 @@ export function inspirationSettingsSnapshot(form: InspirationSettingsDraft): str
   return JSON.stringify({ genre: form.genre, subGenre: form.subGenre, tags: form.tags,
     targetWordCountMin: form.targetWordCountMin, targetWordCountMax: form.targetWordCountMax,
     writingStyle: form.writingStyle, settings: form.settings, workingTitle: form.workingTitle?.trim() || undefined,
-    storyTimeOrigin: form.storyTimeOrigin, titleSuggestions: form.titleSuggestions })
+    storyTimeOrigin: form.storyTimeOrigin, openingTimeSuggestion: form.openingTimeSuggestion, titleSuggestions: form.titleSuggestions })
 }
 
 const EXTRACTION_BATCH_CHARS = 16_000
@@ -142,21 +142,29 @@ async function chooseKnowledgePassages(
   }
 }
 
+export async function retrieveInspirationKnowledge(
+  model: ModelConfig, query: string, signal: AbortSignal, knowledgeIds?: string[],
+  previousReferences?: InspirationKnowledgeReference[], currentSettings?: CreateWizardForm,
+) {
+  signal.throwIfAborted()
+  const knowledge = useKnowledgeStore()
+  const ids = knowledgeIds ?? knowledge.knowledgeBases.map(base => base.id)
+  const directory = inspirationKnowledgeDirectory(knowledge.knowledgeBases, ids, query, previousReferences)
+  const [selectedPassages, semantic] = await Promise.all([
+    chooseKnowledgePassages(model, directory, query, signal, currentSettings),
+    searchInspirationKnowledgeVectors(knowledge.knowledgeBases, ids, useConfigStore().embedding, query, signal),
+  ])
+  signal.throwIfAborted()
+  return buildInspirationKnowledgeContext(knowledge.knowledgeBases, ids, query, previousReferences, semantic, selectedPassages)
+}
+
 export async function chatInspiration(
   model: ModelConfig, messages: InspirationMessage[], signal: AbortSignal, onChunk: (text: string) => void,
   webSearch = false, knowledgeIds?: string[], context?: InspirationContext, currentSettings?: CreateWizardForm,
 ) {
-  const knowledge = useKnowledgeStore()
-  const ids = knowledgeIds ?? knowledge.knowledgeBases.map(base => base.id)
   const latestQuestion = messages.filter(item => item.role === 'user').slice(-1)[0]?.content || ''
   const previousReferences = messages.filter(item => item.role === 'assistant').slice(-1)[0]?.knowledgeReferences
-  const directory = inspirationKnowledgeDirectory(knowledge.knowledgeBases, ids, latestQuestion, previousReferences)
-  const [selectedPassages, semantic] = await Promise.all([
-    chooseKnowledgePassages(model, directory, latestQuestion, signal, currentSettings),
-    searchInspirationKnowledgeVectors(knowledge.knowledgeBases, ids, useConfigStore().embedding, latestQuestion, signal),
-  ])
-  signal.throwIfAborted()
-  const knowledgeContext = buildInspirationKnowledgeContext(knowledge.knowledgeBases, ids, latestQuestion, previousReferences, semantic, selectedPassages)
+  const knowledgeContext = await retrieveInspirationKnowledge(model, latestQuestion, signal, knowledgeIds, previousReferences, currentSettings)
   const compressed = context && context.messageCount > 0 && context.messageCount <= messages.length ? context : undefined
   const promptMessages: InspirationMessage[] = [
     ...(compressed ? [{ role: 'user' as const, content: `【此前对话的压缩记录，仅供参考；请优先回应本轮用户消息】\n${compressed.content}` }] : []),
@@ -169,7 +177,7 @@ export async function chatInspiration(
     latest.content += `\n\n【界面附加格式】答复正文后，另起一行用 ${QUESTIONS_OPEN} 和 ${QUESTIONS_CLOSE} 包住三个供我点击继续讨论的问题，每行一个。问题要结合这次回答，用我向你提问的口吻。这段由界面单独显示，即使正文要求简短也需要完整提供。`
   }
   const result = await chatWithOptionalSearch({
-    model: { ...model, maxTokens: Math.min(model.maxTokens, webSearch ? 6000 : 2400) },
+    model: { ...model, maxTokens: Math.min(model.maxTokens, webSearch ? 6000 : 4096) },
     signal, onChunk, webSearch,
     messages: [{
       role: 'system',
@@ -335,6 +343,21 @@ function parseWordCount(value: unknown): number {
   return match ? Number(match[0]) : Number.NaN
 }
 
+export function inferOpeningTimeSuggestion(text: string): string | undefined {
+  const date = '(\\d{4}\\s*年(?:\\s*\\d{1,2}\\s*月(?:\\s*\\d{1,2}\\s*[日号])?)?)'
+  const before = new RegExp('(?:开篇|开场|开局|故事(?:开始|起于|始于)|穿越|重生|回到)(?:发生|时间|设定|背景|于|在|为|是|到|回|了|[:：\\s])*' + date, 'g')
+  const after = new RegExp(date + '\\s*(?:的)?(?:开篇|开场|开局)', 'g')
+  const candidates = new Set<string>()
+  for (const clause of text.split(/[。！？；\n]/)) {
+    if (/(?:或|还是|二选一|未定|待定|待确认)/.test(clause)
+      && [...new Set(Array.from(clause.matchAll(/\d{4}\s*年/g), match => match[0].replace(/\s/g, '')))].length > 1) return undefined
+    for (const pattern of [before, after]) {
+      for (const match of clause.matchAll(pattern)) candidates.add(match[1].replace(/\s/g, ''))
+    }
+  }
+  return candidates.size === 1 ? candidates.values().next().value : undefined
+}
+
 export function parseInspirationSettings(raw: string, base: InspirationSettingsDraft): InspirationSettingsDraft {
   if (!raw.trim()) throw new Error('AI 未返回内容，请重试整理')
   const parsed = parseAiJsonObject<Record<string, unknown>>(raw)
@@ -344,7 +367,7 @@ export function parseInspirationSettings(raw: string, base: InspirationSettingsD
   const settings = record(rawSettings)
   const hasUsableField = Object.keys(settings).length > 0
     || ['genre', 'genreLabel', 'genreName', 'subGenre', 'subGenreLabel', 'subGenreName',
-      'type', 'category', 'tags', 'writingStyle', 'targetWordCountMin', 'targetWordCountMax', 'workingTitle', 'storyTimeOrigin', 'titleSuggestions']
+      'type', 'category', 'tags', 'writingStyle', 'targetWordCountMin', 'targetWordCountMax', 'workingTitle', 'storyTimeOrigin', 'openingTimeSuggestion', 'titleSuggestions']
       .some(key => payload[key] !== undefined)
   if (!hasUsableField) throw new Error('AI 返回了 JSON，但没有可用的小说设定字段，请重试整理')
 
@@ -395,6 +418,14 @@ export function parseInspirationSettings(raw: string, base: InspirationSettingsD
   const origin = record(payload.storyTimeOrigin)
   if (!form.storyTimeOrigin && typeof origin.day === 'number' && Number.isFinite(origin.day) && origin.day >= 0 && origin.day <= 100000000) {
     form.storyTimeOrigin = { day: origin.day, label: typeof origin.label === 'string' ? origin.label.trim().slice(0, 200) : '' }
+  }
+  if (!form.storyTimeOrigin) {
+    const suggestion = payload.openingTimeSuggestion
+    const narrative = [settings.worldBuilding, settings.structure, settings.otherSettings]
+      .filter(value => value !== undefined).map(value => typeof value === 'string' ? value : JSON.stringify(value)).join('\n')
+    if (suggestion === null) delete form.openingTimeSuggestion
+    else if (typeof suggestion === 'string' && suggestion.trim() && suggestion.trim().length <= 200) form.openingTimeSuggestion = suggestion.trim()
+    else if (narrative) form.openingTimeSuggestion = inferOpeningTimeSuggestion(narrative)
   }
   if (Array.isArray(payload.titleSuggestions)) {
     const suggestions = new Map<string, TitleSuggestion>()
@@ -521,7 +552,7 @@ async function extractInspirationForm(
 【写作风格】${styleDimensions.map(dim => `${dim.key}：${dim.options.map(option => `${option.value}=${option.label}`).join('、')}`).join('；')}
 【允许的 JSON 字段】genre、subGenre、tags、targetWordCountMin、targetWordCountMax、writingStyle、settings。settings 内可使用 protagonist、supportingCharacters、worldBuilding、powerSystem、coreConflict、romance、payoff、structure、otherSettings；只写本次有依据的内容。
 targetWordCountMin/Max 单位为万字，范围 1~999，最小值不得超过最大值。
-workingTitle 只能填作者明确选定的书名。storyTimeOrigin 用 {"day":0,"label":"起点名称"} 的格式，只填作者明确确定的非负故事日，0 只是格式示例。只有时代、日期或场景描述时，保留在世界设定中，不推算故事日。
+workingTitle 只能填作者明确选定的书名。storyTimeOrigin 用 {"day":0,"label":"起点名称"} 的格式，只填作者明确确定的非负故事日，0 只是格式示例。只有时代、日期或场景描述时，用 openingTimeSuggestion 提供可编辑的开篇时间名称，不推算故事日。例如「主角来自2026年，穿越到1992年开篇」的建议是「1992 年开篇」，2026 年保留在人物设定。多个可能起点无法判定时返回 "openingTimeSuggestion":null。
 titleSuggestions 另给 3–5 个贴合设定的候选，每个使用 {"title":"书名","reason":"一句取名思路"}，候选不得作为 workingTitle。`,
     }, ...input, { role: 'user', content: `【作者当前编辑的设定资料】\n${inspirationSettingsSnapshot(currentSettings)}\n请在此基础上整理，保留作者手工修改；旧讨论与当前设定冲突时使用当前设定，除非本轮作者明确又提出了更新。未讨论字段保持原样，不擅自填充。\n请输出待作者确认的新书设定 JSON。` }],
   })

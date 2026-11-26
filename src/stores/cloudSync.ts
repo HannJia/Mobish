@@ -3,10 +3,12 @@ import { defineStore } from 'pinia'
 import { cloudRequest, CloudApiError } from '@/services/cloudSyncApi'
 import {
   DEFAULT_SYNC_ENDPOINT, normalizeSyncEndpoint, emptySyncState, projectDocuments, hashPayload,
-  parseCloudDocument, documentTitle, decideSync, mergeCloudDocuments,
+  parseCloudDocument, documentTitle, decideSync, mergeCloudDocuments, canSyncKnowledgeMergeDeletion,
   type CloudSession, type CloudUser, type CloudRecord, type SyncState, type SyncConflict,
 } from '@/services/cloudSyncModel'
-import { readCloudState, readCloudConflicts, persistCloudState } from '@/services/db/cloudSync'
+import { readCloudState, readCloudConflicts, persistCloudState, listLocalKnowledgeDuplicates,
+  readLocalKnowledgeMergePreview, commitLocalKnowledgeMerge } from '@/services/db/cloudSync'
+import type { KnowledgeMergeConfirmation, KnowledgeMergeSelection } from '@/services/knowledgeDuplicateMerge'
 import { downloadProjectBackup } from '@/services/projectBackup'
 import { adoptProjectSnapshot, captureProjectSnapshot, flushProjectState } from '@/services/projectSnapshot'
 import { retainProjectRestorePoint } from '@/services/database'
@@ -60,6 +62,30 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
   }
   async function flush() {
     await flushProjectState()
+  }
+  async function listKnowledgeDuplicates() {
+    await flush()
+    return listLocalKnowledgeDuplicates()
+  }
+  async function getKnowledgeMergePreview(selection: KnowledgeMergeSelection) {
+    await flush()
+    return readLocalKnowledgeMergePreview(selection)
+  }
+  async function confirmKnowledgeMerge(confirmation: KnowledgeMergeConfirmation, signal?: AbortSignal) {
+    const result = await exclusively(async () => {
+      if (localWorkBusy() || cloudApplyBusy.value) throw new Error('请等待当前项目操作结束后再合并知识库。')
+      cloudApplyBusy.value = true
+      try {
+        signal?.throwIfAborted()
+        await flush()
+        const committed = await commitLocalKnowledgeMerge(confirmation, signal)
+        adoptProjectSnapshot(committed.project)
+        state.value = committed.state
+        return committed.result
+      } finally { cloudApplyBusy.value = false }
+    })
+    if (initialized.value) schedule()
+    return result
   }
   async function writeSession(value: CloudSession | null) {
     if (window.electronAPI?.cloudSessionWrite) await window.electronAPI.cloudSessionWrite(value)
@@ -251,9 +277,19 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         if (localWorkBusy()) throw new Error('AI 或项目任务正在运行，已暂停同步，稍后自动重试。')
         if (existing.has(key)) continue
         const item = remote.get(key)
+        const mergeDeletion = next.knowledgeMergeDeletions?.[key]
+        if (mergeDeletion && !local.has(key) && !next.bases[key] && item?.hash) {
+          if (mergeDeletion.sourceHash !== item.hash) {
+            conflict(key, await fetchRecord(key))
+            continue
+          }
+          next.bases[key] = { hash: item.hash, version: item.version }
+          acknowledgedBases.add(key)
+        }
         const decision = decideSync(hashes.get(key) ?? null, item, next.bases[key])
         if (decision === 'same') {
           if (item) next.bases[key] = { hash: item.hash, version: item.version }
+          if (mergeDeletion && item?.hash === null && !local.has(key)) delete next.knowledgeMergeDeletions![key]
         } else if (decision === 'push') {
           pushCandidates.push(key)
         } else if (decision === 'pull') {
@@ -342,7 +378,8 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
       for (const [key, payload] of freshLocal) freshHashes.set(key, await hashPayload(payload))
       
       const newPending: Array<{ key: string; title: string; kind: 'novel' | 'knowledge' | 'inspiration' }> = []
-      pushCandidates.sort((a, b) => Number(!a.startsWith('knowledge:')) - Number(!b.startsWith('knowledge:')))
+      const pushPriority = (key: string) => next.knowledgeMergeDeletions?.[key] ? 2 : key.startsWith('knowledge:') ? 0 : 1
+      pushCandidates.sort((a, b) => pushPriority(a) - pushPriority(b))
       let blockedUpload = false
       for (const key of pushCandidates) {
         check()
@@ -355,6 +392,14 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         check()
         const freshDecision = decideSync(freshHashes.get(key) ?? null, remote.get(key), next.bases[key])
         if (freshDecision !== 'push') continue
+        const mergeDeletion = next.knowledgeMergeDeletions?.[key]
+        if (mergeDeletion && !freshLocal.has(key)) {
+          const blocked = new Set([...existing, ...newConflicts.map(item => item.key)])
+          if (!await canSyncKnowledgeMergeDeletion(mergeDeletion, freshLocal, remote, blocked)) {
+            blockedUpload = true
+            continue
+          }
+        }
         
         if (!acknowledgedBases.has(key) && !approved.has(key)) {
           const payload = freshLocal.get(key) ?? null
@@ -384,6 +429,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
           if (accepted.key !== key || accepted.hash !== (freshHashes.get(key) ?? null)) throw new Error('云端写入结果校验失败。')
           next.bases[key] = { hash: accepted.hash, version: accepted.version }
           remote.set(key, accepted)
+          if (mergeDeletion && accepted.hash === null) delete next.knowledgeMergeDeletions![key]
         } catch (cause) {
           if (!(cause instanceof CloudApiError) || cause.status !== 409) throw cause
           conflict(key, await fetchRecord(key), freshLocal.get(key) ?? null)
@@ -494,6 +540,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
       const current = await capture()
       const next = JSON.parse(JSON.stringify(state.value)) as SyncState
       next.bases[item.key] = { version: remote.version, hash: remote.hash }
+      if (choice === 'remote' && next.knowledgeMergeDeletions?.[item.key]) delete next.knowledgeMergeDeletions[item.key]
       const project = choice === 'remote' ? mergeCloudDocuments(current, new Map([[item.key, remote.payload ?? null]])) : undefined
       if (project) await retainProjectRestorePoint(JSON.stringify(current))
       const currentPayload = projectDocuments(current).get(item.key) ?? null
@@ -560,6 +607,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
   return {
     state, session, conflicts, initialized, busy, error, pendingDownloads, transferring, phase, endpoint,
     pendingConflicts, pendingUploads, statusText, initialize, authenticate, logout, setEnabled, syncNow,
+    listKnowledgeDuplicates, getKnowledgeMergePreview, confirmKnowledgeMerge,
     schedule, approveUploads, resolveConflict, exportConflict, createInvite, recover, changePassword, flushBeforeClose, dispose,
   }
 })

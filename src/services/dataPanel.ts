@@ -448,7 +448,7 @@ export function dataPanelReferenceInput(items: DataPanelItem[]) {
     item.fields.map(field => ({ ...field, automationRules: (field.automationRules || []).map(rule => ({
       id: rule.id, trigger: rule.trigger, amount: rule.amount, interval: rule.interval, schedule: rule.schedule,
       sourceFieldName: rule.sourceFieldName, enabled: rule.enabled,
-    })) }))])
+    })) })), ...(item.characterId ? [item.characterId] : [])])
 }
 
 export function pruneDataPanelChangeHistory(

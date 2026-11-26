@@ -80,7 +80,7 @@ export function createAutonomousEmptyChapterProcessor(runtime: AutonomousChapter
       const result = await callAI({ model: runtime.writingModel, skillTask: 'writing', taskName: '自动写作第' + (chapterIndex + 1) + '章',
         messages: buildChapterPrompt(novel, context.outlineContext, context.chapterGuidance || '第' + (chapterIndex + 1) + '章', context.previousSummary, context.lastParagraph, '', buildChapterFactCard(novel, target, context)),
         maxTokens: chapterOutputTokenBudget(runtime.writingModel.maxTokens, resolveChapterLengthPolicy(novel.chapterLengthPolicy).targetWords),
-        signal, noAutomaticRetry: true, requestLifecycle: requestLifecycle('writing') })
+        stream: true, onChunk: () => {}, signal, noAutomaticRetry: true, requestLifecycle: requestLifecycle('writing') })
       if (!result.content.trim()) return { status: 'needs_author', message: '模型没有返回可保存的正文（' + structuredOutputDiagnostic(result) + '）' }
       ensureCurrent()
       const now = new Date().toISOString()

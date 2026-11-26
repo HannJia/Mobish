@@ -5,6 +5,7 @@ import { createTestProjectBackup as createProjectBackup } from '@/test/projectBa
 import { createPinia, setActivePinia } from 'pinia'
 import { useNovelStore } from '@/stores/novel'
 import { createChapterSourceBinding } from './derivedSources'
+import { recordDataPanelReference } from './dataPanelReference'
 
 function validBook() {
   setActivePinia(createPinia())
@@ -124,6 +125,28 @@ describe('项目备份格式', () => {
     corrupt.novels[0].dataPanelChanges = []
     corrupt.novels[0].dataPanels[0].fields[0].modifier.operation = 'eval'
     expect(() => parseProjectBackup(JSON.stringify(corrupt))).toThrow('operation')
+  })
+
+  it('round trips panel character IDs in the current record, historical revisions and version snapshots', () => {
+    const book = validBook()
+    const now = book.createdAt
+    const character = applyEntityDefinitionEdit(book, { action: 'create', kind: 'character', data: { name: '苏禾' } }, now, () => 'su').entity!
+    const current = { id: 'cultivation', name: '修炼册', category: '角色' as const, characterId: character.id,
+      fields: [], relatedKeywords: [], createdAt: now, updatedAt: now }
+    const panel = { ...current, versions: [{ id: 'version', label: '旧版', savedAt: now, snapshot: JSON.stringify(current) }] }
+    recordDataPanelReference(panel, current, { kind: 'author' }, now, 'binding-revision', undefined, ['characterId'])
+    book.dataPanels = [panel]
+    const backup = createProjectBackup([book], [])
+    expect(parseProjectBackup(JSON.stringify(backup)).novels[0].dataPanels).toEqual(book.dataPanels)
+    for (const location of ['panel', 'baseline', 'revision', 'snapshot']) {
+      const corrupt = JSON.parse(JSON.stringify(backup))
+      const invalid = corrupt.novels[0].dataPanels[0]
+      if (location === 'panel') invalid.characterId = 7
+      if (location === 'baseline') invalid.referenceHistory.baseline.characterId = 7
+      if (location === 'revision') invalid.referenceHistory.revisions[0].changes[0].after = 7
+      if (location === 'snapshot') invalid.versions[0].snapshot = JSON.stringify({ ...current, characterId: 7 })
+      expect(() => parseProjectBackup(JSON.stringify(corrupt))).toThrow(/characterId|referenceHistory\.revisions\[0\]\.changes\[0\]\.after/)
+    }
   })
 
   it('preserves separate inspiration archives and validates their nested fields', () => {

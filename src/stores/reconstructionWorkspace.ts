@@ -30,7 +30,8 @@ import { createCharacterStateChange } from '@/services/reconstructionCharacterSt
 import { buildAnalysisSourceVersionId } from '@/services/reconstructionCandidates'
 import { applyCreationEdit, captureCreationBaseline, type CreationEdit } from '@/services/creationTransactions'
 import { applyCreationRecovery, type CreationRecoveryEdit } from '@/services/creationDraft'
-import { canFlushSceneRecovery, isSceneRecoveryEdit } from '@/services/planningRecovery'
+import { canFlushSceneRecovery, isSceneRecoveryEdit, resolveCreationSurface } from '@/services/planningRecovery'
+import type { CreationSurface } from '@/types/planningRecovery'
 import { validateReconstructionCreationDraft } from '@/services/reconstructionBackupValidation'
 import { applyScenePlanningEdit, type ScenePlanningEdit } from '@/services/scenePlanningTransactions'
 import { saveCharacterScan } from '@/services/characterScanTransactions'
@@ -466,18 +467,28 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
   async function saveCreationRecovery(novelId: string, edit: CreationRecoveryEdit, flushToken?: DraftFlushToken): Promise<void> {
     const captured: CreationRecoveryEdit = JSON.parse(JSON.stringify(edit))
     return serializePersistence(novelId, async () => {
-      const controlledEditorFlush = isDraftFlushTokenActive(flushToken) && (captured.kind === 'editor'
+      const controlledEditorFlush = isDraftFlushTokenActive(flushToken) && (captured.kind === 'editor' || captured.kind === 'surface'
         || captured.kind === 'attempt' && !['queued', 'running'].includes(captured.value.status)
         || isSceneRecoveryEdit(captured) && canFlushSceneRecovery(captured))
       if ((projectTransferBusy.value || cloudApplyBusy.value || appUpdateInstalling.value) && !controlledEditorFlush) throw new Error('项目正在保存或恢复，创作草稿暂时无法保存')
       const persisted = await loadReconstructionWorkspace(novelId)
       const snapshot = currentWorkspace(novelId, persisted)
       if (!snapshot.creationDraft) throw new Error('请先打开作品创作草稿')
-      snapshot.creationDraft = applyCreationRecovery(snapshot.creationDraft, captured)
+      const next = applyCreationRecovery(snapshot.creationDraft, captured)
+      if (next === snapshot.creationDraft) return
+      snapshot.creationDraft = next
       validateReconstructionCreationDraft(snapshot.creationDraft)
       await saveReconstructionWorkspace(novelId, snapshot)
       creationDraftsByNovel.value[novelId] = snapshot.creationDraft
     })
+  }
+
+  function getCreationSurface(novelId: string): CreationSurface {
+    return resolveCreationSurface(getCreationDraft(novelId))
+  }
+
+  function saveCreationSurface(novelId: string, value: CreationSurface, token?: DraftFlushToken): Promise<void> {
+    return saveCreationRecovery(novelId, { kind: 'surface', value }, token)
   }
 
   function getEditorDrafts(novelId: string): EditorDraft[] {
@@ -858,6 +869,8 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
     saveMemoryTaskDraft,
     saveAuthorMemoryDraft,
     saveCreationRecovery,
+    getCreationSurface,
+    saveCreationSurface,
     decideAiDraft,
     removeAiRun,
     hydrateFromPersistence,

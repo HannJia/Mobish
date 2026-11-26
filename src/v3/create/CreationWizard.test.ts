@@ -298,4 +298,30 @@ describe('independent writing and settings choices', () => {
     expect(existing.writingMode).toBe('ai')
     wrapper.unmount()
   })
+
+  it('clears edited title/origin on inspiration session reset and records used session id after creation', async () => {
+    localStorage.clear()
+    const wrapper = shallowMount(CreateWizard, options)
+    await choose(wrapper, 'manual', 'inspiration')
+    const chat = wrapper.findComponent(InspirationChat)
+    chat.vm.$emit('session-change', 'session-book-1')
+    chat.vm.$emit('apply', { ...proposal('manual'), workingTitle: '半圈青漆', storyTimeOrigin: { day: 1, label: '秋雨' } },
+      [{ role: 'user', content: '第一本书灵感' }])
+    await flushPromises()
+    // Simulate author editing workingTitle before returning and starting a new chat
+    const titleInput = wrapper.findAllComponents(V3Input).find(field => field.attributes('aria-label') === '新作品名称')!
+    titleInput.vm.$emit('update:value', '手动改过的旧书名')
+    await flushPromises()
+    await wrapper.findAll('button').find(b => b.text() === '返回灵感对话')!.trigger('click')
+    chat.vm.$emit('session-reset')
+    chat.vm.$emit('draft-change', { ...proposal('manual'), workingTitle: '钟表街七号' })
+    await flushPromises()
+    expect(chat.props('form').workingTitle).toBe('钟表街七号')
+    chat.vm.$emit('apply', { ...proposal('manual'), workingTitle: '钟表街七号' }, [{ role: 'user', content: '第二本书灵感' }])
+    await flushPromises()
+    await wrapper.get('#entry-create-btn').trigger('click')
+    await flushPromises()
+    expect(localStorage.getItem('mojian-last-created-inspiration-session-id')).toBe('session-book-1')
+    wrapper.unmount()
+  })
 })

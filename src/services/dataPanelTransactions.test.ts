@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useNovelStore } from '@/stores/novel'
+import { characterStateFixture } from '@/test/characterStateFixture'
 import type { DataPanelChange, DataPanelField } from '@/types/novel'
 import type { StoryAggregate } from './storyAggregate'
 import { bindAuthorDataPanelProposalSource, bindDataPanelProposalSource, dataPanelProposalSourceIsCurrent } from './dataPanelProposalSource'
@@ -12,6 +13,8 @@ import { createTestProjectBackup } from '@/test/projectBackupFixture'
 import { parseProjectBackup } from './projectBackup'
 import { setStoryTimeOrigin } from '@/types/storyTime'
 import { recordStoryTime } from './storyTime'
+import { applyEntityDefinitionEdit } from './entityDefinitionEditing'
+import { projectDataPanelReferences } from './dataPanelReference'
 
 const now = '2026-10-31T00:00:00.000Z'
 let sequence = 0
@@ -35,6 +38,45 @@ function setup() {
 beforeEach(() => { setActivePinia(createPinia()); sequence = 0 })
 
 describe('data proposal sources and draft transactions', () => {
+  it('creates and versions an explicit binding and clears it when restoring a legacy version', () => {
+    const { novel } = characterStateFixture()
+    const [first, second] = novel.characters
+    const aggregate: StoryAggregate = { novel, workspace: { candidates: [], canonMutations: [], reviewFindings: [] } }
+    const panel = editDataPanel(aggregate, { action: 'create', item: { category: '角色', name: '修为' } },
+      captureDataPanelBaseline(novel), now, id).item!
+    const update = (characterId: string) => editDataPanel(aggregate, { action: 'update', itemId: panel.id, item: { characterId } },
+      captureDataPanelBaseline(novel, panel.id), now, id)
+    const restore = (versionId: string) => editDataPanel(aggregate, { action: 'restore', itemId: panel.id, versionId },
+      captureDataPanelBaseline(novel, panel.id), now, id)
+
+    update(first.id)
+    const legacyVersion = panel.versions![0]
+    expect(JSON.parse(legacyVersion.snapshot)).not.toHaveProperty('characterId')
+    update(second.id)
+    const boundVersion = panel.versions![1]
+    expect(JSON.parse(boundVersion.snapshot).characterId).toBe(first.id)
+    expect(restore(boundVersion.id).item?.characterId).toBe(first.id)
+    expect(projectDataPanelReferences(novel, 0).items[0].characterId).toBe(first.id)
+    expect(restore(legacyVersion.id).item?.characterId).toBeUndefined()
+    expect(projectDataPanelReferences(novel, 0).items[0].characterId).toBeUndefined()
+  })
+  it('rejects an invalid binding without partially editing the panel and clears bindings when deleting a character', () => {
+    const { novel } = characterStateFixture()
+    const [character] = novel.characters
+    const aggregate: StoryAggregate = { novel, workspace: { candidates: [], canonMutations: [], reviewFindings: [] } }
+    const panel = editDataPanel(aggregate, { action: 'create', item: { category: '角色', name: '笔记', characterId: character.id } },
+      captureDataPanelBaseline(novel), now, id).item!
+    const before = captureDataPanelBaseline(novel, panel.id)
+    expect(() => editDataPanel(aggregate, { action: 'update', itemId: panel.id, item: { name: '改名', characterId: 'missing' } },
+      before, now, id)).toThrow('绑定的角色不存在，请重新选择。')
+    expect(captureDataPanelBaseline(novel, panel.id)).toBe(before)
+    applyEntityDefinitionEdit(novel, { action: 'delete', kind: 'character', entityId: character.id, expectedEntity: JSON.stringify(character) }, now, id)
+    expect(panel.characterId).toBeUndefined()
+    expect(panel.referenceHistory?.revisions.slice(-1)[0]?.changes).toContainEqual({ key: 'characterId', before: character.id })
+    expect(editDataPanel(aggregate, { action: 'update', itemId: panel.id, item: { name: '新笔记' } },
+      captureDataPanelBaseline(novel, panel.id), now, id).item?.name).toBe('新笔记')
+    expect(projectDataPanelReferences(novel, 0).items[0].characterId).toBeUndefined()
+  })
   it('protects author suggestions against foreign ownership and changed field meaning', () => {
     const { novel, field, proposal } = setup()
     proposal.sourceBinding = bindAuthorDataPanelProposalSource(novel, proposal)

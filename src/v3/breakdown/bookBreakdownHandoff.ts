@@ -134,7 +134,7 @@ export async function publishBreakdownHandoff(job: BreakdownJob, source: Breakdo
           if (!target) throw new Error('目标章节已删除。')
           return applyChapterPlanEdit(aggregate, { action: 'create', data: { horizon: 'near', title: receipt.title,
             objective: input.text.trim(), summary: body, beats: [], targetChapterStart: target.chapterIndex, targetChapterEnd: target.chapterIndex,
-            relatedArcIds: [], relatedEventIds: [], status: 'planned', source: 'user' } }, receipt.createdAt, () => crypto.randomUUID()).created?.id
+            relatedArcIds: [], relatedEventIds: [], status: 'planned', source: 'user' } }, receipt.createdAt, () => crypto.randomUUID(), libraries.knowledgeBases).created?.id
         })
       } else if (input.kind === 'writing') {
         receipt.destinationId = await workspace.transactStory(novel.id, aggregate => {

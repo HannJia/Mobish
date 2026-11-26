@@ -97,10 +97,11 @@ export function editVolumeWithImpact(aggregate: StoryAggregate, volumeId: string
   if (!current || expectedVolume !== undefined && JSON.stringify(current) !== expectedVolume) {
     throw new Error('分卷规划已经变化或删除，请刷新后再保存。')
   }
-  const allowed = ['title', 'theme', 'summary', 'keyTurningPoints', 'characterChanges', 'estimatedChapters', 'estimatedWordCount'] as const
+  const allowed = ['title', 'theme', 'summary', 'keyTurningPoints', 'characterChanges', 'estimatedChapters', 'estimatedWordCount', 'sourceVolumeNumber', 'skeletonBeatIds'] as const
   if (Object.keys(updates).some(field => !allowed.some(key => key === field))) throw new Error('分卷编辑不能修改编号、排序或历史记录。')
-  const next = { ...current, ...JSON.parse(JSON.stringify(updates)) } as Novel['volumes'][number]
-  const fields = allowed.filter(field => current[field] !== next[field])
+  const next = { ...current, ...updates }
+  if (next.skeletonBeatIds?.length === 0) delete next.skeletonBeatIds
+  const fields = allowed.filter(field => JSON.stringify(current[field]) !== JSON.stringify(next[field]))
   if (!fields.length) return false
   const before = captureStoryImpact(aggregate.novel, aggregate.workspace)
   next.versions = appendPlanningVersion(current.versions, createPlanningSnapshot(current), '编辑前版本', now)
@@ -132,7 +133,7 @@ export function editVolumeCollectionWithImpact(aggregate: StoryAggregate, volume
   }
   const fieldsForVolume = (volume: Novel['volumes'][number], old: Novel['volumes'][number]) => {
     const next = JSON.parse(createPlanningSnapshot(volume)), previous = JSON.parse(createPlanningSnapshot(old))
-    return Object.keys(next).filter(field => next[field] !== previous[field])
+    return Object.keys({ ...previous, ...next }).filter(field => JSON.stringify(next[field]) !== JSON.stringify(previous[field]))
   }
   const changes: StoryImpactChange[] = []
   for (const volume of nextVolumes) {

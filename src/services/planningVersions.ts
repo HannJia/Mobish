@@ -32,6 +32,8 @@ export function createPlanningSnapshot(value: ChapterPlan | Volume): string {
     characterChanges: value.characterChanges,
     estimatedChapters: value.estimatedChapters,
     estimatedWordCount: value.estimatedWordCount,
+    sourceVolumeNumber: value.sourceVolumeNumber,
+    skeletonBeatIds: value.skeletonBeatIds?.length ? value.skeletonBeatIds : undefined,
   })
 }
 
@@ -42,7 +44,7 @@ export function appendPlanningVersion(
   savedAt = new Date().toISOString(),
 ): PlanningVersion[] {
   const previous = versions || []
-  if (previous[previous.length - 1]?.snapshot === snapshot) return previous
+  if (previous.some(version => version.snapshot === snapshot)) return previous
   return [...previous, {
     id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     label: label.trim() || '编辑前版本',
@@ -69,6 +71,7 @@ export function comparePlanningVersions(before: PlanningVersion | undefined, cur
     targetChapterStart: '开始章节', targetChapterEnd: '结束章节', horizon: '计划层级',
     theme: '主题', keyTurningPoints: '关键转折点', characterChanges: '角色变化',
     estimatedChapters: '预估章节', estimatedWordCount: '预估字数', status: '状态',
+    sourceVolumeNumber: '原始卷号', skeletonBeatIds: '承担的骨架节点',
   }
   return Object.keys({ ...previous, ...next })
     .filter(key => key !== 'relatedArcIds' && key !== 'relatedEventIds' && JSON.stringify(previous[key]) !== JSON.stringify(next[key]))

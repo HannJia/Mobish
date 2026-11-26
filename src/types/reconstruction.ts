@@ -80,7 +80,9 @@ export interface StoryContract {
   worldRules: string[]
   forbiddenTopics: string[]
   authorPreferences: string[]
+  storyTimeOrigin?: { day?: number; label?: string }
   cardConfirmations?: { cardId: string; signature: string; confirmedAt: IsoDateTime }[]
+  cardHistory?: ContractCardVersion[]
   approval: ApprovalState
   updatedAt: IsoDateTime
 }
@@ -88,7 +90,14 @@ export interface StoryContract {
 export interface ContractSuggestion {
   cardId: string
   baseline: string
+  explanation?: string
   values: Partial<StoryContract>
+}
+
+export interface ContractCardVersion {
+  cardId: string
+  signature: string
+  savedAt: IsoDateTime
 }
 export interface ContractExploration {
   input: string
@@ -285,6 +294,7 @@ export interface VolumeOutline {
   endingState: string
   chapterPlanIds: ReconstructionId[]
   plotlineIds: ReconstructionId[]
+  skeletonBeatIds?: ReconstructionId[]
   approval: ApprovalState
 }
 
@@ -468,6 +478,7 @@ export interface AiRun {
 }
 
 export interface CreationDraft {
+  lastSurface?: import('./planningRecovery').CreationSurface
   id: ReconstructionId
   entry: CreationEntry
   /** Immutable author input captured by the first creation commit; source only, never an approval. */

@@ -6,7 +6,7 @@ import type { StoryAggregate } from './storyAggregate'
 import { bindDataPanelProposalSource } from './dataPanelProposalSource'
 import { captureDataPanelBaseline, decideDataPanelProposals, editDataPanel, queueDataPanelAutomation } from './dataPanelTransactions'
 import { buildSemanticRecords } from './semanticIndex'
-import { projectDataPanelReferences } from './dataPanelReference'
+import { captureDataPanelReferenceItem, dataPanelReferenceState, getDataPanelFieldTemporalKind, projectDataPanelReferences, recordDataPanelReference } from './dataPanelReference'
 import { captureStoryImpact } from './storyImpactAnalysis'
 import { equipmentSnapshot } from './dataPanelEquipment'
 import { buildReviewContextVersion } from './reconstructionReviewVersion'
@@ -38,6 +38,39 @@ function setup(automation = false) {
 }
 
 describe('accepted data in chapter references', () => {
+  it('projects explicit bindings on the same chapter boundary as their revisions and ignores orphan IDs', () => {
+    const { novel, proposal } = setup()
+    const panel = novel.dataPanels[0]
+    panel.referenceHistory = undefined
+    panel.characterId = novel.characters[0].id
+    expect(dataPanelReferenceState(panel).characterId).toBe('person-0')
+    expect(projectDataPanelReferences(novel, 1).items[0].characterId).toBe('person-0')
+    expect(getDataPanelFieldTemporalKind(novel, panel.id, 'coins', 2)).toBe('unrecorded')
+
+    const before = captureDataPanelReferenceItem(panel)
+    panel.characterId = novel.characters[1].id
+    const source = proposal.sourceBinding!
+    if (source.kind !== 'chapter') throw new Error('Expected chapter evidence')
+    recordDataPanelReference(panel, before, { ...source, chapterIndex: 1 }, now, id())
+    expect(projectDataPanelReferences(novel, 1).items[0].characterId).toBe('person-0')
+    expect(projectDataPanelReferences(novel, 2).items[0].characterId).toBe('person-1')
+    novel.characters.pop()
+    expect(projectDataPanelReferences(novel, 2).items[0].characterId).toBeUndefined()
+    expect(panel.characterId).toBe('person-1')
+  })
+  it('labels only fields with valid chapter evidence strictly before the chapter', () => {
+    const { novel, chapter, aggregate } = setup()
+    editDataPanel(aggregate, { action: 'update', itemId: 'pack', item: {
+      fields: [...novel.dataPanels[0].fields, { id: 'note', name: '备注', value: '作者设定', unit: '', note: '' }],
+    } }, captureDataPanelBaseline(novel, 'pack'), now, id)
+    expect(getDataPanelFieldTemporalKind(novel, 'pack', 'coins', 1)).toBe('global-setting')
+    expect(getDataPanelFieldTemporalKind(novel, 'pack', 'coins', 2)).toBe('before-chapter')
+    expect(getDataPanelFieldTemporalKind(novel, 'pack', 'coins')).toBe('before-chapter')
+    expect(getDataPanelFieldTemporalKind(novel, 'pack', 'total', 2)).toBe('before-chapter')
+    expect(getDataPanelFieldTemporalKind(novel, 'pack', 'note', 2)).toBe('global-setting')
+    chapter.content = chapter.content.replace('七枚', '九枚')
+    expect(getDataPanelFieldTemporalKind(novel, 'pack', 'coins', 2)).toBe('global-setting')
+  })
   it('reads the previous value before the source chapter and the accepted value after it', () => {
     const { data } = setup()
     expect(data(1)).toContain('铜钱:2枚')
@@ -121,10 +154,17 @@ describe('accepted data in chapter references', () => {
     expect(queueDataPanelAutomation(novel, 2, next.content, now, id).added).toBe(1)
     expect(decideDataPanelProposals(aggregate, [novel.dataPanelChanges[0].id], 'accept', {}, now, id)).toBe(1)
     expect(projectDataPanelReferences(novel).items[0].fields[0].value).toBe('8')
+    const panel = novel.dataPanels[0]
+    const chapterRevision = panel.referenceHistory!.revisions[0], source = chapterRevision.source
+    chapterRevision.source = { kind: 'author' }
+    expect(getDataPanelFieldTemporalKind(novel, 'pack', 'coins', 2)).toBe('global-setting')
+    expect(getDataPanelFieldTemporalKind(novel, 'pack', 'coins', 3)).toBe('before-chapter')
+    chapterRevision.source = source
     chapter.content = chapter.content.replace('七枚', '九枚')
     const projection = projectDataPanelReferences(novel)
     expect(projection.items[0].fields).toEqual([])
     expect(projection.issues.some(issue => issue.includes('自动推算'))).toBe(true)
+    expect(getDataPanelFieldTemporalKind(novel, 'pack', 'coins', 3)).toBe('global-setting')
   })
   it.each(['foreign', 'duplicate', 'field', 'date', 'key'])('rejects invalid reference history in backups (%s)', damage => {
     const { novel } = setup()

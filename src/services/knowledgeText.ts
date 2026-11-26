@@ -1,5 +1,7 @@
 // 知识库导入时把文本整理成条目。
 // whole：一份文件就是一个条目（推荐）；sections：按标题拆成多个条目。
+import { createMarkdownFenceTracker } from '@/utils/markdownStructure'
+
 export type KnowledgeSplitMode = 'whole' | 'sections'
 export interface KnowledgeSplitOptions {
   mode?: KnowledgeSplitMode
@@ -101,8 +103,14 @@ export function splitKnowledgeText(text: string, options: KnowledgeSplitOptions 
 /** 资料内的标题目录（最多到三级），用于阅读时跳转。 */
 export function knowledgeOutline(content: string, maxLevel = 3): Array<{ level: number; title: string; index: number }> {
   const outline: Array<{ level: number; title: string; index: number }> = []
+  const fence = createMarkdownFenceTracker()
   let index = 0
   for (const line of content.replace(/\r\n?/g, '\n').split('\n')) {
+    if (fence.includes(line)) {
+      // renderMd still renders heading-shaped code lines. Count their DOM slots for jumps.
+      if (/^#{1,4} .+$/.test(line)) index++
+      continue
+    }
     const match = MARKDOWN_HEADING.exec(line)
     if (!match) continue
     // renderMd 只把一到四级标题渲染成标题元素，index 与渲染顺序对应。

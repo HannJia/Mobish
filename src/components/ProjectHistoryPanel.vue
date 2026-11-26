@@ -43,7 +43,7 @@
       <h3>历史保留策略</h3><p>浏览器版不支持清理旧版本，桌面版可以管理项目历史。</p>
     </div>
     <div class="history-actions">
-      <label>作品<select v-model="novelId" :disabled="busy" @change="clearPreview"><option value="">请选择作品</option><option v-for="book in books" :key="book.id" :value="book.id">{{ book.title }}</option></select></label>
+      <label>作品<select v-model="novelId" class="m-input m-select" :disabled="busy" @change="clearPreview"><option value="">请选择作品</option><option v-for="book in books" :key="book.id" :value="book.id">{{ book.title }}</option></select></label>
       <button :disabled="busy || !currentBook" @click="checkpoint">为该作品保存手动恢复点</button>
       <button :disabled="busy" @click="refresh">刷新版本列表</button>
     </div>
@@ -73,7 +73,7 @@
       </div>
     </div>
     <p v-if="!entries.length">尚无恢复点。保存第一个手动恢复点后即可查看历史。</p>
-    <label>历史版本<select v-model="revision" :disabled="busy" @change="selectVersion"><option value="">请选择版本</option><option v-for="entry in entries" :key="entry.revision" :value="entry.revision">{{ entry.createdAt }} · {{ entry.label || '自动保存' }}{{ entry.pinned ? ' · 固定' : '' }}{{ entry.prunedAt ? ' · 已清理（不可恢复）' : '' }}</option></select></label>
+    <label>历史版本<select v-model="revision" class="m-input m-select" :disabled="busy" @change="selectVersion"><option value="">请选择版本</option><option v-for="entry in entries" :key="entry.revision" :value="entry.revision">{{ entry.createdAt }} · {{ entry.label || '自动保存' }}{{ entry.pinned ? ' · 固定' : '' }}{{ entry.prunedAt ? ' · 已清理（不可恢复）' : '' }}</option></select></label>
     <p v-if="selectedEntry?.prunedAt" role="status">这个版本已清理，不能再预览或恢复。</p>
     <p v-if="selectedEntry?.action">记录：{{ selectedEntry.action.label }}</p>
     <button :disabled="busy || !revision || !novelId || !!selectedEntry?.prunedAt" @click="preview">只读预览与当前版本比较</button>
@@ -261,8 +261,10 @@ onMounted(refresh)
 .history-retention { border-top: 1px solid var(--line-2); margin-top: 16px; padding-top: 12px; }
 .retention-pin { display: flex; align-items: center; gap: 8px; }
 .retention-preview { border-left: 3px solid var(--line-2); padding-left: 12px; }
-label { display: block; margin: 12px 0; }
-select, textarea, input:not([type=checkbox]) { display: block; width: 100%; padding: 8px; color: var(--ink); background: var(--desk); border: 1px solid var(--line-2); border-radius: 6px; }
+label { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; font-size: 13px; color: var(--ink-2); }
+.history-actions label { flex: 1 1 200px; margin: 0; }
+textarea, input:not([type=checkbox]) { display: block; width: 100%; padding: 8px; color: var(--ink); background: var(--desk); border: 1px solid var(--line-2); border-radius: 6px; }
+select { width: 100%; min-width: 180px; }
 button { padding: 8px 12px; margin: 4px; cursor: pointer; }
 button:disabled { cursor: default; opacity: .5; }
 textarea { box-sizing: border-box; resize: vertical; }

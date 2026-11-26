@@ -20,6 +20,7 @@ vi.mock('./useChapterSession', () => ({ useChapterSession: () => state.session }
 vi.mock('./useChapterAi', () => ({ useChapterAi: () => state.ai }))
 vi.mock('@/composables/useWritingAdvisor', () => ({ useWritingAdvisor: () => ({
   error: ref(''), analyzing: ref(false), stale: ref(false), result: ref(null), lastMode: ref('scene'), analyzingModes: ref([]),
+  analyze: vi.fn(), stop: vi.fn(), clear: vi.fn(), getSuggestionSourceVersion: vi.fn(),
 }) }))
 
 const revealRange = vi.fn()
@@ -37,8 +38,21 @@ let currentChapter: ReturnType<typeof useNovelStore>['novels'][number]['chapters
 
 function button(text: string) {
   const found = wrapper.findAll('button').find(item => item.text() === text)
-  if (!found) throw new Error('按钮不存在：' + text)
-  return found
+  if (found) return found
+  const teleported = [...document.querySelectorAll<HTMLButtonElement>('#v3-status button, #v3-tools button')]
+    .find(item => item.textContent?.trim() === text)
+  if (teleported) {
+    return {
+      text: () => teleported.textContent?.trim() || '',
+      attributes: (name: string) => teleported.getAttribute(name) ?? undefined,
+      trigger: async (event: string) => {
+        if (event === 'click') teleported.click()
+        else teleported.dispatchEvent(new Event(event, { bubbles: true }))
+        await flushPromises()
+      },
+    }
+  }
+  throw new Error('按钮不存在：' + text)
 }
 async function mountDesk(query: Record<string, string> = {}) {
   const router = createRouter({ history: createMemoryHistory(), routes: [
@@ -99,16 +113,16 @@ describe('V3 写作台原型交互', () => {
     expect(wrapper.get('.desk-side').text()).not.toContain('review-v')
   })
 
-  it('默认打开最前面的顾问，没有批注时不预留空批注栏', async () => {
+  it('默认打开最前面的对话，没有批注时不预留空批注栏', async () => {
     await mountDesk()
-    expect(wrapper.findAll('.desk-tabs button').map(tab => tab.text())).toEqual(['顾问', '对话', '记忆', '候选', '审校'])
-    expect(wrapper.get('.desk-tabs button.on').text()).toBe('顾问')
+    expect(wrapper.findAll('.desk-tabs button').map(tab => tab.text())).toEqual(['对话', '角色', '记忆', '候选', '审校'])
+    expect(wrapper.get('.desk-tabs button.on').text()).toBe('对话')
     expect(wrapper.get('.desk-tabs button.on').attributes('aria-selected')).toBe('true')
     expect(wrapper.get('.paper').classes()).not.toContain('with-margins')
     expect(wrapper.find('.paper-margins').exists()).toBe(false)
     expect(wrapper.find('.paper-mnote').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('正文以纯文本保存，页边批注与浮签不属于正式稿。')
-    await button('顾问').trigger('click')
+    await button('对话').trigger('click')
     expect(wrapper.find('.paper-margins').exists()).toBe(false)
     expect(state.ai.reviewChapter).not.toHaveBeenCalled()
     expect(state.ai.generateSelection).not.toHaveBeenCalled()
@@ -140,15 +154,20 @@ describe('V3 写作台原型交互', () => {
     expect(localStorage.getItem('mojian-v3-writing-typography')).toContain('"letterSpacing":0.08')
   })
 
-  it('长正文和定稿检查一起滚动，检查始终保留在正文末尾', async () => {
+  it('稿纸区纯粹保留正文不嵌定稿检查卡，顶栏主笔左侧集中放置定稿检查、全章审校与核对入口', async () => {
     await mountDesk()
     const editor = wrapper.getComponent(EditorDouble)
     const text = Array.from({ length: 80 }, (_, index) => `第${index + 1}段正文。`).join('\n')
     editor.vm.$emit('update:modelValue', text)
     await flushPromises()
     expect(editor.get('.editor-content').text()).toBe(text)
-    expect(editor.get('.chapter-gate').element.previousElementSibling).toBe(editor.get('.editor-content').element)
-    expect(document.querySelector('#v3-status [aria-label="显示定稿检查"]')).toBeNull()
+    expect(wrapper.find('.chapter-gate').exists()).toBe(false)
+    const toolsText = document.querySelector('#v3-tools')?.textContent || ''
+    expect(toolsText).toContain('定稿检查')
+    expect(toolsText).toContain('全章审校')
+    expect(toolsText).toContain('定稿 · 核对')
+    expect(toolsText.indexOf('定稿 · 核对')).toBeLessThan(toolsText.indexOf('主笔'))
+    expect(document.querySelector('#v3-status')?.textContent).not.toContain('定稿检查')
 
     editor.vm.$emit('selection', { start: 0, end: 3, text: text.slice(0, 3), rect: { left: 100, right: 200, top: 220, bottom: 250 } })
     await flushPromises()
@@ -156,10 +175,10 @@ describe('V3 写作台原型交互', () => {
     editor.vm.$emit('scroll')
     await flushPromises()
     expect(wrapper.find('.selection-tools').exists()).toBe(false)
-    expect(editor.find('.chapter-gate').exists()).toBe(true)
+    expect(wrapper.find('.chapter-gate').exists()).toBe(false)
   })
 
-  it('开始审核才自动切到审校，审核完成后允许手动回到顾问', async () => {
+  it('开始审核才自动切到审校，审核完成后允许手动回到对话', async () => {
     await mountDesk()
     state.ai.reviewBusy.value = true
     await flushPromises()
@@ -167,8 +186,8 @@ describe('V3 写作台原型交互', () => {
     state.ai.reviewBusy.value = false
     await flushPromises()
     expect(wrapper.get('.desk-tabs button.on').text()).toBe('审校')
-    await button('顾问').trigger('click')
-    expect(wrapper.get('.desk-tabs button.on').text()).toBe('顾问')
+    await button('对话').trigger('click')
+    expect(wrapper.get('.desk-tabs button.on').text()).toBe('对话')
     await button('全章审校').trigger('click')
     expect(wrapper.get('.desk-tabs button.on').text()).toBe('审校')
     expect(state.ai.reviewChapter).toHaveBeenCalledOnce()
@@ -207,15 +226,17 @@ describe('V3 写作台原型交互', () => {
     expect(wrapper.find('.tree-side').exists()).toBe(false)
     expect(wrapper.find('.desk-side').isVisible()).toBe(true)
   })
-  it('展示真实卷章、生命周期与文末检查，专注退出后恢复案头', async () => {
+  it('展示真实卷章、生命周期与状态栏定稿入口，核对弹窗包含四项统计，专注退出后恢复案头', async () => {
     await mountDesk()
     expect(wrapper.get('.volume-head').text()).toContain('卷1 · 灯起')
     // 稿纸章头按原型把中文章号逐字展开；读屏文本仍是阿拉伯数字章号。
     expect(wrapper.get('.paper-kicker').text()).toMatch(/^第 [一二三四五六七八九十百零 ]+ 章$/)
     expect(wrapper.get('.paper-kicker').attributes('aria-label')).toMatch(/^第\d+章$/)
     expect(document.querySelector('#v3-lifecycle .cur')?.textContent).toBe('可定稿')
-    expect(wrapper.get('.chapter-gate').text()).toContain('定稿检查')
+    expect(wrapper.find('.chapter-gate').exists()).toBe(false)
+    await button('定稿 · 核对').trigger('click')
     expect(wrapper.get('.gate-stats').text()).toContain('2/2')
+    await button('返回写作').trigger('click')
     ;(document.querySelector('[aria-label="切换专注模式"]') as HTMLButtonElement).click()
     await flushPromises()
     expect(wrapper.find('.desk-side').isVisible()).toBe(false)
@@ -252,7 +273,7 @@ describe('V3 写作台原型交互', () => {
     expect(wrapper.findAll('.margin-note')).toHaveLength(1)
     await wrapper.get('.margin-note').trigger('click')
     expect(revealRange).toHaveBeenCalledWith(7, 12, { focus: false })
-    await button('顾问').trigger('click')
+    await button('记忆').trigger('click')
     expect(wrapper.findAll('.margin-note')).toHaveLength(1)
     state.session.workflow.value!.reviewCurrent = false
     await flushPromises()
@@ -405,7 +426,43 @@ describe('V3 写作台原型交互', () => {
     expect(polish.attributes('disabled')).toBeUndefined()
     await polish.trigger('click'); await flushPromises()
     expect(state.ai.generateSelection).toHaveBeenCalledWith('polish', '', { start: 0, end: 3 })
-    expect(wrapper.get('.desk-tabs button.on').text()).toBe('顾问')
+    expect(wrapper.get('.desk-tabs button.on').text()).toBe('对话')
+  })
+  it('选区候选锚点在视口外时自动滚入可视区，窄屏隐藏页边时自动切到候选标签', async () => {
+    const original = state.session.content.value
+    const makeRevision = (id: string) => ({
+      id, novelId: state.session.novel.value!.id, chapterId: currentChapter.id, baseContent: original,
+      proposedContent: original + '新增一句。', source: 'ai' as const, status: 'pending' as const,
+      diff: '', reason: '选区候选', createdAt: '', updatedAt: '',
+      selection: { mode: 'continue' as const, startOffset: original.length, endOffset: original.length, contextVersion: 'ctx' },
+    })
+    await mountDesk()
+    // 1. Desktop width: anchor (top=250) is below viewport (top=0, bottom=200) -> auto reveals range while keeping 对话 tab
+    const hostEl = wrapper.get('.editor-host').element as HTMLElement
+    vi.spyOn(hostEl, 'getBoundingClientRect').mockReturnValue({
+      top: 0, bottom: 200, left: 0, right: 600, width: 600, height: 200, x: 0, y: 0, toJSON: () => ({}),
+    })
+    vi.mocked(state.ai.generateSelection).mockImplementationOnce(async () => {
+      ;(state.session.pendingRevision as unknown as Ref<ChapterRevision | undefined>).value = makeRevision('r-offscreen')
+    })
+    wrapper.getComponent(EditorDouble).vm.$emit('selection', { start: 0, end: 3, text: original.slice(0, 3), rect: { left: 100, right: 200, top: 80, bottom: 110 } })
+    await flushPromises()
+    await wrapper.get('[aria-label="选区 AI 操作"]').findAll('button').find(item => item.text() === '续写')!.trigger('click')
+    await flushPromises()
+    expect(revealRange).toHaveBeenCalledWith(original.length, original.length, { focus: false })
+    expect(wrapper.get('.desk-tabs button.on').text()).toBe('对话')
+
+    // 2. Narrow viewport: .paper-margins hidden via display:none -> switches desk to 候选 tab
+    const marginsEl = wrapper.get('.paper-margins').element as HTMLElement
+    marginsEl.style.display = 'none'
+    vi.mocked(state.ai.generateSelection).mockImplementationOnce(async () => {
+      ;(state.session.pendingRevision as unknown as Ref<ChapterRevision | undefined>).value = makeRevision('r-narrow')
+    })
+    wrapper.getComponent(EditorDouble).vm.$emit('selection', { start: 0, end: 3, text: original.slice(0, 3), rect: { left: 100, right: 200, top: 80, bottom: 110 } })
+    await flushPromises()
+    await wrapper.get('[aria-label="选区 AI 操作"]').findAll('button').find(item => item.text() === '续写')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.desk-tabs button.on').text()).toContain('候选')
   })
   it('定稿核对不接受或驳回任何候选，待处理项阻止直接定稿', async () => {
     ;(state.session.candidates as Ref<CandidateChange[]>).value = [{ id: 'c1', novelId: state.session.novel.value!.id, chapterId: currentChapter.id, type: 'fact', status: 'proposed',

@@ -377,21 +377,29 @@ export function assertCurrentSchema(database: Database): void {
   }
 }
 
-// Add entry metadata to existing V3 databases without changing the rest of their schema.
+// Keep the required V3 schema readable before adding optional storage.
 const KNOWLEDGE_METADATA = 'CREATE TABLE IF NOT EXISTS knowledge_entry_metadata (id TEXT PRIMARY KEY, visibility TEXT, merged_sources TEXT)'
+const VOLUME_METADATA = 'CREATE TABLE IF NOT EXISTS volume_planning_metadata (id TEXT PRIMARY KEY, novel_id TEXT, source_number INTEGER, beat_ids TEXT)'
+const PANEL_CHARACTER_COLUMN = 'ALTER TABLE data_panels ADD COLUMN character_id TEXT'
 
 export function initializeSchema(database: Database): boolean {
   const version = database.exec('PRAGMA user_version')[0]?.values[0]?.[0]
   const tables = database.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")[0]?.values || []
   if (tables.length) {
     assertCurrentSchema(database)
-    if (tables.some(([name]) => name === 'knowledge_entry_metadata')) return false
-    database.exec(KNOWLEDGE_METADATA)
-    return true
+    const hasKnowledge = tables.some(([name]) => name === 'knowledge_entry_metadata')
+    const hasVolume = tables.some(([name]) => name === 'volume_planning_metadata')
+    if (!hasKnowledge) database.exec(KNOWLEDGE_METADATA)
+    if (!hasVolume) database.exec(VOLUME_METADATA)
+    const hasPanelCharacter = database.exec('PRAGMA table_info(data_panels)')[0]?.values.some(row => row[1] === 'character_id')
+    if (!hasPanelCharacter) database.exec(PANEL_CHARACTER_COLUMN)
+    return !hasKnowledge || !hasVolume || !hasPanelCharacter
   }
   if (version !== 0) throw new UnsupportedProjectSchemaError()
   database.exec(PROJECT_SCHEMA)
   database.exec(KNOWLEDGE_METADATA)
+  database.exec(VOLUME_METADATA)
+  database.exec(PANEL_CHARACTER_COLUMN)
   assertCurrentSchema(database)
   return true
 }

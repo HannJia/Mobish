@@ -1,13 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { derivePipeline, deriveBudget, deriveLedger, stopConditions, lengthRange, checkpointOf } from './autoRun'
+import { derivePipeline, deriveBudget, deriveLedger, stopConditions, lengthRange, checkpointOf, deriveCheckpointPendingCanon } from './autoRun'
 import type { Chapter, Novel } from '@/types/novel'
-import type { AiRun, AiChapterDraft, AiRunRequest } from '@/types/reconstruction'
+import type { AiRun, AiChapterDraft, AiRunRequest, CandidateChange, ChapterReview } from '@/types/reconstruction'
+import { buildAnalysisSourceVersionId } from '@/services/reconstructionCandidates'
 
 const chapter = (index: number, over: Partial<Chapter> = {}): Chapter => ({ id: 'c' + index, volumeIndex: 0, chapterIndex: index, title: '章' + (index + 1), content: '', summary: '', wordCount: 0, status: 'draft', createdAt: '', updatedAt: '', ...over })
 const novel = (chapters: Chapter[], plans: Array<[number, number]> = []): Novel => ({ id: 'n', title: '书', chapters, chapterPlans: plans.map(([s, e], i) => ({ id: 'p' + i, targetChapterStart: s, targetChapterEnd: e })) as unknown as Novel['chapterPlans'], chapterLengthPolicy: { minWords: 2000, targetWords: 2200, maxWords: 6500 } } as unknown as Novel)
 const draft = (index: number, over: Partial<AiChapterDraft> = {}): AiChapterDraft => ({ id: 'd' + index, chapterId: 'c' + index, chapterIndex: index, baseContent: '', content: '候选 正文', contextVersion: 'v', status: 'pending', stage: 'analyzed', createdAt: '', updatedAt: '', history: [], ...over })
 const run = (over: Partial<AiRun> = {}): AiRun => ({ id: 'r', mode: 'autonomous', taskType: 'draft', chapterStart: 0, chapterEnd: 3, tokenBudget: 600000, requestLimit: 200, usedTokens: 0, requests: [], status: 'running', createdAt: '', updatedAt: '', ...over })
 const request = (over: Partial<AiRunRequest> = {}): AiRunRequest => ({ id: 'q' + Math.random(), chapterIndex: 0, phase: 'writing', modelId: 'm', status: 'completed', reservedTokens: 0, inputTokens: 10, outputTokens: 5, usageSource: 'reported', startedAt: '', ...over })
+const change = (index: number, type: CandidateChange['type'], over: Partial<CandidateChange> = {}): CandidateChange => ({
+  id: `${index}-${type}`, novelId: 'n', chapterId: 'c' + index, type, status: 'proposed', proposedValue: '{}',
+  sourceVersionId: buildAnalysisSourceVersionId(draft(index).content), evidence: [], createdAt: '', updatedAt: '', ...over,
+})
+const draftReview = (index: number, candidateChanges: CandidateChange[]): ChapterReview => ({
+  id: 'review' + index, chapterId: 'c' + index, sourceVersionId: 'review-source', startedAt: '', status: 'ready_to_finalize',
+  deterministicChecksPassed: true, semanticChecksPassed: true, findings: [], candidateChanges,
+})
 
 describe('derivePipeline', () => {
   const book = novel([chapter(0), chapter(1), chapter(2), chapter(3)], [[0, 1]])
@@ -46,6 +55,41 @@ describe('derivePipeline', () => {
 
   it('limits the visible rows to the run range', () => {
     expect(derivePipeline(book, run({ chapterStart: 1, chapterEnd: 2 })).map(row => row.chapter.chapterIndex)).toEqual([1, 2])
+  })
+})
+
+describe('checkpoint pending canon', () => {
+  it('counts only generated chapters through the checkpoint and points to the correct review surface', () => {
+    const book = novel([chapter(0), chapter(1, { content: draft(1).content }), chapter(2), chapter(3), chapter(4), chapter(5)])
+    const knowledge = change(1, 'knowledge', { status: 'deferred' })
+    const rejected = change(1, 'fact', { status: 'rejected' })
+    const clue = change(2, 'foreshadowing')
+    const relation = change(2, 'relationship')
+    const current = run({ targetId: book.id, status: 'needs_author', checkpoint: 'chapter-4:checkpoint', chapterStart: 1, chapterEnd: 5,
+      chapterDrafts: [draft(2, { review: draftReview(2, [clue, relation, change(2, 'timeline', { sourceVersionId: 'obsolete' })]) }),
+        draft(1, { status: 'accepted', review: draftReview(1, [{ ...rejected, status: 'proposed' }, knowledge]) }),
+        draft(0, { review: draftReview(0, [change(0, 'fact')]) }),
+        draft(4, { status: 'rejected', review: draftReview(4, [change(4, 'fact')]) }),
+        draft(5, { review: draftReview(5, [change(5, 'fact')]) })] })
+    const result = deriveCheckpointPendingCanon(book, current, [knowledge, rejected,
+      change(3, 'fact', { sourceVersionId: undefined })])
+    expect(result).toEqual({ total: 3, summary: '本次任务已有 2 章共 3 条记忆候选待确认入典。', chapters: [
+      { chapterId: 'c1', chapterIndex: 1, total: 1, byType: [{ type: 'knowledge', label: '知情状态', count: 1 }], draftId: null,
+        writeRoute: { name: 'V3Write', params: { novelId: 'n', chapterId: 'c1' }, query: { tab: 'candidate' } } },
+      { chapterId: 'c2', chapterIndex: 2, total: 2, byType: [{ type: 'relationship', label: '关系', count: 1 },
+        { type: 'foreshadowing', label: '伏笔', count: 1 }], draftId: 'd2', writeRoute: null },
+    ] })
+  })
+
+  it('clears the reminder after accepting or rejecting the changes and only surfaces it at a paused checkpoint', () => {
+    const book = novel([chapter(0, { content: draft(0).content }), chapter(1, { content: '作者替换了原文' })])
+    const pending = change(0, 'relationship')
+    const current = run({ status: 'paused', checkpoint: 'chapter-1:started',
+      chapterDrafts: [draft(0, { status: 'accepted', review: draftReview(0, [pending]) }), draft(1, { review: draftReview(1, [change(1, 'knowledge')]) })] })
+    expect(deriveCheckpointPendingCanon(book, current, [pending]).total).toBe(1)
+    expect(deriveCheckpointPendingCanon(book, current, [{ ...pending, status: 'accepted' }])).toEqual({ total: 0, chapters: [], summary: '' })
+    expect(deriveCheckpointPendingCanon(book, { ...current, status: 'running' }, [pending]).total).toBe(0)
+    expect(deriveCheckpointPendingCanon(book, { ...current, checkpoint: 'author-paused' }, [pending]).total).toBe(0)
   })
 })
 
