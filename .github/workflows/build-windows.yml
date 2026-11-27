@@ -1,0 +1,64 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-windows:
+    name: Build Windows x64 NSIS Installer
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prepare OCR assets and kernel validation
+        run: |
+          npm run prepare:ocr
+          npm run prepare:kernel
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Verify update download module
+        run: npm run test:update-download
+
+      - name: Build unsigned Windows x64 NSIS installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run build -- --win nsis --x64 --publish never
+
+      - name: Audit packaged release artifacts
+        run: node scripts/audit-release.cjs
+
+      - name: Upload unsigned Windows build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobish-windows-x64-unsigned
+          path: |
+            release/mobish-*.exe
+            release/mobish-*.exe.blockmap
+            release/mobish-*.exe.sha256
+            release/latest.yml
+          if-no-files-found: error
+          retention-days: 14
