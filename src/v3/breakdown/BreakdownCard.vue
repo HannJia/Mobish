@@ -19,7 +19,7 @@
     </dl>
     <ul v-if="item.evidence.length" class="card-evidence">
       <li v-for="(reference, index) in item.evidence" :key="index">
-        <button type="button" class="m-btn sm ghost" @click="emit('open', index)">段 {{ reference.paragraph }} · {{ reference.quote }}</button>
+        <button type="button" class="m-btn sm ghost" :data-guide="guideFirstQuote && index === 0 ? 'breakdown.quote' : undefined" @click="emit('open', index)">段 {{ reference.paragraph }} · {{ reference.quote }}</button>
       </li>
     </ul>
     <p v-if="item.pendingEvidence.length" class="m-muted">待核对 · {{ item.pendingEvidence.join('、') }}</p>
@@ -29,7 +29,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import type { BreakdownCard } from '@/services/bookBreakdownAnalysis'
-const props = defineProps<{ item: BreakdownCard; heading: string; selectable: boolean; canEdit: boolean; checked?: boolean }>()
+const props = defineProps<{ item: BreakdownCard; heading: string; selectable: boolean; canEdit: boolean; checked?: boolean; guideFirstQuote?: boolean }>()
 const emit = defineEmits<{ select: []; open: [index: number]; save: [item: BreakdownCard] }>()
 const draft = ref<BreakdownCard>()
 function submit() {

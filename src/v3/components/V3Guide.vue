@@ -65,5 +65,5 @@ const STEPS = [
 .pts { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--ink-3); line-height: 1.9; }
 .dots { display: flex; gap: 6px; }
 .dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--line-2); }
-.dots i.on { background: var(--zhu); }
+.dots i.on { background: var(--zhu-solid); }
 </style>

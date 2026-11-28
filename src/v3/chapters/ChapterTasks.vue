@@ -845,7 +845,7 @@ async function batchReviewChapters() {
 .pending-review-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .run-progress { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; }
 .run-progress-track { flex: 1; height: 6px; border-radius: 6px; background: var(--panel-2); overflow: hidden; }
-.run-progress-track > span { display: block; height: 100%; background: var(--zhu); transition: width var(--motion-fast); }
+.run-progress-track > span { display: block; height: 100%; background: var(--zhu-solid); transition: width var(--motion-fast); }
 .run-progress-value { min-width: 38px; text-align: right; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .list-header {
   display: flex;
@@ -998,7 +998,7 @@ async function batchReviewChapters() {
 }
 
 .volume-group-icon {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--ink-3);
 }
 
@@ -1061,7 +1061,7 @@ async function batchReviewChapters() {
 }
 
 .chapter-number {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--zhu);
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -1116,7 +1116,7 @@ async function batchReviewChapters() {
 .status-dot.writing { background: var(--jin); }
 .status-dot.completed { background: var(--qing); }
 .status-dot.reviewed { background: var(--dai); }
-.status-dot.finalized { background: var(--zhu); }
+.status-dot.finalized { background: var(--zhu-solid); }
 .status-dot.locked { background: var(--ink-2); }
 
 .meta-sep { color: var(--line-2); }
@@ -1153,7 +1153,7 @@ async function batchReviewChapters() {
 }
 
 .summary-arrow {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--ink-3);
 }
 

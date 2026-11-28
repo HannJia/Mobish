@@ -1,11 +1,105 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useReconstructionWorkspaceStore } from './reconstructionWorkspace'
-import type { CandidateChange, ChapterReview } from '@/types/reconstruction'
+import { createEmptyCreationDraft, type CandidateChange, type ChapterReview } from '@/types/reconstruction'
 import { createAiRun } from '@/services/reconstructionAiRun'
 import { saveReconstructionRun } from '@/services/db/reconstructionRuns'
+import { loadReconstructionWorkspace, saveReconstructionWorkspace, type ReconstructionWorkspaceSnapshot } from '@/services/db/reconstruction'
 
 vi.mock('@/services/db/reconstructionRuns', () => ({ saveReconstructionRun: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('@/services/db/reconstruction', async importOriginal => ({
+  ...await importOriginal<typeof import('@/services/db/reconstruction')>(),
+  loadReconstructionWorkspace: vi.fn(),
+  saveReconstructionWorkspace: vi.fn(),
+}))
+
+describe('flushing reconstruction workspaces', () => {
+  const disk = new Map<string, ReconstructionWorkspaceSnapshot>()
+  const now = '2026-10-26T00:00:00.000Z'
+  const draft = () => createEmptyCreationDraft({ id: 'creation:book', now })
+  const empty = () => ({ canonMutations: [], reviewFindings: [], candidates: [] })
+  const load = vi.mocked(loadReconstructionWorkspace)
+  const save = vi.mocked(saveReconstructionWorkspace)
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    disk.clear()
+    load.mockReset().mockImplementation(async id => structuredClone(disk.get(id) || empty()))
+    save.mockReset().mockImplementation(async (id, snapshot) => { disk.set(id, structuredClone(snapshot)) })
+  })
+
+  it('skips all reads and writes for unchanged hydrated books, then saves an in-place edit to one book', async () => {
+    const store = useReconstructionWorkspaceStore()
+    disk.set('book', { ...empty(), creationDraft: draft() })
+    await Promise.all(['book', 'other'].map(id => store.hydrateFromPersistence(id)))
+    load.mockClear()
+
+    await store.flushPendingSaves(['book', 'other', 'unopened'])
+    expect(load).not.toHaveBeenCalled()
+    expect(save).not.toHaveBeenCalled()
+
+    store.getCreationDraft('book')!.contract.title = '关窗前编辑'
+    await store.flushPendingSaves(['book', 'other'])
+    expect(load.mock.calls).toEqual([['book']])
+    expect(save).toHaveBeenCalledOnce()
+    expect(disk.get('book')?.creationDraft?.contract.title).toBe('关窗前编辑')
+
+    await store.flushPendingSaves(['book', 'other'])
+    expect(load).toHaveBeenCalledOnce()
+    expect(save).toHaveBeenCalledOnce()
+  })
+
+  it('writes a workspace first edited before hydration while retaining unowned rows', async () => {
+    const store = useReconstructionWorkspaceStore()
+    const run = createAiRun({ id: 'run', mode: 'assist', taskType: 'review', now })
+    disk.set('book', { ...empty(), aiRuns: [run] })
+    store.setCreationDraft('book', draft())
+    await store.flushPendingSaves(['book'])
+    expect(save).toHaveBeenCalledOnce()
+    expect(disk.get('book')?.aiRuns).toEqual([run])
+    expect(disk.get('book')?.creationDraft).toEqual(draft())
+  })
+
+  it('uses the committed adoption as the baseline and saves concurrent live edits', async () => {
+    const store = useReconstructionWorkspaceStore()
+    const persisted = { ...empty(), novelId: 'book', chapterReviews: [], aiRuns: [], creationDraft: draft() }
+    disk.set('book', persisted)
+    store.adoptProjectWorkspaces([persisted])
+    await store.flushPendingSaves(['book'])
+    expect(load).not.toHaveBeenCalled()
+
+    const live = structuredClone(persisted)
+    live.creationDraft.contract.title = '恢复时的编辑'
+    store.publishCreatedWorkspace('book', live, persisted)
+    await store.flushPendingSaves(['book'])
+    expect(load).toHaveBeenCalledOnce()
+    expect(disk.get('book')?.creationDraft?.contract.title).toBe('恢复时的编辑')
+
+    store.clearNovel('book')
+    store.setCreationDraft('book', draft())
+    await store.flushPendingSaves(['book'])
+    expect(load).toHaveBeenCalledTimes(2)
+    expect(disk.get('book')?.creationDraft).toEqual(draft())
+  })
+
+  it('keeps edits made during a write and retries a failed flush', async () => {
+    const store = useReconstructionWorkspaceStore()
+    disk.set('book', { ...empty(), creationDraft: draft() })
+    await store.hydrateFromPersistence('book')
+    const live = store.getCreationDraft('book')!
+    live.contract.title = '第一次编辑'
+    save.mockRejectedValueOnce(new Error('写盘失败'))
+    await expect(store.flushPendingSaves(['book'])).rejects.toThrow('写盘失败')
+
+    save.mockImplementationOnce(async (id, snapshot) => {
+      live.contract.title = '写入期间的编辑'
+      disk.set(id, structuredClone(snapshot))
+    })
+    await store.flushPendingSaves(['book'])
+    expect(save).toHaveBeenCalledTimes(3)
+    expect(disk.get('book')?.creationDraft?.contract.title).toBe('写入期间的编辑')
+  })
+})
 
 describe('reconstruction workspace candidate store', () => {
   beforeEach(() => setActivePinia(createPinia()))

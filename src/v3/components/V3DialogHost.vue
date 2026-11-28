@@ -32,5 +32,5 @@ function destructive(item: V3DialogItem) { return item.kind === 'warning' && DES
 .v3-dialog-error .v3-dialog-icon { color: var(--zhu); }
 .v3-dialog-info .v3-dialog-icon { color: var(--dai); }
 .v3-dialog-success .v3-dialog-icon { color: var(--qing); }
-.v3 .m-btn.pri.v3-dialog-danger { background: var(--zhu); border-color: var(--zhu); color: var(--on-accent); }
+.v3 .m-btn.pri.v3-dialog-danger { background: var(--zhu-solid); border-color: var(--zhu); color: var(--on-accent); }
 </style>

@@ -50,10 +50,10 @@ const steps = ['起点', '作品契约', '故事骨架', '分卷大纲', '开始
 }
 .create-steps i {
   width: 22px; height: 22px; flex: none; display: grid; place-items: center;
-  border: 1px solid var(--line-2); border-radius: 50%; font: 600 11px var(--f-num);
+  border: 1px solid var(--line-2); border-radius: 50%; font: 600 12px var(--f-num);
 }
 .create-steps .current { border-radius: var(--r-m); background: var(--zhu-soft); color: var(--zhu); font-weight: 600; }
-.create-steps .current i { background: var(--zhu); border-color: var(--zhu); color: var(--on-accent); }
+.create-steps .current i { background: var(--zhu-solid); border-color: var(--zhu); color: var(--on-accent); }
 .create-heading { flex: none; margin-bottom: 14px; }
 .create-heading h1 { font: 600 24px/1.35 var(--f-serif); margin: 0 0 4px; }
 .create-heading p { margin: 0; color: var(--ink-3); font-size: 13px; line-height: 1.55; }

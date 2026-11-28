@@ -23,7 +23,7 @@ export async function prepareUpdateInstall(): Promise<void> {
     await useKnowledgeStore().flushPendingSaves()
     await useNovelStore().flushPendingSaves()
     await Promise.all([
-      useConfigStore().saveConfig(),
+      useConfigStore().flushPendingSaves(),
       useInspirationSessionsStore().flushPendingSaves(),
       useReconstructionWorkspaceStore().flushPendingSaves(useNovelStore().novels.map(novel => novel.id)),
     ])

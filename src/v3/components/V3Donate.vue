@@ -27,7 +27,7 @@ const emit = defineEmits<{ 'update:show': [value: boolean] }>()
 .donate { display: grid; gap: 14px; }
 .donate-motto { margin: 0; color: var(--ink); font-size: 14px; font-weight: 600; }
 .donate-lead, .donate-note, .donate-star { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.7; }
-.donate-note, .donate-star { color: var(--ink-3); font-size: 12px; }
+.donate-note, .donate-star { color: var(--ink-3); font-size: 13px; }
 .donate-star a { color: var(--zhu); }
 .donate-codes { display: flex; justify-content: center; align-items: flex-start; gap: 24px; flex-wrap: wrap; }
 .donate-codes figure { margin: 0; display: grid; justify-items: center; gap: 6px; }

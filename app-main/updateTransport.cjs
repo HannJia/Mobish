@@ -9,6 +9,7 @@ const { CancellationError } = require('builder-util-runtime')
 const githubOrigins = ['https://api.github.com', 'https://github.com',
   'https://release-assets.githubusercontent.com', 'https://objects.githubusercontent.com']
 const giteeOrigins = ['https://gitee.com', 'https://foruda.gitee.com']
+const officialOrigins = ['https://dl.mobish.cn']
 const maxMetadataBytes = 1024 * 1024
 
 function createElectronUpdateFetch(net) {
@@ -77,10 +78,16 @@ async function fetchReleaseJson(url, source, signal, fetchImpl = fetch) {
   })))
 }
 
+async function fetchOfficialManifest(url, signal, fetchImpl = fetch, testOrigin) {
+  const origins = testOrigin ? [...officialOrigins, testOrigin] : officialOrigins
+  return readMetadata(await requestUpdate(url, { origins, signal, fetchImpl }))
+}
+
 function createUpdateTransport(release, { fetchImpl = fetch, testOrigin, metadataSignal,
   manifestTimeoutMs = 15000, stallTimeoutMs = 30000 } = {}) {
-  const origins = [...(release.source === 'gitee' ? giteeOrigins : githubOrigins)]
-  if (release.staticOrigin) origins.push(release.staticOrigin)
+  const origins = release.source === 'official' ? [...officialOrigins]
+    : [...(release.source === 'gitee' ? giteeOrigins : githubOrigins)]
+  if (release.source !== 'official' && release.staticOrigin) origins.push(release.staticOrigin)
   // Passed explicitly by the isolated smoke test, never from a release or user setting.
   if (testOrigin) origins.push(testOrigin)
   let expected
@@ -142,4 +149,4 @@ async function verifyDownloadedFile(files, expected) {
   if (hash.digest('base64') !== expected.sha512) throw new Error('SHA512 checksum mismatch')
 }
 
-module.exports = { createElectronUpdateFetch, createUpdateTransport, fetchReleaseJson, verifyDownloadedFile }
+module.exports = { createElectronUpdateFetch, createUpdateTransport, fetchReleaseJson, fetchOfficialManifest, verifyDownloadedFile }

@@ -120,7 +120,7 @@ async function revisit(index: number) {
 
 .creation-flow { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; padding: 14px clamp(16px, 2.2vw, 36px) 14px; background: var(--desk); color: var(--ink); }
 .flow-head { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.flow-kicker { color: var(--zhu); font-size: 11px; }
+.flow-kicker { color: var(--zhu); font-size: 12px; }
 .flow-head h1 { margin: 4px 0; font: 600 25px/1.4 var(--f-serif); }
 .flow-head p { margin: 0; color: var(--ink-3); font-size: 13px; }
 .flow-steps { flex: none; width: 100%; max-width: 1460px; margin: 0 auto 12px; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); list-style: none; }
@@ -129,10 +129,10 @@ async function revisit(index: number) {
 .flow-steps li:last-child::after { display: none; }
 .flow-steps li.done, .flow-steps li.active { color: var(--ink-2); }
 .flow-steps li.active { color: var(--zhu); font-weight: 600; }
-.flow-step-number { position: relative; z-index: 2; width: 24px; height: 24px; border: 1px solid var(--line-2); border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--paper); font: 11px var(--f-num); }
+.flow-step-number { position: relative; z-index: 2; width: 24px; height: 24px; border: 1px solid var(--line-2); border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--paper); font: 12px var(--f-num); }
 .flow-step-label { position: relative; z-index: 2; padding: 0 8px; background-color: var(--desk); box-shadow: 0 0 0 2px var(--desk); white-space: nowrap; }
 .flow-steps li.done .flow-step-number { border-color: var(--qing); background: var(--qing-soft); color: var(--qing); }
-.flow-steps li.active .flow-step-number { border-color: var(--zhu); background: var(--zhu); color: #fff; }
+.flow-steps li.active .flow-step-number { border-color: var(--zhu); background: var(--zhu-solid); color: #fff; }
 .flow-step-hit { position: relative; z-index: 2; display: flex; align-items: center; gap: 9px; min-width: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; }
 .flow-step-hit:hover .flow-step-label { color: var(--zhu); text-decoration: underline; }
 @media (max-width: 580px) { .flow-step-hit { flex-direction: column; align-items: flex-start; gap: 5px; } }
@@ -151,7 +151,7 @@ async function revisit(index: number) {
   .flow-head { align-items: flex-start; }
   .flow-head h1 { font-size: 21px; }
   .flow-steps { grid-template-columns: repeat(5, minmax(64px, 1fr)); overflow-x: auto; gap: 8px; }
-  .flow-steps li { flex-direction: column; align-items: flex-start; gap: 5px; font-size: 10px; }
+  .flow-steps li { flex-direction: column; align-items: flex-start; gap: 5px; font-size: 11px; }
   .flow-steps li::after { top: 12px; left: 31px; right: 4px; }
   .flow-step-number { width: 22px; height: 22px; }
 }

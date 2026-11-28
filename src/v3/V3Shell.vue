@@ -74,6 +74,7 @@
     <V3Palette v-if="paletteOpen" :book="book" @close="paletteOpen = false" @guide="guideOpen = true" />
     <V3Guide v-if="guideOpen" @close="closeGuide" />
     <V3Donate v-model:show="donateOpen" />
+    <GuideSpotlight :blocked="guideOpen || donateOpen || paletteOpen" />
   </div>
 </template>
 
@@ -85,6 +86,7 @@ import V3Palette from './components/V3Palette.vue'
 import V3Guide from './components/V3Guide.vue'
 import V3Donate from './components/V3Donate.vue'
 import V3DialogHost from './components/V3DialogHost.vue'
+import GuideSpotlight from './components/GuideSpotlight.vue'
 import AppUpdateNotice from '@/components/AppUpdateNotice.vue'
 import type { IconName } from './icons'
 import type { Novel } from '@/types/novel'
@@ -92,7 +94,6 @@ import { areaPath, nextTheme, paletteOpen, recalledBook, THEME_LABEL, toast, toa
 import { useNovelStore } from '@/stores/novel'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import { useInspirationSessionsStore } from '@/stores/inspirationSessions'
-import { useConfigStore } from '@/stores/config'
 import { useThemeStore } from '@/stores/theme'
 import { useCloudSyncStore } from '@/stores/cloudSync'
 import { CLOUD_SYNC_AVAILABLE } from '@/services/features'
@@ -120,7 +121,7 @@ const GUIDE_KEY = 'mojian-v3-guide-seen'
 
 const route = useRoute(), router = useRouter()
 const novels = useNovelStore(), knowledge = useKnowledgeStore(), inspiration = useInspirationSessionsStore()
-const config = useConfigStore(), theme = useThemeStore(), cloud = useCloudSyncStore(), appUpdate = useAppUpdateStore()
+const theme = useThemeStore(), cloud = useCloudSyncStore(), appUpdate = useAppUpdateStore()
 const workspace = useReconstructionWorkspaceStore()
 const { runningActivities: running } = useAiActivities()
 
@@ -185,9 +186,6 @@ function onKey(event: KeyboardEvent) {
 }
 onMounted(() => {
   window.addEventListener('keydown', onKey)
-  let seen = false
-  try { seen = localStorage.getItem(GUIDE_KEY) === '1' } catch { /* 视为未看过 */ }
-  if (!seen && !config.models.length && !novels.novels.length) guideOpen.value = true
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 </script>

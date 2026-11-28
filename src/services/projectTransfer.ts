@@ -4,6 +4,7 @@ import { parseProjectBackup, type ProjectBackup } from './projectBackup'
 import { appUpdateInstalling, cloudApplyBusy, projectTransferBusy, activeAutonomousRunCount, activeMemoryRunCount } from './appLifecycle'
 import { activeAiCount } from './aiActivity'
 import { adoptProjectSnapshot, captureProjectSnapshot, flushProjectState } from './projectSnapshot'
+import { useOnboardingStore } from '@/stores/onboarding'
 
 export { projectTransferBusy } from './appLifecycle'
 
@@ -38,5 +39,7 @@ export async function importProject(backup: ProjectBackup): Promise<void> {
     await retainProjectRestorePoint(JSON.stringify(before))
     await replaceProjectInDb(checked)
     adoptProjectSnapshot(checked)
+    try { await useOnboardingStore().handleProjectImported() }
+    catch { /* Onboarding must not affect the committed import. */ }
   } finally { projectTransferBusy.value = false }
 }

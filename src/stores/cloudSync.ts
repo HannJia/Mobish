@@ -32,7 +32,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
   const endpoint = ref(DEFAULT_SYNC_ENDPOINT)
   let generation = 0
   let abort: AbortController | null = null
-  let running: Promise<void> | null = null
+  let running: Promise<boolean> | null = null
   let operation: Promise<unknown> | null = null
   let timer: ReturnType<typeof setInterval> | undefined
   let scheduled: ReturnType<typeof setTimeout> | undefined
@@ -221,18 +221,39 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     finally { transferring.value = false }
   }
   async function syncNow() {
+    await syncProject()
+  }
+  function hasPendingLocalChanges(hashes: Map<string, string | null>, current: SyncState): boolean {
+    const conflicts = new Set(pendingConflicts.value.map(item => item.key))
+    const awaitingApproval = new Set((current.pendingUploads || []).map(item => item.key))
+    const approved = new Set(current.approvedUploads || [])
+    const mergeDeletions = current.knowledgeMergeDeletions || {}
+    return [...new Set([...hashes.keys(), ...Object.keys(current.bases), ...Object.keys(mergeDeletions)])].some(key => {
+      if (conflicts.has(key)) return false
+      const base = current.bases[key]
+      if (!base && awaitingApproval.has(key) && !approved.has(key)) return false
+      return (hashes.get(key) ?? null) !== (base?.hash ?? null)
+        || (!hashes.has(key) && !base && Object.prototype.hasOwnProperty.call(mergeDeletions, key))
+    })
+  }
+  /** Returns whether sync ran or hit an error preparing its local snapshot. */
+  async function syncProject(onlyIfLocalChanges = false): Promise<boolean> {
     if (running) return running
-    if (busy.value || operation || cloudApplyBusy.value || cloudPreferencesBusy.value || !session.value || !state.value.enabled) return
+    if (busy.value || operation || cloudApplyBusy.value || cloudPreferencesBusy.value || !session.value || !state.value.enabled) return false
     const version = generation
     const auth = session.value
     const check = () => { if (generation !== version) throw new Error('同步已停止。') }
-    if (localWorkBusy()) { phase.value = 'waiting'; return }
+    if (localWorkBusy()) { phase.value = 'waiting'; return false }
     abort = new AbortController()
     const signal = abort.signal
-    running = (async () => {
-      busy.value = true
+    let attempted = !onlyIfLocalChanges
+    const startSync = () => {
       phase.value = 'syncing'
       error.value = ''
+    }
+    running = (async () => {
+      busy.value = true
+      if (attempted) startSync()
       assertBinding(auth)
       await flush()
       check()
@@ -241,6 +262,11 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
       const hashes = new Map<string, string | null>()
       for (const [key, payload] of local) hashes.set(key, await hashPayload(payload))
       const next = JSON.parse(JSON.stringify(state.value)) as SyncState
+      if (onlyIfLocalChanges) {
+        if (!hasPendingLocalChanges(hashes, next)) return
+        attempted = true
+        startSync()
+      }
       const manifest = await cloudRequest<{ protocol: number; records: CloudRecord[]; features?: string[] }>(auth.endpoint, 'sync/manifest?include=inspiration', { token: auth.token, signal })
       if (manifest.protocol !== 1 || !Array.isArray(manifest.records) || manifest.records.length > 2000) throw new Error('云端同步协议不兼容。')
       if (!manifest.features?.includes('inspiration')) throw new Error('同步服务器尚不支持灵感会话，请先更新服务端。本机内容已保留。')
@@ -447,6 +473,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
       phase.value = complete ? 'synced' : 'waiting'
     })().catch(async cause => {
       if (generation !== version) return
+      attempted = true
       error.value = cause instanceof Error ? cause.message : '同步失败，本地内容已保留。'
       phase.value = 'error'
       if (cause instanceof CloudApiError && cause.status === 401) {
@@ -458,7 +485,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
       busy.value = false
       running = null
       abort = null
-    })
+    }).then(() => attempted)
     return running
   }
   async function approveUploads(keys: string[]) {
@@ -590,11 +617,12 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
   async function flushBeforeClose() {
     await operation
     if (!session.value || !state.value.enabled) return
+    const wasScheduled = scheduled !== undefined
     await stop()
     const timeout = setTimeout(() => abort?.abort(), 12000)
     try {
-      await syncNow()
-      if (error.value) throw new Error(`本地已保存，但云同步未完成：${error.value}`)
+      const attempted = await syncProject(!wasScheduled)
+      if (attempted && error.value) throw new Error(`本地已保存，但云同步未完成：${error.value}`)
     } finally { clearTimeout(timeout) }
   }
   function dispose() {

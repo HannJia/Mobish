@@ -144,7 +144,7 @@ button:focus-visible, a:focus-visible, [tabindex="0"]:focus-visible {
   width: 30px;
   height: 30px;
   border-radius: 4px;
-  background: var(--zhu);
+  background: var(--zhu-solid);
   color: var(--on-accent);
   font-family: var(--f-serif);
   font-size: 18px;
@@ -169,7 +169,7 @@ button:focus-visible, a:focus-visible, [tabindex="0"]:focus-visible {
   width: 3px;
   height: 15px;
   border-radius: 2px;
-  background: var(--zhu);
+  background: var(--zhu-solid);
 }
 
 /* 印章作为图标时的尺寸 */
@@ -228,7 +228,7 @@ button:focus-visible, a:focus-visible, [tabindex="0"]:focus-visible {
 }
 
 .tag-chip.active {
-  background: var(--zhu);
+  background: var(--zhu-solid);
   color: var(--on-accent);
   border-color: var(--zhu);
 }

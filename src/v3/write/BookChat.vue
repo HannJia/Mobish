@@ -387,7 +387,7 @@ function wholeBookAnalysis() {
   border-radius: 10px;
   background: var(--zhu-soft);
   color: var(--zhu);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -402,7 +402,7 @@ function wholeBookAnalysis() {
   border: 1px solid var(--line-2);
   border-radius: 12px;
   cursor: pointer;
-  font-size: 11.5px;
+  font-size: 12px;
   background: var(--paper);
   color: var(--ink-2);
 }
@@ -432,7 +432,7 @@ function wholeBookAnalysis() {
   margin: 0;
   padding: 6px 14px;
   color: var(--ink-3);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
   border-bottom: 1px solid var(--line);
   background: var(--panel-2);
@@ -459,7 +459,7 @@ function wholeBookAnalysis() {
   justify-items: center;
 }
 .welcome-title { margin: 0; font: 600 15px var(--f-serif); color: var(--ink); }
-.chat-hint { margin: 0; font-size: 12px; line-height: 1.65; max-width: 300px; }
+.chat-hint { margin: 0; font-size: 13px; line-height: 1.65; max-width: 300px; }
 
 .welcome-direction-cta {
   width: 100%;
@@ -536,7 +536,7 @@ function wholeBookAnalysis() {
   border-radius: 4px;
   background: var(--qing);
   color: #fff;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
 }
 .receipt-text { min-width: 0; overflow-wrap: anywhere; }
@@ -573,7 +573,7 @@ function wholeBookAnalysis() {
   color: var(--ink);
 }
 .chat-msg.user .msg-content {
-  background: var(--zhu);
+  background: var(--zhu-solid);
   color: #fff;
   border-bottom-right-radius: 4px;
 }
@@ -595,7 +595,7 @@ function wholeBookAnalysis() {
 .msg-actions { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 6px; }
 
 .action-btn {
-  font-size: 11.5px;
+  font-size: 12px;
   padding: 3px 8px;
   border: 1px solid var(--line-2);
   border-radius: 5px;
@@ -656,7 +656,7 @@ function wholeBookAnalysis() {
 .direction-head-actions { display: flex; gap: 5px; }
 .direction-ctx {
   margin: 0;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--ink-3);
   line-height: 1.5;
 }
@@ -675,7 +675,7 @@ function wholeBookAnalysis() {
   border-left: 3px solid var(--jin);
   background: var(--jin-soft);
   color: var(--jin);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
 }
 .direction-card {
@@ -699,7 +699,7 @@ function wholeBookAnalysis() {
   border-radius: 4px;
   background: var(--dai-soft);
   color: var(--dai);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 .dir-beat {
@@ -720,7 +720,7 @@ function wholeBookAnalysis() {
 }
 .dir-evidence, .dir-risk {
   margin: 0;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.55;
   color: var(--ink-3);
 }
@@ -733,7 +733,7 @@ function wholeBookAnalysis() {
 }
 .direction-actions .m-btn.xs {
   padding: 3px 6px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .chat-error {
@@ -814,7 +814,7 @@ function wholeBookAnalysis() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--ink-4);
-  font-size: 11px;
+  color: var(--ink-3);
+  font-size: 12px;
 }
 </style>

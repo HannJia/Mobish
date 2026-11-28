@@ -19,7 +19,7 @@
         </button>
         <nav class="narrow-tabs" aria-label="切换工作区">
           <button type="button" :aria-pressed="mobilePanel === 'chat'" @click="mobilePanel = 'chat'">探索对话</button>
-          <button type="button" :aria-pressed="mobilePanel === 'contract'" @click="mobilePanel = 'contract'">契约卡片</button>
+          <button type="button" data-guide="create.contract.toggle" :aria-pressed="mobilePanel === 'contract'" @click="mobilePanel = 'contract'">契约卡片</button>
         </nav>
       </div>
     </header>
@@ -83,7 +83,7 @@
           </div>
         </header>
 
-        <div class="contract-grid" tabindex="0" aria-label="契约卡片列表">
+        <div class="contract-grid" data-guide="create.contract" tabindex="0" aria-label="契约卡片列表">
           <fieldset v-for="card in contractCards" :key="card.id" :disabled="busy || exploring"
             :class="{ confirmed: contractCardConfirmed(form, card.id), highlighted: highlightedCard === card.id }">
             <div class="card-heading">
@@ -754,6 +754,9 @@ textarea, input {
   .story-contract { min-height: 560px; }
   .title-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .origin-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+  .title-suggest-list { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 480px) {
   .title-grid { grid-template-columns: minmax(0, 1fr); }

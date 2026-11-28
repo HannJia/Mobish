@@ -28,6 +28,59 @@ function createBook() {
 }
 
 describe('persistence audit regressions', () => {
+  it('moves the novel to trash immediately and resolves after saving it', async () => {
+    const store = useNovelStore()
+    await store.initStore()
+    const book = createBook()
+    await store.saveNovelNow(book.id)
+    vi.advanceTimersByTime(1000)
+    let finishSave!: () => void
+    vi.mocked(saveNovelToDb).mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve }))
+
+    const pending = store.deleteNovel(book.id)
+    expect(store.activeNovels).toHaveLength(0)
+    expect(store.getNovel(book.id)).toMatchObject({ status: 'trash', updatedAt: new Date().toISOString() })
+    await nextTick()
+    expect(saveNovelToDb).toHaveBeenLastCalledWith(expect.objectContaining({ id: book.id, status: 'trash' }))
+    finishSave()
+    await expect(pending).resolves.toBeUndefined()
+    expect(store.hasPendingSaves).toBe(false)
+  })
+
+  it('restores the previous status and timestamp when moving a novel to trash fails', async () => {
+    const store = useNovelStore()
+    await store.initStore()
+    const book = createBook()
+    store.archiveNovel(book.id)
+    await store.saveNovelNow(book.id)
+    const previous = store.getNovel(book.id)!.updatedAt
+    vi.advanceTimersByTime(1000)
+    const error = new Error('磁盘空间不足')
+    vi.mocked(saveNovelToDb).mockRejectedValueOnce(error)
+
+    const pending = store.deleteNovel(book.id)
+    expect(store.getNovel(book.id)).toMatchObject({ status: 'trash', updatedAt: new Date().toISOString() })
+    await expect(pending).rejects.toBe(error)
+    expect(store.getNovel(book.id)).toMatchObject({ status: 'archived', updatedAt: previous })
+    await store.flushPendingSaves()
+    expect(saveNovelToDb).toHaveBeenLastCalledWith(expect.objectContaining({ id: book.id, status: 'archived', updatedAt: previous }))
+  })
+
+  it('retains a newer status change while a failed trash save unwinds', async () => {
+    const store = useNovelStore()
+    const book = createBook()
+    await store.saveNovelNow(book.id)
+    let failSave!: (error: Error) => void
+    vi.mocked(saveNovelToDb).mockImplementationOnce(() => new Promise((_resolve, reject) => { failSave = reject }))
+    const pending = store.deleteNovel(book.id)
+    await nextTick()
+    vi.advanceTimersByTime(1000)
+    store.archiveNovel(book.id)
+    failSave(new Error('磁盘空间不足'))
+    await expect(pending).rejects.toThrow('磁盘空间不足')
+    expect(store.getNovel(book.id)).toMatchObject({ status: 'archived', updatedAt: new Date().toISOString() })
+  })
+
   it('publishes a chapter length policy only after a successful durable save and allows retry', async () => {
     const store = useNovelStore()
     const book = createBook()

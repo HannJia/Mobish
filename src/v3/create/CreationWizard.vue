@@ -94,7 +94,7 @@
 
         <footer class="entry-panel-footer">
           <p v-if="createdNovelId" role="status" class="entry-saved-note">作品和输入已保存；再次点击只会打开这部作品。</p>
-          <button id="entry-create-btn" type="button" class="m-btn zhu lg" :aria-busy="creating"
+          <button id="entry-create-btn" data-guide="create.save" type="button" class="m-btn zhu lg" :aria-busy="creating"
             :disabled="creating || (!createdNovelId && (!canProceed || outlineReading))" @click="handleCreate">
             {{ createdNovelId ? '打开已创建的作品' : creating ? '正在创建…' : '保存输入并创建，进入作品契约' }}
           </button>
@@ -585,6 +585,7 @@
       <button
         v-else
         id="wizard-create-btn"
+        data-guide="create.save"
         type="button"
         class="m-btn pri lg"
         :aria-busy="creating"
@@ -614,6 +615,7 @@ import { styleDimensions, personalityTags, payoffPatterns } from '@/data/styles'
 import { useNovelStore } from '@/stores/novel'
 import { useConfigStore } from '@/stores/config'
 import { useKnowledgeStore } from '@/stores/knowledge'
+import { useOnboardingStore } from '@/stores/onboarding'
 import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspace'
 import { prepareStoryCreation, suggestStoryCreationTitles } from '@/services/storyCreation'
 import type { CreateWizardForm } from '@/types/novel'
@@ -1299,6 +1301,7 @@ async function handleCreate() {
         storyTimeOrigin: { day: storyOriginDay.value ?? undefined, label: storyOriginLabel.value.trim() } },
         appliedInspirationHistory.value, setupMethod.value, now, creationId)
       await reconstructionWorkspaceStore.persistInitialCreation(prepared.novel, prepared.workspace)
+      try { useOnboardingStore().recordAchievement('first_book_created') } catch { /* ignore */ }
       // Commit identity before publishing or navigating: a retry must reuse this saved novel.
       committedCreation = prepared
       createdNovelId.value = prepared.novel.id
@@ -1405,7 +1408,7 @@ async function handleCreate() {
 /* 步骤指示器 */
 
 .step-active .step-dot {
-  background: var(--zhu);
+  background: var(--zhu-solid);
   border-color: var(--zhu);
   color: var(--paper);
   box-shadow: 0 0 0 4px var(--zhu-soft);
@@ -1577,9 +1580,9 @@ async function handleCreate() {
 .creation-entry-body { max-width: 960px; width: 100%; margin: 18px auto 36px; padding: 0 24px; }
 .creation-entry-panel { display: grid; gap: 18px; padding: 24px 26px; border: 1px solid var(--line); border-radius: 13px; background: var(--paper); box-shadow: var(--shadow-1); }
 .entry-panel-head { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
-.entry-seal { display: grid; place-items: center; flex: 0 0 38px; width: 38px; height: 38px; border-radius: 9px; background: var(--zhu); color: #fff8ee; font: 700 22px/1 var(--f-serif); }
+.entry-seal { display: grid; place-items: center; flex: 0 0 38px; width: 38px; height: 38px; border-radius: 9px; background: var(--zhu-solid); color: #fff8ee; font: 700 22px/1 var(--f-serif); }
 .entry-panel-head h2 { margin: 0 0 2px; font: 700 20px/1.3 var(--f-serif); color: var(--ink); }
-.entry-panel-head p { margin: 0; font-size: 12.5px; color: var(--ink-3); }
+.entry-panel-head p { margin: 0; font-size: 13px; color: var(--ink-3); }
 .entry-section { display: grid; gap: 10px; }
 .entry-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .entry-field-label { font-size: 13px; font-weight: 600; color: var(--ink-2); }
@@ -1593,7 +1596,7 @@ async function handleCreate() {
   text-align: left; white-space: normal; overflow-wrap: anywhere; border-radius: 8px;
 }
 .entry-title-options button strong { font-size: 13px; font-weight: 700; color: var(--ink); }
-.entry-title-options button small { color: var(--ink-3); font-size: 11.5px; line-height: 1.45; white-space: normal; }
+.entry-title-options button small { color: var(--ink-3); font-size: 12px; line-height: 1.45; white-space: normal; }
 .entry-title-options button[aria-pressed="true"] { border-color: var(--zhu); color: var(--zhu); background: var(--zhu-soft); }
 .entry-title-options button[aria-pressed="true"] strong { color: var(--zhu); }
 .entry-error { color: var(--zhu); font-size: 12px; }
@@ -1605,7 +1608,7 @@ async function handleCreate() {
 @media (max-width: 640px) { .entry-origin-grid { grid-template-columns: minmax(0, 1fr); } }
 .entry-origin-status { font-size: 12px; color: var(--ink-3); }
 .entry-panel-footer { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; padding-top: 14px; border-top: 1px solid var(--line); }
-.entry-saved-note { margin-right: auto; font-size: 12.5px; color: var(--qing); }
+.entry-saved-note { margin-right: auto; font-size: 13px; color: var(--qing); }
 /* 勾选框和说明文字在同一行 */
 .creation-entry-panel .entry-knowledge { display: grid; gap: 6px; }
 .creation-entry-panel .entry-knowledge-label { font-size: 13px; color: var(--ink-2); }
@@ -1647,7 +1650,7 @@ async function handleCreate() {
 .step-line {
   transition: width 0.4s ease;
   border-radius: 100px;
-  background: var(--zhu);
+  background: var(--zhu-solid);
   height: 3px;
   left: 0;
   bottom: 0;
@@ -1732,7 +1735,7 @@ async function handleCreate() {
   align-items: center;
   display: flex;
   height: 32px;
-  width: 32px; background: var(--paper); border-color: var(--line-2); }.step-active .step-dot, .step-completed .step-dot { border-color: var(--zhu); background: var(--zhu); color: white; }
+  width: 32px; background: var(--paper); border-color: var(--line-2); }.step-active .step-dot, .step-completed .step-dot { border-color: var(--zhu); background: var(--zhu-solid); color: white; }
 .wizard-body { margin: 0 auto; width: 100%; align-items: start; display: grid;
   flex: 1;
   min-height: 0;

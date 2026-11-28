@@ -245,6 +245,7 @@ export const useConfigStore = defineStore('config', () => {
   const isConfigured = ref(false)
   const isInitialized = ref(false)
   let saveQueue: Promise<void> = Promise.resolve()
+  let lastPersistedJson: string | undefined
   let modelConnectionRequestId = 0
   const modelConnectionVersions = new Map<string, number>()
   const latestModelConnectionRequests = new Map<string, number>()
@@ -354,9 +355,13 @@ export const useConfigStore = defineStore('config', () => {
         if (isLocalDevelopment()) securityStatus.storage = 'local-development'
       }
       applyConfig(data)
+      lastPersistedJson = data ? JSON.stringify(exportConfig()) : undefined
+      return true
     } catch {
+      lastPersistedJson = undefined
       console.warn('配置加载失败，使用默认值')
       applyConfig(null)
+      return false
     } finally {
       isInitialized.value = true
     }
@@ -375,6 +380,8 @@ export const useConfigStore = defineStore('config', () => {
   }
 
   async function persistConfig(data: ConfigData) {
+      // A failed write may have changed storage before reporting the failure.
+      lastPersistedJson = undefined
       if (hasElectronConfig()) {
         if (securityStatus.encryptionAvailable) {
           await window.electronAPI!.configWrite(JSON.stringify(await encryptConfig(data)))
@@ -393,11 +400,24 @@ export const useConfigStore = defineStore('config', () => {
 
   async function saveConfig() {
     const data = exportConfig()
-    const write = () => persistConfig(data)
+    const write = async () => {
+      await persistConfig(data)
+      lastPersistedJson = JSON.stringify(data)
+    }
     const next = saveQueue.then(write, write)
     saveQueue = next.catch(() => undefined)
     await next
     isConfigured.value = models.value.some(model => model.kind !== 'embedding')
+  }
+
+  async function flushPendingSaves(): Promise<void> {
+    while (true) {
+      const pending = saveQueue
+      await pending
+      if (pending !== saveQueue) continue
+      if (JSON.stringify(exportConfig()) === lastPersistedJson) return
+      await saveConfig()
+    }
   }
 
   // Persist before exposing restored settings to running UI/tasks. Existing save
@@ -425,6 +445,7 @@ export const useConfigStore = defineStore('config', () => {
         throw new Error('恢复期间本机配置或账号已变化，已保留本机配置。')
       }
       applyConfig(candidate)
+      lastPersistedJson = JSON.stringify(exportConfig())
     }
     const next = saveQueue.then(write, write)
     saveQueue = next.catch(() => undefined)
@@ -665,6 +686,7 @@ export const useConfigStore = defineStore('config', () => {
     isInitialized,
     loadConfig,
     saveConfig,
+    flushPendingSaves,
     exportConfig,
     importConfig,
     addModel,

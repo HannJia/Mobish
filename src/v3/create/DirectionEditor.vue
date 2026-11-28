@@ -51,21 +51,35 @@
       <StorySkeletonPicker v-if="creationDraft"
         :skeletons="skeletonOptions" :selected-id="selectedSkeletonId"
         :confirmed-id="skeletonConfirmed ? creationDraft.selectedSkeletonId : undefined" :dirty="!!skeletonDraft"
-        :busy="generationBusy || contractBusy || acceptingOutline" :has-outline="isDone"
+        :busy="generationBusy || contractBusy || acceptingOutline" :has-outline="isDone" :streaming="streamingSkeletons" :stream-chars="streamChars" hide-empty
         @select="selectSkeleton" @edit="editSkeleton" @confirm="confirmSkeletonAndGenerate"
         @save="saveSkeleton" @create="createSkeleton" @mix="mixSkeletons" @regenerate="requestSkeletonGeneration()" />
 
-      <div v-if="contractConfirmed && !generationBusy && !isDone && !creationDraft?.skeletons.length" class="skeleton-start-scroll">
-        <div class="start-actions-row">
-          <button type="button" class="m-btn zhu" :disabled="contractBusy" @click="requestSkeletonGeneration()"><V3Icon name="spark" size="s" />生成故事骨架候选</button>
+      <section v-if="contractConfirmed && !generationBusy && !isDone && !creationDraft?.skeletons.length" class="skeleton-start" aria-label="选择开始方式">
+        <div class="skeleton-start-head">
+          <h3>还没有故事骨架</h3>
+          <p>选一种方式开始。三种方式得到的方案，都能在方案台里继续修改。</p>
         </div>
-        <section class="manual-outline paper-panel" aria-label="手动准备大纲">
-          <h3>已有大纲或手动设计</h3>
-          <p>可以粘贴已有大纲，或直接写下故事前提、分卷方向和结局，再检查提取出的故事骨架。</p>
-          <V3Input v-model:value="manualOutline" type="textarea" :rows="10" aria-label="手写或粘贴大纲" placeholder="例如：## 小说简介、## 第一卷、## 结局方向" />
-          <button type="button" class="m-btn" :disabled="!manualOutline.trim() || contractBusy" @click="saveManualOutline">保存大纲并核对骨架</button>
-        </section>
-      </div>
+        <div class="skeleton-start-cards">
+          <article class="start-card recommended">
+            <h4><V3Icon name="spark" size="s" />AI 生成候选 <span class="start-tag">推荐</span></h4>
+            <p>按已确认的作品契约，生成 3 个可以互相比较的故事方向，约需一分钟。</p>
+            <button type="button" class="m-btn zhu" :disabled="contractBusy" @click="requestSkeletonGeneration()">生成故事骨架候选</button>
+          </article>
+          <article class="start-card">
+            <h4><V3Icon name="edit" size="s" />手写一个方案</h4>
+            <p>从空白骨架开始，自己写主线、结局和关键节点。不需要模型。</p>
+            <button type="button" class="m-btn" :disabled="contractBusy" @click="createSkeleton">手写新方案</button>
+          </article>
+          <section class="start-card manual-outline paper-panel" aria-label="手动准备大纲">
+            <h4><V3Icon name="file" size="s" />粘贴已有大纲</h4>
+            <p>已有大纲？贴进来自动提取故事骨架，再逐项核对。不需要模型。</p>
+            <V3Input v-model:value="manualOutline" type="textarea" :rows="5" aria-label="手写或粘贴大纲" placeholder="例如：## 小说简介、## 第一卷、## 结局方向" />
+            <button type="button" class="m-btn" :disabled="!manualOutline.trim() || contractBusy" @click="saveManualOutline">保存大纲并核对骨架</button>
+          </section>
+        </div>
+        <p class="skeleton-start-status" role="status"><i aria-hidden="true" />还没有故事骨架候选</p>
+      </section>
     </template>
 
     <!-- 3. 大纲候选单独成页（顶部红框正式方向条 + 三栏：8项目录 / 大纲正文 / 书名候选 + 底部常驻栏） -->
@@ -138,7 +152,7 @@
         </div>
         <div class="ol-footer-acts">
           <button type="button" class="m-btn" :disabled="acceptingOutline || editingOutline || editingContract || !skeletonConfirmed" @click="regenerate">重新生成</button>
-          <button type="button" class="m-btn zhu" :aria-busy="acceptingOutline" :disabled="acceptingOutline || generationBusy || contractBusy || editingOutline || editingContract || !skeletonConfirmed || !visibleOutlineContent || creationDraft?.outlineCandidate?.complete === false" @click="acceptOutline">确认并规划分卷</button>
+          <button type="button" class="m-btn zhu" data-guide="create.direction" :aria-busy="acceptingOutline" :disabled="acceptingOutline || generationBusy || contractBusy || editingOutline || editingContract || !skeletonConfirmed || !visibleOutlineContent || creationDraft?.outlineCandidate?.complete === false" @click="acceptOutline">确认并规划分卷</button>
         </div>
       </footer>
     </div>
@@ -670,6 +684,24 @@ async function confirmSkeletonAndGenerate() {
 }
 
 
+// 生成中逐个方案先在页面出现：每个方案的 JSON 对象闭合后即可解析，不等整批返回。
+const streamingSkeletons = ref<PlotSkeleton[]>([])
+const streamChars = ref(0)
+let streamPreviewTimer: ReturnType<typeof setTimeout> | undefined
+function previewStreamedSkeletons(output: string) {
+  streamChars.value = output.length
+  if (streamPreviewTimer || !novel.value) return
+  streamPreviewTimer = setTimeout(() => {
+    streamPreviewTimer = undefined
+    if (!novel.value) return
+    try { streamingSkeletons.value = recoverPartialSkeletons(novel.value, output, new Date().toISOString()) } catch { /* 预览失败不影响生成 */ }
+  }, 250)
+}
+function resetStreamedSkeletons() {
+  if (streamPreviewTimer) clearTimeout(streamPreviewTimer)
+  streamPreviewTimer = undefined
+  streamingSkeletons.value = []; streamChars.value = 0
+}
 async function requestSkeletonGeneration(mode: SkeletonGenerationAttempt['mode'] = 'generate', parentId?: string) {
   if (disposed || generationBusy.value || contractBusy.value || acceptingOutline.value) return
   if (!novel.value || !creationDraft.value || !contractConfirmed.value || editingContract.value) { message.warning('请先确认作品契约'); return }
@@ -690,6 +722,7 @@ async function requestSkeletonGeneration(mode: SkeletonGenerationAttempt['mode']
   }
   try {
     activity = startAiActivity('骨架生成与恢复保存')
+    resetStreamedSkeletons()
     generationBusy.value = true; hasError.value = false
     await editorWrite
     if (pageBaseline !== reconstructionWorkspaceStore.captureCreationEditBaseline(novelId)) throw new Error('作品设定或候选已变化，请核对当前设定后再发起请求；暂存输入仍保留')
@@ -713,6 +746,7 @@ async function requestSkeletonGeneration(mode: SkeletonGenerationAttempt['mode']
     const response = await callAI({ model: { ...model }, messages: attempt.messages, taskName: '生成故事骨架候选', activityParentId: activity.id,
       noAutomaticRetry: true, stream: true, signal: controller.signal, onChunk: chunk => {
         attempt!.output += chunk
+        previewStreamedSkeletons(attempt!.output)
         if (!timer) timer = setTimeout(() => { timer = undefined; void persistAttempt().catch(() => undefined) }, 350)
       } })
     clearTimeout(timer); timer = undefined; await checkpoint
@@ -747,6 +781,7 @@ async function requestSkeletonGeneration(mode: SkeletonGenerationAttempt['mode']
       if (attempt && !committed) await persistAttempt()
     } catch (error) { if (!disposed) { hasError.value = true; errorMessage.value = '输出保存未完成，请重试保存：' + safeAiErrorMessage(error) } }
     if (activity) finishAiActivity(activity, checkpointError)
+    resetStreamedSkeletons()
     generationBusy.value = false
     if (disposed && !pendingEditors.size && !pendingAttempts.size) unregisterDraftSaver()
   }
@@ -930,14 +965,14 @@ onUnmounted(() => {
   white-space: normal; overflow-wrap: anywhere;
 }
 .outline-title-options button:has(small) { display: flex; align-items: flex-start; flex-direction: column; gap: 3px; }
-.outline-title-options small { color: var(--ink-3); font-size: 11px; line-height: 1.45; white-space: normal; }
+.outline-title-options small { color: var(--ink-3); font-size: 12px; line-height: 1.45; white-space: normal; }
 .generate-header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; width: 100%; flex-wrap: wrap; }
 .drawer-toggle { display: inline-flex; align-items: center; gap: 6px; }
-.drawer-badge { padding: 1px 6px; border-radius: 999px; background: var(--zhu-soft); color: var(--zhu); font-size: 11px; font-weight: 600; }
+.drawer-badge { padding: 1px 6px; border-radius: 999px; background: var(--zhu-soft); color: var(--zhu); font-size: 12px; font-weight: 600; }
 .direction-drawer { width: 100%; max-width: 1160px; display: grid; gap: 12px; padding: 16px 18px; box-sizing: border-box; border-color: var(--line-2); }
 .drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .drawer-head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.confirmed-pill { display: inline-block; margin-bottom: 4px; padding: 1px 7px; border-radius: 4px; background: var(--zhu); color: #fff; font-size: 11px; font-weight: 600; }
+.confirmed-pill { display: inline-block; margin-bottom: 4px; padding: 1px 7px; border-radius: 4px; background: var(--zhu-solid); color: #fff; font-size: 12px; font-weight: 600; }
 .zhu-outline { border-color: var(--zhu); color: var(--zhu); background: var(--paper); flex-shrink: 0; }
 .zhu-outline:hover:not(:disabled) { background: var(--zhu-soft); }
 
@@ -1143,7 +1178,7 @@ onUnmounted(() => {
 .skeleton-candidates { width: 100%; max-width: none; padding: 18px 20px; text-align: left; }
 .skeleton-candidates-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .skeleton-candidates-header h3 { margin: 0; font: 600 20px var(--f-serif); }
-.skeleton-candidates-header p { margin: 6px 0 0; color: var(--ink-3); font-size: 12px; }
+.skeleton-candidates-header p { margin: 6px 0 0; color: var(--ink-3); font-size: 13px; }
 .skeleton-candidates-header > span { color: var(--ink-3); font-size: 12px; }
 .skeleton-candidate-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 14px; }
 .skeleton-card { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--desk); color: var(--ink); text-align: left; cursor: pointer; }
@@ -1255,8 +1290,8 @@ onUnmounted(() => {
 .generate-header h2 { margin: 0; color: var(--ink); font: 600 22px/1.3 var(--f-serif); }
 .structured-plan-status { font-size: 12.5px; margin: 3px 0 0; color: var(--ink-3); }
 .head-links { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.drawer-tag.qing { margin-left: 4px; padding: 0 6px; border-radius: 4px; background: var(--qing-soft); color: var(--qing); font-size: 11px; font-weight: 600; }
-.drawer-badge { margin-left: 4px; min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px; background: var(--panel-2); color: var(--ink-3); font: 600 10.5px/17px var(--f-num); display: inline-grid; place-items: center; }
+.drawer-tag.qing { margin-left: 4px; padding: 0 6px; border-radius: 4px; background: var(--qing-soft); color: var(--qing); font-size: 12px; font-weight: 600; }
+.drawer-badge { margin-left: 4px; min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px; background: var(--panel-2); color: var(--ink-3); font: 600 12px/17px var(--f-num); display: inline-grid; place-items: center; }
 .m-btn.warn { border-color: color-mix(in srgb, var(--jin), transparent 55%); color: var(--jin); background: var(--jin-soft); }
 .m-btn.zhu-outline { border-color: var(--zhu); color: var(--zhu); background: var(--paper); font-weight: 600; }
 .m-btn.zhu-outline:hover:not(:disabled) { background: var(--zhu-soft); }
@@ -1273,8 +1308,23 @@ onUnmounted(() => {
   background: var(--paper);
   font-size: 13px;
 }
-.skeleton-start-scroll { flex: 1; min-height: 0; overflow: auto; display: grid; align-content: start; gap: 14px; padding-bottom: 12px; }
-.start-actions-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.skeleton-start { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 12px 4px 20px; }
+.skeleton-start-head { text-align: center; }
+.skeleton-start-head h3 { margin: 0 0 8px; font: 600 22px var(--f-serif); letter-spacing: .06em; }
+.skeleton-start-head p { margin: 0; color: var(--ink-3); font-size: 13px; }
+.skeleton-start-cards { width: 100%; max-width: 1040px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
+.start-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); box-sizing: border-box; min-width: 0; }
+.start-card.recommended { border-color: var(--zhu-mid, var(--zhu)); box-shadow: 0 0 0 1px var(--zhu-soft); }
+.start-card h4 { display: flex; align-items: center; gap: 6px; margin: 0; font: 600 15px var(--f-serif); }
+.start-card p { margin: 0; color: var(--ink-3); font-size: 13px; line-height: 1.7; }
+.start-card > .m-btn { margin-top: auto; }
+.start-card.manual-outline { max-width: none; padding: 18px; }
+.start-card.manual-outline p { color: var(--ink-3); line-height: 1.7; }
+.start-card.manual-outline > .m-btn { margin-top: 0; }
+.start-tag { padding: 1px 7px; border-radius: 4px; background: var(--zhu-soft); color: var(--zhu); font: 600 12px var(--f-ui); }
+.skeleton-start-status { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--ink-3); font-size: 13px; }
+.skeleton-start-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-4); }
+@media (max-width: 900px) { .skeleton-start { justify-content: flex-start; } .skeleton-start-cards { grid-template-columns: minmax(0, 1fr); } }
 
 /* 大纲候选单独成页 */
 .outline-stage { flex: 1; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 10px; }
@@ -1288,20 +1338,20 @@ onUnmounted(() => {
   background: var(--paper);
   box-shadow: 0 0 0 1px var(--zhu), 0 0 0 4px var(--zhu-soft);
 }
-.dir-seal { width: 30px; height: 30px; flex: none; border-radius: 7px; display: grid; place-items: center; background: var(--zhu); color: #fff; font: 600 15px/1 var(--f-kai); }
+.dir-seal { width: 30px; height: 30px; flex: none; border-radius: 7px; display: grid; place-items: center; background: var(--zhu-solid); color: #fff; font: 600 15px/1 var(--f-kai); }
 .dir-info { flex: 1; min-width: 0; }
 .dir-title-row { display: flex; align-items: center; gap: 8px; }
 .dir-title-row h3 { margin: 0; font: 600 15px/1.3 var(--f-serif); }
-.confirmed-pill { padding: 1px 7px; border-radius: 4px; background: var(--zhu); color: #fff; font-size: 11px; font-weight: 600; }
+.confirmed-pill { padding: 1px 7px; border-radius: 4px; background: var(--zhu-solid); color: #fff; font-size: 12px; font-weight: 600; }
 .dir-info p { margin: 2px 0 0; color: var(--ink-2); font: 13px/1.5 var(--f-serif); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .ol-grid { min-height: 0; display: grid; grid-template-columns: 176px minmax(0, 1fr) 250px; gap: 12px; }
 .ol-toc, .ol-doc, .ol-side { min-height: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); box-shadow: var(--shadow-1); overflow: hidden; display: flex; flex-direction: column; }
 .ol-toc { padding: 10px 8px; overflow: auto; }
-.ol-toc h3, .ol-side h3 { margin: 2px 6px 8px; color: var(--ink-3); font-size: 11.5px; font-weight: 600; }
+.ol-toc h3, .ol-side h3 { margin: 2px 6px 8px; color: var(--ink-3); font-size: 12px; font-weight: 600; }
 .ol-toc button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px; border-radius: 6px; font-size: 12.5px; color: var(--ink-2); text-align: left; }
 .ol-toc button:hover { background: var(--panel); }
-.tick { width: 16px; height: 16px; flex: none; border-radius: 50%; border: 1.5px solid var(--line-2); display: grid; place-items: center; font-size: 10px; color: transparent; }
+.tick { width: 16px; height: 16px; flex: none; border-radius: 50%; border: 1.5px solid var(--line-2); display: grid; place-items: center; font-size: 11px; color: transparent; }
 .tick.done { border-color: var(--qing); background: var(--qing); color: #fff; }
 .tick.doing { border-color: var(--jin); border-top-color: transparent; animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -1315,8 +1365,8 @@ onUnmounted(() => {
 .title-opt { display: grid; gap: 2px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--paper); text-align: left; cursor: pointer; }
 .title-opt:hover, .title-opt[aria-pressed="true"] { border-color: var(--zhu); background: var(--zhu-soft); }
 .title-opt strong { font: 600 14px/1.4 var(--f-serif); color: var(--ink); }
-.title-opt small { color: var(--ink-3); font-size: 11.5px; line-height: 1.45; }
-.side-hint { margin: 0; font-size: 12px; color: var(--ink-3); line-height: 1.6; }
+.title-opt small { color: var(--ink-3); font-size: 12px; line-height: 1.45; }
+.side-hint { margin: 0; font-size: 13px; color: var(--ink-3); line-height: 1.6; }
 .side-err { margin: 0; font-size: 12px; color: var(--zhu); }
 
 .ol-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; padding: 8px 12px 8px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }

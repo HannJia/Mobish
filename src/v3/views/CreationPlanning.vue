@@ -118,7 +118,7 @@
 
         <p v-if="error" role="alert" class="error">{{ error }}</p>
         <div class="ready-actions">
-          <button type="button" class="m-btn zhu lg" :disabled="busy" @click="startWriting">
+          <button type="button" data-guide="create.firstChapter" class="m-btn zhu lg" :disabled="busy" @click="startWriting">
             <V3Icon name="pen" size="s" />{{ busy ? '保存中…' : novel.chapters.length ? '打开写作台' : '开始写第一章' }}
           </button>
           <router-link class="m-btn lg" :to="'/plan/' + novel.id">
@@ -303,7 +303,7 @@ async function startWriting() {
 .f-status[data-tone="warn"] { color: var(--jin); }
 .f-status[data-tone="warn"] .lamp { background: var(--jin); }
 .f-status[data-tone="need"] { color: var(--zhu); }
-.f-status[data-tone="need"] .lamp { background: var(--zhu); }
+.f-status[data-tone="need"] .lamp { background: var(--zhu-solid); }
 .f-status[data-tone="busy"] .lamp { background: var(--jin); animation: f-pulse 1.2s infinite; }
 @keyframes f-pulse { 50% { opacity: .35; } }
 .f-status .txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -311,7 +311,7 @@ async function startWriting() {
 .f-status .gen-bar i { display: block; height: 100%; width: 45%; border-radius: 4px; background: var(--jin); animation: f-slide 1.3s ease-in-out infinite; }
 @keyframes f-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
 .checks { display: flex; gap: 4px; flex: none; }
-.checks span { width: 8px; height: 8px; border-radius: 2px; background: var(--zhu); }
+.checks span { width: 8px; height: 8px; border-radius: 2px; background: var(--zhu-solid); }
 .checks span.ok { background: var(--qing); }
 .checks span.warn { background: var(--jin); }
 .f-actions { display: flex; align-items: center; gap: 8px; flex: none; flex-wrap: wrap; }
@@ -351,9 +351,9 @@ async function startWriting() {
 .seed-list label { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 13px; line-height: 1.45; }
 .seed-list label input { margin-top: 3px; flex: none; accent-color: var(--zhu); }
 .seed-list label span { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
-.seed-src { color: var(--ink-3); font-size: 11.5px; }
-.seed-done { font-style: normal; padding: 1px 6px; border-radius: 4px; background: var(--qing-soft); color: var(--qing); font-size: 11px; }
-.seed-list p { margin: 0 0 0 22px; font-size: 12.5px; color: var(--ink-2); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.seed-src { color: var(--ink-3); font-size: 12px; }
+.seed-done { font-style: normal; padding: 1px 6px; border-radius: 4px; background: var(--qing-soft); color: var(--qing); font-size: 12px; }
+.seed-list p { margin: 0 0 0 22px; font-size: 13px; color: var(--ink-2); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .seed-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding-top: 2px; }
 .seed-feedback { font-size: 12.5px; color: var(--qing); }
 .edit-again { text-decoration: none; }

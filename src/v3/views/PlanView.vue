@@ -1,6 +1,6 @@
 <template>
   <Teleport defer to="#v3-crumb"><router-link class="crumb-link" to="/">书架</router-link><span class="crumb-sep">/</span><span class="crumb-b">结构与规划</span></Teleport>
-  <Teleport defer to="#v3-tools"><button v-if="activeTab !== 'overview'" class="m-btn sm" type="button" @click="selectTab('overview')">结构总览</button><button class="m-btn sm" type="button" @click="selectTab('outline')">总纲编辑</button><button class="m-btn sm" type="button" @click="openPlanner('plans')">规划工作台</button></Teleport>
+  <Teleport defer to="#v3-tools"><button v-if="activeTab !== 'overview'" class="m-btn sm" type="button" @click="selectTab('overview')">结构总览</button><button class="m-btn sm" type="button" @click="selectTab('outline')">总纲编辑</button><button class="m-btn sm" type="button" data-guide="plan.chapters" @click="openPlanner('plans')">规划工作台</button><GuideBeacon :visible="planBeacons.includes('plan.chapters')" beacon-id="plan.chapters" /></Teleport>
   <div v-if="loading" class="plan-state">正在读取结构规划…</div>
   <div v-else-if="error" class="plan-state error">{{ error }}</div>
   <div v-else-if="!novel" class="plan-state error">作品不存在。</div>
@@ -20,7 +20,7 @@
             </div>
             <template v-if="!collapsedVolumes.includes(group.index)">
               <div v-for="row in group.chapters" :key="row.index">
-                <button type="button" class="tree-item tree-chapter" :class="{ on: selectionKind === 'chapter' && selectedIndex === row.index }" :data-chapter-index="row.index" :aria-pressed="selectionKind === 'chapter' && selectedIndex === row.index" @click="selectChapter(row.index)"><span class="level">L3</span><i class="chapter-dot" :class="row.chapter?.status || 'planned'" :title="chapterState(row.chapter)" /><span class="tree-label">{{ row.index + 1 }} {{ row.title }}</span></button>
+                <button type="button" class="tree-item tree-chapter" :class="{ on: selectionKind === 'chapter' && selectedIndex === row.index }" :data-chapter-index="row.index" :aria-pressed="selectionKind === 'chapter' && selectedIndex === row.index" @click="selectChapter(row.index)"><span class="level">L3</span><i class="chapter-dot" :class="row.chapter?.status || 'planned'" :title="chapterState(row.chapter)" /><span class="tree-label">{{ row.index + 1 }} {{ chapterTitleForDisplay(row.title, row.index) }}</span></button>
                 <template v-if="selectionKind === 'chapter' && selectedIndex === row.index">
                   <button v-for="scene in row.scenes" :key="scene.id" type="button" class="tree-item tree-scene" :class="{ on: selectedSceneId === scene.id }" :title="scene.approved ? '已批准的场景计划' : '未批准的场景方案'" :aria-pressed="selectedSceneId === scene.id" @click="selectScene(scene.id)"><span class="level">L4</span><span class="tree-label">{{ scene.title }}</span><span v-if="!scene.approved" class="draft-dot">草</span></button>
                 </template>
@@ -35,19 +35,19 @@
       </aside>
 
       <main class="plan-board" aria-label="情节线与伏笔">
-        <div class="plan-section-heading"><div><h2>情节线</h2><p>{{ timelineRange }} · 实心为有效发生节点，虚线为计划；点击查看章节。</p></div><div class="scope-switch" aria-label="情节线范围"><button type="button" :class="{ on: timelineScope === 'volume' }" :disabled="!selectedGroup" :aria-pressed="timelineScope === 'volume'" @click="timelineScope = 'volume'">{{ selectedGroup?.title || '分卷' }}</button><button type="button" :class="{ on: timelineScope === 'book' }" :aria-pressed="timelineScope === 'book'" @click="timelineScope = 'book'">全书</button></div></div>
+        <div class="plan-section-heading"><div><div class="plan-heading-row"><h2>情节线</h2><GuideBeacon :visible="planBeacons.includes('plan.arcs')" beacon-id="plan.arcs" /></div><p>{{ timelineRange }} · 实心为有效发生节点，虚线为计划；点击查看章节。</p></div><div class="scope-switch" aria-label="情节线范围"><button type="button" :class="{ on: timelineScope === 'volume' }" :disabled="!selectedGroup" :aria-pressed="timelineScope === 'volume'" @click="timelineScope = 'volume'">{{ selectedGroup?.title || '分卷' }}</button><button type="button" :class="{ on: timelineScope === 'book' }" :aria-pressed="timelineScope === 'book'" @click="timelineScope = 'book'">全书</button></div></div>
         <div v-if="arcLanes.length && timelineColumns.length" class="m-panel lane-panel" tabindex="0" aria-label="情节线章节轨道，可横向滚动">
           <div class="lane-grid" :style="{ gridTemplateColumns: `136px repeat(${timelineColumns.length}, minmax(34px, 1fr))`, minWidth: (136 + timelineColumns.length * 34) + 'px' }">
             <span /><button v-for="index in timelineColumns" :key="index" type="button" class="chapter-tick" :class="{ on: selectedIndex === index && selectionKind === 'chapter' }" :aria-label="'查看第' + (index + 1) + '章'" @click="selectChapter(index)">{{ index + 1 }}</button>
-            <template v-for="lane in arcLanes" :key="lane.id">
-              <button type="button" class="lane-name" :style="{ '--lane-color': lane.color }" :title="lane.title + ' · 编辑弧线'" @click="openPlanner('arcs', lane.id)"><i /><span>{{ lane.title }}</span><small v-if="lane.unverified">待核对</small></button>
+            <template v-for="(lane, laneIndex) in arcLanes" :key="lane.id">
+              <button type="button" class="lane-name" :data-guide="laneIndex === 0 ? 'plan.arcs' : undefined" :style="{ '--lane-color': lane.color }" :title="lane.title + ' · 编辑弧线'" @click="openPlanner('arcs', lane.id)"><i /><span>{{ lane.title }}</span><small v-if="lane.unverified">待核对</small></button>
               <div v-for="index in timelineColumns" :key="index" class="lane-cell" :class="{ linked: lane.start !== undefined && index >= lane.start && index <= lane.end! }" :style="{ '--lane-color': lane.color }">
                 <button v-for="node in lane.nodes.filter(item => item.index === index)" :key="node.id" type="button" class="arc-node" :class="{ actual: node.actual, planned: !node.actual, uncertain: node.unverified }" :data-node-id="node.id" :aria-label="node.title + ' · 第' + (index + 1) + '章 · ' + (node.actual ? '有效发生记录' : node.unverified ? '待核对节点' : '计划节点')" :title="node.title + ' · ' + (node.actual ? '有效发生记录' : node.unverified ? '待核对，非已发生' : '计划，非已发生')" @click="selectChapter(index)"><span class="node-tip">{{ node.title }} · {{ node.actual ? '已发生' : node.unverified ? '待核对' : '计划' }}</span></button>
               </div>
             </template>
           </div>
         </div>
-        <div v-else class="m-panel board-empty"><V3Icon name="layers" size="l" /><h3>{{ arcLanes.length ? '暂无可定位的节点' : '还没有故事弧线' }}</h3><p>建立情节线与预计章节；只有有效的正文来源才能标为已发生。</p><button class="m-btn sm" type="button" @click="openPlanner('arcs')">规划故事弧线</button></div>
+        <div v-else class="m-panel board-empty"><V3Icon name="layers" size="l" /><h3>{{ arcLanes.length ? '暂无可定位的节点' : '还没有故事弧线' }}</h3><p>建立情节线与预计章节；只有有效的正文来源才能标为已发生。</p><button class="m-btn sm" type="button" data-guide="plan.arcs" @click="openPlanner('arcs')">规划故事弧线</button></div>
         <p v-if="projectionIssueCount" class="projection-notice">{{ projectionIssueCount }} 处来源或字段待核对，可在工作台处理。</p>
 
         <div class="plan-section-heading foreshadow-heading"><div><h2>伏笔追踪</h2><p>第 1–{{ lastTimelineIndex + 1 }} 章刻度 · 红线为所选章；埋设、最近推进与回收分别记录。</p></div><button class="m-btn sm" type="button" @click="openPlanner('timeline')"><V3Icon name="plus" size="s" />登记伏笔</button></div>
@@ -125,6 +125,9 @@ import { syncCreationDraftPlanning } from '@/services/reconstructionCreation'
 import { getApprovedPlanning } from '@/services/reconstructionPlanning'
 import StoryPlanner from '@/v3/planning/PlanningWorkbench.vue'
 import V3Icon from '@/v3/components/V3Icon.vue'
+import GuideBeacon from '@/v3/components/GuideBeacon.vue'
+import { useOnboardingStore } from '@/stores/onboarding'
+import { chapterTitleForDisplay } from '@/v3/write/chapterNumber'
 import type { Chapter, ChapterPlanHorizon, ChapterPlanStatus, StoryArcType, StoryArcStatus, EventLogEntry } from '@/types/novel'
 
 defineOptions({ name: 'V3PlanView' })
@@ -325,7 +328,15 @@ function selectTab(tab: PlanTab) {
   activeTab.value = tab
   void router.replace({ query: { ...route.query, view: tab } })
 }
+const onboarding = useOnboardingStore()
+const planBeacons = computed(() =>
+  !loading.value && !error.value && novel.value && activeTab.value === 'overview'
+    ? onboarding.visibleBeaconsFor(['plan.chapters', 'plan.arcs'], 2)
+    : [],
+)
 function openPlanner(tab: string, selection = '') {
+  if (tab === 'plans') onboarding.markSeen('plan.chapters')
+  if (tab === 'arcs') onboarding.markSeen('plan.arcs')
   plannerTab.value = tab; plannerSelection.value = selection; activeTab.value = 'workbench'
   if (novel.value) void router.replace({ query: { ...route.query, view: 'workbench', plannerTab: tab, plannerSelection: selection || undefined } })
 }
@@ -362,38 +373,38 @@ watch(() => route.query, query => {
 .tree-item { min-width: 0; width: 100%; display: flex; align-items: center; gap: 7px; padding: 6px 8px; border-radius: 6px; color: var(--ink-2); text-align: left; font-size: 13px; }
 .tree-item:hover, .tree-toggle:hover { background: var(--hover); }
 .tree-item.on, .tree-volume.on { color: var(--ink); background: var(--paper); box-shadow: var(--shadow-1); font-weight: 600; }
-.level { flex: 0 0 18px; color: var(--ink-4); font: 10px var(--f-num); }
+.level { flex: 0 0 22px; color: var(--ink-3); font: 11px var(--f-num); }
 .tree-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-volume { display: flex; align-items: center; padding-left: 3px; border-radius: 6px; }
-.tree-toggle { flex: 0 0 16px; align-self: stretch; display: grid; place-items: center; color: var(--ink-4); }
+.tree-toggle { flex: 0 0 24px; align-self: stretch; display: grid; place-items: center; color: var(--ink-4); }
 .tree-volume .tree-item { padding-left: 0; }
 .tree-chapter { padding-left: 34px; }
 .tree-scene { padding-left: 50px; color: var(--ink-3); font-size: 12px; }
 .draft-dot { margin-left: auto; font-size: 9px; color: var(--jin); }
 .chapter-dot { width: 7px; height: 7px; flex: 0 0 7px; border: 1px solid var(--ink-4); border-radius: 50%; }
-.chapter-dot.writing { background: var(--zhu); border-color: var(--zhu); }
+.chapter-dot.writing { background: var(--zhu-solid); border-color: var(--zhu); }
 .chapter-dot.completed, .chapter-dot.reviewed { border-color: var(--dai); background: var(--dai-soft); }
 .chapter-dot.finalized, .chapter-dot.locked { border-color: var(--qing); background: var(--qing); }
-.tree-empty { padding: 8px 16px; color: var(--ink-4); font-size: 11px; line-height: 1.8; }
+.tree-empty { padding: 8px 16px; color: var(--ink-4); font-size: 13px; line-height: 1.8; }
 .range-plans { padding: 12px 8px; }
-.range-plans h3 { margin: 0 0 6px; font-size: 11px; color: var(--ink-4); font-weight: 500; }
+.range-plans h3 { margin: 0 0 6px; font-size: 12px; color: var(--ink-4); font-weight: 500; }
 .range-plans button { width: 100%; display: block; padding: 6px 0; text-align: left; color: var(--ink-3); font-size: 12px; }
-.range-plans button span { margin-right: 8px; font: 10px var(--f-num); color: var(--jin); }
+.range-plans button span { margin-right: 8px; font: 11px var(--f-num); color: var(--jin); }
 .structure-actions { display: flex; gap: 14px; padding: 12px 18px; border-top: 1px solid var(--line); }
-.structure-actions button { color: var(--ink-3); font-size: 11px; }
+.structure-actions button { min-height: 28px; padding: 0 6px; color: var(--ink-3); font-size: 12px; }
 .plan-board { min-width: 0; overflow: auto; padding: 22px 24px 40px; background: var(--desk); }
 .plan-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
 .plan-section-heading > div:first-child { min-width: 0; }
 .plan-section-heading > .m-btn { flex-shrink: 0; }
 .plan-section-heading h2 { margin: 0; font: 600 18px var(--f-serif); }
-.plan-section-heading p { margin: 3px 0 0; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
+.plan-section-heading p { margin: 3px 0 0; color: var(--ink-3); font-size: 13px; line-height: 1.5; }
 .scope-switch { flex-shrink: 0; display: flex; padding: 3px; border: 1px solid var(--line); border-radius: 8px; }
 .scope-switch button { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 9px; border-radius: 5px; color: var(--ink-3); font-size: 12px; }
 .scope-switch button.on { color: var(--ink); background: var(--paper); box-shadow: var(--shadow-1); }
 .scope-switch button:disabled { opacity: .45; cursor: default; }
 .lane-panel { padding: 10px 16px 6px; overflow-x: auto; }
 .lane-grid { display: grid; align-items: center; }
-.chapter-tick { padding: 6px 0; color: var(--ink-4); font: 11px var(--f-num); border-radius: 4px; }
+.chapter-tick { padding: 6px 0; color: var(--ink-3); font: 12px var(--f-num); border-radius: 4px; }
 .chapter-tick:hover { background: var(--hover); }
 .chapter-tick.on { color: var(--zhu); background: var(--zhu-soft); font-weight: 700; }
 .lane-name { min-width: 0; display: flex; align-items: center; gap: 7px; padding: 14px 6px 14px 0; text-align: left; color: var(--ink-2); font-size: 12.5px; font-weight: 600; }
@@ -407,19 +418,19 @@ watch(() => route.query, query => {
 .arc-node.actual { flex-basis: 16px; height: 16px; background: var(--lane-color); }
 .arc-node.uncertain { border-color: var(--jin); }
 .arc-node::after { content: ''; position: absolute; inset: -7px; }
-.node-tip { position: absolute; bottom: 19px; left: 50%; transform: translateX(-50%); z-index: 3; padding: 4px 7px; border-radius: 5px; white-space: nowrap; background: var(--rail); color: var(--rail-hi); font-size: 11px; opacity: 0; pointer-events: none; }
+.node-tip { position: absolute; bottom: 19px; left: 50%; transform: translateX(-50%); z-index: 3; padding: 4px 7px; border-radius: 5px; white-space: nowrap; background: var(--rail); color: var(--rail-hi); font-size: 13px; opacity: 0; pointer-events: none; }
 .arc-node:hover .node-tip, .arc-node:focus-visible .node-tip { opacity: 1; }
-.projection-notice { color: var(--jin); font-size: 11px; line-height: 1.7; }
+.projection-notice { color: var(--jin); font-size: 12px; line-height: 1.7; }
 .board-empty { padding: 30px 20px; text-align: center; color: var(--ink-3); }
 .board-empty h3 { margin: 8px 0; font: 600 16px var(--f-serif); color: var(--ink-2); }
-.board-empty p { margin: 8px 0 16px; font-size: 12px; line-height: 1.8; }
+.board-empty p { margin: 8px 0 16px; font-size: 13px; line-height: 1.8; }
 .foreshadow-heading { margin-top: 30px; }
 .foreshadow-alerts { margin-bottom: 12px; padding: 12px 16px; border-left: 3px solid var(--zhu); }
 .foreshadow-alerts strong { font: 600 14px var(--f-serif); color: var(--zhu); }
 .foreshadow-alerts ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
 .foreshadow-alerts li { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12px; }
-.foreshadow-alerts .alert-kind { padding: 0 6px; border-radius: 999px; background: var(--zhu-soft); color: var(--zhu); font-size: 11px; }
-.foreshadow-alerts li.stale .alert-kind { background: var(--panel-2); color: var(--jin); }
+.foreshadow-alerts .alert-kind { padding: 0 6px; border-radius: 999px; background: var(--zhu-soft); color: var(--zhu); font-size: 12px; }
+.foreshadow-alerts li.stale .alert-kind { background: var(--panel-2); color: color-mix(in srgb, var(--jin), var(--ink) 18%); }
 .foreshadow-alerts small { color: var(--ink-3); }
 .foreshadow-panel { padding: 6px 16px; overflow-x: auto; }
 .foreshadow-chart { min-width: 500px; }
@@ -433,52 +444,52 @@ watch(() => route.query, query => {
 .fs-point.resolved { background: var(--qing); }
 .fs-point.planned { border-style: dashed; border-color: var(--ink-4); }
 .fs-point:hover, .arc-node:hover { box-shadow: 0 0 0 4px var(--hover); }
-.now-line { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--zhu); opacity: .4; pointer-events: none; }
-.track-tag { display: inline-block; width: fit-content; max-width: 100%; border: 1px solid var(--line-2); border-radius: 3px; padding: 2px 6px; color: var(--ink-3); font-size: 10px; line-height: 1.4; white-space: nowrap; }
+.now-line { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--zhu-solid); opacity: .4; pointer-events: none; }
+.track-tag { display: inline-block; width: fit-content; max-width: 100%; border: 1px solid var(--line-2); border-radius: 3px; padding: 2px 6px; color: var(--ink-3); font-size: 11px; line-height: 1.4; white-space: nowrap; }
 .fs-row > .track-tag { justify-self: end; }
 .track-tag.qing { background: var(--qing-soft); border-color: transparent; color: var(--qing); }
 .track-tag.jin { background: var(--jin-soft); border-color: transparent; color: var(--jin); }
 .fs-axis { border: 0; padding: 8px 0 3px; }
-.fs-axis .fs-track > span { position: absolute; transform: translateX(-50%); color: var(--ink-4); font: 11px var(--f-num); }
+.fs-axis .fs-track > span { position: absolute; transform: translateX(-50%); color: var(--ink-4); font: 12px var(--f-num); }
 .board-links { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 20px; }
-.board-links button { padding: 3px 0; color: var(--ink-3); font-size: 11px; }
+.board-links button { padding: 3px 0; color: var(--ink-3); font-size: 12px; }
 .board-links button:hover, .structure-actions button:hover { color: var(--zhu); }
 .plan-detail { min-width: 0; overflow: auto; padding: 20px; border-left: 1px solid var(--line); background: var(--panel); }
 .plan-detail h2 { margin: 4px 0 14px; font: 600 20px/1.35 var(--f-serif); }
 .detail-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-bottom: 16px; }
-.detail-word-count { color: var(--ink-4); font: 10px var(--f-num); }
+.detail-word-count { color: var(--ink-3); font: 11px var(--f-num); }
 .detail-fields { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 8px 10px; margin: 0 0 16px; font-size: 13px; line-height: 1.6; }
-.detail-fields dt { color: var(--ink-3); font-size: 12px; padding-top: 1px; }
+.detail-fields dt { color: var(--ink-3); font-size: 13px; padding-top: 1px; }
 .detail-fields dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
-.plan-source-note, .detail-empty { margin: 12px 0; color: var(--ink-4); font-size: 11px; line-height: 1.8; }
-.detail-section-title { display: flex; justify-content: space-between; align-items: center; margin: 18px 0 9px; color: var(--ink-3); font-size: 12px; letter-spacing: .06em; }
-.detail-section-title button { color: var(--zhu); font-size: 11px; letter-spacing: 0; }
+.plan-source-note, .detail-empty { margin: 12px 0; color: var(--ink-3); font-size: 13px; line-height: 1.8; }
+.detail-section-title { display: flex; justify-content: space-between; align-items: center; margin: 18px 0 9px; color: var(--ink-3); font-size: 13px; letter-spacing: .06em; }
+.detail-section-title button { color: var(--zhu); font-size: 13px; letter-spacing: 0; }
 .scene-card { display: block; width: 100%; padding: 11px 12px; margin-bottom: 8px; text-align: left; }
 .scene-card.selected { border-color: var(--zhu); box-shadow: 0 0 0 1px var(--zhu-soft); }
 .scene-card-head { display: flex; justify-content: space-between; align-items: center; color: var(--ink-3); font-size: 12px; }
 .scene-card strong { display: block; margin: 3px 0 4px; font: 600 14px var(--f-serif); }
-.scene-card p { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.6; }
-.scene-card .scene-output { margin-top: 8px; color: var(--ink-3); font-size: 11px; }
+.scene-card p { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.6; }
+.scene-card .scene-output { margin-top: 8px; color: var(--ink-3); font-size: 12px; }
 .detail-prose { white-space: pre-wrap; font: 13px/1.9 var(--f-serif); overflow-wrap: anywhere; }
 .detail-prose.muted { color: var(--ink-3); }
 .skeleton-title { margin: 14px 0 8px; font: 600 15px var(--f-serif); }
 .skeleton-beats { padding-left: 18px; font-size: 12px; color: var(--ink-2); }
 .skeleton-beats p { margin: 3px 0 10px; color: var(--ink-3); line-height: 1.7; }
-.detail-principle { padding: 14px; margin-top: 14px; border-radius: var(--r-m); background: var(--jin-soft); color: var(--ink-2); font-size: 12px; line-height: 1.7; }
+.detail-principle { padding: 14px; margin-top: 14px; border-radius: var(--r-m); background: var(--jin-soft); color: var(--ink-2); font-size: 13px; line-height: 1.7; }
 .detail-principle h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 13px; color: var(--jin); }
 .detail-principle p { margin: 0 0 6px; }
-.detail-principle button { color: var(--jin); font-size: 11px; }
+.detail-principle button { color: var(--jin); font-size: 13px; }
 .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
 .detail-actions a { text-decoration: none; }
 .detail-ranges { padding: 12px 0; }
-.detail-ranges h3 { margin: 0 0 6px; font-size: 12px; }
-.detail-ranges button { display: block; text-align: left; padding: 5px 0; color: var(--ink-3); font-size: 12px; }
-.scene-notes { margin: 14px 0; color: var(--ink-3); font-size: 11px; }
+.detail-ranges h3 { margin: 0 0 6px; font-size: 13px; }
+.detail-ranges button { display: block; text-align: left; padding: 5px 0; color: var(--ink-3); font-size: 13px; }
+.scene-notes { margin: 14px 0; color: var(--ink-3); font-size: 13px; }
 .scene-notes p { white-space: pre-wrap; line-height: 1.7; }
 .outline-error { padding: 0 18px; color: var(--zhu); font-size: 12px; }
 @media (max-width: 1280px) { .plan-layout { grid-template-columns: 220px minmax(0, 1fr) 300px; }.plan-section-heading { align-items: flex-start; }.scope-switch button { max-width: 90px; } }
-@media (max-width: 980px) { .plan-layout { height: auto; min-width: 0; display: block; }.structure-side { max-height: 285px; border-right: 0; border-bottom: 1px solid var(--line); }.plan-board { overflow: visible; padding: 20px 14px; }.plan-detail { overflow: visible; border-left: 0; border-top: 1px solid var(--line); padding: 20px 16px; }.plan-section-heading { gap: 8px; }.plan-section-heading h2 { font-size: 17px; }.plan-section-heading p { font-size: 11px; }.plan-section-heading .m-btn { flex-shrink: 0; }.scope-switch button { padding: 4px 6px; max-width: 85px; } }
-.plan-page { position: absolute; inset: 0; overflow: auto; padding: 30px 42px 60px; background: var(--desk); }.plan-head { max-width: 1280px; margin: 0 auto 20px; display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; }.eyebrow { color: var(--zhu); font-size: 11px; letter-spacing: .18em; }.plan-head h1 { margin: 5px 0; font: 600 29px var(--f-serif); }.plan-head p { margin: 0; color: var(--ink-3); font-size: 13px; }.head-actions { display: flex; gap: 8px; }.plan-tabs { max-width: 1280px; margin: 0 auto 18px; display: flex; border-bottom: 1px solid var(--line); overflow-x: auto; }.plan-tabs button { padding: 12px 18px; color: var(--ink-3); border-bottom: 2px solid transparent; white-space: nowrap; }.plan-tabs button.on { color: var(--zhu); border-color: var(--zhu); }.plan-tabs b { margin-left: 4px; font-size: 10px; color: var(--ink-4); }.m-panel { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow-1); }.overview-grid { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }.overview-card { padding: 15px 17px; }.overview-card span { color: var(--ink-3); font-size: 12px; }.overview-card strong { display: block; margin: 5px 0; font-size: 21px; }.overview-card small { color: var(--ink-4); font-size: 11px; }.structure-map { grid-column: span 4; }.panel-head { display: flex; justify-content: space-between; gap: 12px; padding: 15px 18px; border-bottom: 1px solid var(--line); }.panel-head h2 { margin: 0; font: 600 16px var(--f-serif); }.panel-head p { margin: 4px 0 0; color: var(--ink-3); font-size: 12px; }.map-row { display: grid; grid-template-columns: 80px 1fr 1.5fr; gap: 12px; align-items: baseline; padding: 14px 18px; border-bottom: 1px solid var(--line); }.map-row span { color: var(--zhu); font-size: 12px; }.map-row strong { font: 600 14px var(--f-serif); }.map-row small { color: var(--ink-3); font-size: 11px; }.outline-panel { max-width: 1280px; margin: 0 auto; }.panel-actions { display: flex; gap: 6px; }.outline-editor { display: block; width: 100%; min-height: 420px; padding: 18px; border: 0; outline: 0; resize: vertical; background: var(--paper); color: var(--ink); font: 14px/1.9 var(--f-serif); }.outline-body { min-height: 420px; padding: 20px; white-space: pre-wrap; color: var(--ink-2); font: 14px/1.9 var(--f-serif); }.card-list { max-width: 1280px; margin: 0 auto; display: grid; gap: 12px; }.planning-card { display: flex; justify-content: space-between; gap: 16px; padding: 17px 19px; }.planning-card h2 { margin: 4px 0; font: 600 17px var(--f-serif); }.planning-card p { margin: 5px 0; color: var(--ink-3); font-size: 12px; line-height: 1.6; }.planning-card small { color: var(--ink-4); font-size: 11px; }.card-kicker { color: var(--zhu); font-size: 10px; letter-spacing: .08em; }.m-link { display: inline-flex; align-items: center; padding: 5px 0; border: 0; background: transparent; color: var(--zhu); font: 600 12px var(--f-ui); cursor: pointer; white-space: nowrap; }.m-link:hover { color: var(--ink); text-decoration: underline; }.plan-columns { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }.horizon-panel { min-height: 260px; }.horizon-panel > .panel-head span { color: var(--ink-4); font-size: 12px; }.plan-row { padding: 13px 16px; border-bottom: 1px solid var(--line); }.plan-row strong { display: block; font-size: 13px; }.plan-row small { display: block; margin-top: 4px; color: var(--ink-4); font-size: 10px; }.plan-row p { margin: 6px 0 0; color: var(--ink-3); font-size: 12px; line-height: 1.6; }.event-columns { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr); gap: 18px; }.event-row { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--line); }.event-marker { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--ink-4); }.event-marker.zhu { background: var(--zhu); box-shadow: 0 0 0 4px var(--zhu-soft); }.event-row h3 { margin: 4px 0; font: 600 14px var(--f-serif); }.event-row p { margin: 0 0 6px; color: var(--ink-3); font-size: 12px; line-height: 1.6; }.event-row small { color: var(--ink-4); font-size: 10px; }.foreshadow-row { padding: 14px 18px; border-bottom: 1px solid var(--line); }.foreshadow-row strong { font: 600 13px var(--f-serif); }.foreshadow-row small { display: block; margin-top: 7px; color: var(--ink-4); font-size: 10px; }.four-points { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 9px; }.four-points span { padding: 4px 3px; border-radius: 4px; background: var(--panel-2); color: var(--ink-4); text-align: center; font-size: 9px; }.four-points span.on { background: var(--zhu-soft); color: var(--zhu); }.empty, .plan-state { padding: 40px; color: var(--ink-3); }.plan-state.error { color: var(--zhu); }.planner-workbench { max-width: 1280px; margin: 0 auto; }
+@media (max-width: 980px) { .plan-layout { height: auto; min-width: 0; display: block; }.structure-side { max-height: 285px; border-right: 0; border-bottom: 1px solid var(--line); }.plan-board { overflow: visible; padding: 20px 14px; }.plan-detail { overflow: visible; border-left: 0; border-top: 1px solid var(--line); padding: 20px 16px; }.plan-section-heading { gap: 8px; }.plan-section-heading h2 { font-size: 17px; }.plan-section-heading p { font-size: 12px; }.plan-section-heading .m-btn { flex-shrink: 0; }.scope-switch button { padding: 4px 6px; max-width: 85px; } }
+.plan-page { position: absolute; inset: 0; overflow: auto; padding: 30px 42px 60px; background: var(--desk); }.plan-head { max-width: 1280px; margin: 0 auto 20px; display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; }.eyebrow { color: var(--zhu); font-size: 12px; letter-spacing: .18em; }.plan-head h1 { margin: 5px 0; font: 600 29px var(--f-serif); }.plan-head p { margin: 0; color: var(--ink-3); font-size: 13px; }.head-actions { display: flex; gap: 8px; }.plan-tabs { max-width: 1280px; margin: 0 auto 18px; display: flex; border-bottom: 1px solid var(--line); overflow-x: auto; }.plan-tabs button { padding: 12px 18px; color: var(--ink-3); border-bottom: 2px solid transparent; white-space: nowrap; }.plan-tabs button.on { color: var(--zhu); border-color: var(--zhu); }.plan-tabs b { margin-left: 4px; font-size: 11px; color: var(--ink-4); }.m-panel { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow-1); }.overview-grid { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }.overview-card { padding: 15px 17px; }.overview-card span { color: var(--ink-3); font-size: 12px; }.overview-card strong { display: block; margin: 5px 0; font-size: 21px; }.overview-card small { color: var(--ink-4); font-size: 12px; }.structure-map { grid-column: span 4; }.panel-head { display: flex; justify-content: space-between; gap: 12px; padding: 15px 18px; border-bottom: 1px solid var(--line); }.panel-head h2 { margin: 0; font: 600 16px var(--f-serif); }.panel-head p { margin: 4px 0 0; color: var(--ink-3); font-size: 12px; }.map-row { display: grid; grid-template-columns: 80px 1fr 1.5fr; gap: 12px; align-items: baseline; padding: 14px 18px; border-bottom: 1px solid var(--line); }.map-row span { color: var(--zhu); font-size: 12px; }.map-row strong { font: 600 14px var(--f-serif); }.map-row small { color: var(--ink-3); font-size: 12px; }.outline-panel { max-width: 1280px; margin: 0 auto; }.panel-actions { display: flex; gap: 6px; }.outline-editor { display: block; width: 100%; min-height: 420px; padding: 18px; border: 0; outline: 0; resize: vertical; background: var(--paper); color: var(--ink); font: 14px/1.9 var(--f-serif); }.outline-body { min-height: 420px; padding: 20px; white-space: pre-wrap; color: var(--ink-2); font: 14px/1.9 var(--f-serif); }.card-list { max-width: 1280px; margin: 0 auto; display: grid; gap: 12px; }.planning-card { display: flex; justify-content: space-between; gap: 16px; padding: 17px 19px; }.planning-card h2 { margin: 4px 0; font: 600 17px var(--f-serif); }.planning-card p { margin: 5px 0; color: var(--ink-3); font-size: 12px; line-height: 1.6; }.planning-card small { color: var(--ink-4); font-size: 12px; }.card-kicker { color: var(--zhu); font-size: 11px; letter-spacing: .08em; }.m-link { display: inline-flex; align-items: center; padding: 5px 0; border: 0; background: transparent; color: var(--zhu); font: 600 12px var(--f-ui); cursor: pointer; white-space: nowrap; }.m-link:hover { color: var(--ink); text-decoration: underline; }.plan-columns { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }.horizon-panel { min-height: 260px; }.horizon-panel > .panel-head span { color: var(--ink-4); font-size: 12px; }.plan-row { padding: 13px 16px; border-bottom: 1px solid var(--line); }.plan-row strong { display: block; font-size: 13px; }.plan-row small { display: block; margin-top: 4px; color: var(--ink-4); font-size: 11px; }.plan-row p { margin: 6px 0 0; color: var(--ink-3); font-size: 12px; line-height: 1.6; }.event-columns { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr); gap: 18px; }.event-row { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--line); }.event-marker { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--ink-4); }.event-marker.zhu { background: var(--zhu-solid); box-shadow: 0 0 0 4px var(--zhu-soft); }.event-row h3 { margin: 4px 0; font: 600 14px var(--f-serif); }.event-row p { margin: 0 0 6px; color: var(--ink-3); font-size: 12px; line-height: 1.6; }.event-row small { color: var(--ink-4); font-size: 11px; }.foreshadow-row { padding: 14px 18px; border-bottom: 1px solid var(--line); }.foreshadow-row strong { font: 600 13px var(--f-serif); }.foreshadow-row small { display: block; margin-top: 7px; color: var(--ink-4); font-size: 11px; }.four-points { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 9px; }.four-points span { padding: 4px 3px; border-radius: 4px; background: var(--panel-2); color: var(--ink-4); text-align: center; font-size: 9px; }.four-points span.on { background: var(--zhu-soft); color: var(--zhu); }.empty, .plan-state { padding: 40px; color: var(--ink-3); }.plan-state.error { color: var(--zhu); }.planner-workbench { max-width: 1280px; margin: 0 auto; }
 @media (max-width: 980px) { .plan-page { padding: 22px 24px 48px; }.overview-grid { grid-template-columns: repeat(2, 1fr); }.structure-map { grid-column: span 2; }.plan-columns { grid-template-columns: 1fr; }.event-columns { grid-template-columns: 1fr; } }
 @media (max-width: 680px) { .plan-page { padding: 16px 12px 40px; }.plan-head { display: block; }.head-actions { margin-top: 14px; }.overview-grid { grid-template-columns: 1fr 1fr; gap: 8px; }.structure-map { grid-column: span 2; }.map-row { grid-template-columns: 50px 1fr; }.map-row small { grid-column: 2; }.planning-card { padding: 14px; } }
 
@@ -488,4 +499,5 @@ watch(() => route.query, query => {
 
 .event-panel { min-width: 0; }
 .foreshadow-row { min-width: 0; overflow-wrap: anywhere; }
+.plan-heading-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 </style>

@@ -550,9 +550,21 @@ export const useNovelStore = defineStore('novel', () => {
   async function deleteNovel(id: string) {
     const novel = novels.value.find(n => n.id === id)
     if (!novel) return
+    if (novel.status === 'trash') return saveNovelNow(id)
+    const { status, updatedAt } = novel
+    const trashedAt = new Date().toISOString()
     novel.status = 'trash'
-    touchNovel(novel, new Date().toISOString())
-    await saveNovelNow(id)
+    touchNovel(novel, trashedAt)
+    try {
+      await saveNovelNow(id)
+    } catch (error) {
+      if (novels.value.includes(novel) && novel.status === 'trash') {
+        novel.status = status
+        if (novel.updatedAt === trashedAt) novel.updatedAt = updatedAt
+        persistence.markDirty(id)
+      }
+      throw error
+    }
   }
 
   async function purgeNovel(id: string) {
@@ -1403,7 +1415,7 @@ export const useNovelStore = defineStore('novel', () => {
     updateChapterPlan,
     restoreChapterPlanVersion,
     adoptImportedNovels,
-    saveError, saving, hasPendingSaves,
+    saveError, saving, hasPendingSaves, isNovelPersisted: persistence.isPersisted,
     deleteChapterPlan,
     completeChapterPlans,
     ensureNextChapterPlan,

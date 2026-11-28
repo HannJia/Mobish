@@ -6,6 +6,7 @@ import { createPinia, disposePinia, setActivePinia } from 'pinia'
 import { applyEditorDraftCommand } from '@/services/editorRecovery'
 import type { EditorDraft, EditorDraftCommand } from '@/types/editorRecovery'
 import { useChapterSession } from './useChapterSession'
+import { useOnboardingStore } from '@/stores/onboarding'
 
 const stores = vi.hoisted(() => ({ novels: {} as any, workspace: {} as any }))
 vi.mock('@/stores/novel', () => ({ useNovelStore: () => stores.novels }))
@@ -83,10 +84,28 @@ describe('V3 chapter session recovery lifecycle', () => {
     await flushPromises()
     saveFormal.mockRejectedValueOnce(new Error('磁盘写入失败'))
     await expect(session.saveNow()).rejects.toThrow('磁盘写入失败')
+    expect(useOnboardingStore().state.achieved).toEqual([])
     expect(rows.find(row => row.status === 'active')?.payload?.content).toBe('未落盘的作者修改。')
     await expect(session.saveNow()).resolves.toBe(true)
     await expect(session.saveNow()).resolves.toBe(true)
+    expect(useOnboardingStore().state.achieved).toEqual(['first_chapter_saved'])
     expect(rows.filter(row => row.status === 'active')).toEqual([])
+  })
+
+  it('does not record a chapter achievement for a title or text still in the editor', async () => {
+    session.title.value = '新章名'
+    session.content.value = ' \n'
+    await flushPromises()
+    let release!: () => void
+    saveFormal.mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve }))
+    const saving = session.saveTitle()
+    await flushPromises()
+    session.content.value = '保存标题期间才写下的正文。'
+    release()
+    await expect(saving).resolves.toBe(true)
+    expect(useOnboardingStore().state.achieved).toEqual([])
+    await expect(session.saveNow()).resolves.toBe(true)
+    expect(useOnboardingStore().state.achieved).toEqual(['first_chapter_saved'])
   })
 
   it('does not retire newer input typed while the formal save is pending', async () => {

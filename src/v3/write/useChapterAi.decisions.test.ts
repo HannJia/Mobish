@@ -10,9 +10,15 @@ import type { useChapterSession } from './useChapterSession'
 import type { CandidateChange } from '@/types/reconstruction'
 import type { ChapterRevision } from '@/types/novel'
 import { useConfigStore, type ModelConfig } from '@/stores/config'
+import { useOnboardingStore } from '@/stores/onboarding'
+import { buildChapterReviewInput } from '@/services/chapterReviewInput'
+import { requestCoveredContentReview } from '@/services/chapterReview'
 
 const replacement = vi.hoisted(() => vi.fn())
 vi.mock('@/services/selectionAssistant', () => ({ requestSelectionReplacement: replacement }))
+vi.mock('@/services/chapterReview', async importOriginal => ({ ...await importOriginal<typeof import('@/services/chapterReview')>(),
+  requestCoveredContentReview: vi.fn(),
+}))
 vi.mock('@/services/context', async importOriginal => ({ ...await importOriginal<typeof import('@/services/context')>(),
   buildWritingContext: () => ({ outlineContext: '', previousSummary: '', lastParagraph: '', chapterGuidance: '', semanticEvidence: '' }),
   augmentWritingContextWithVectorMemory: async (_novel: unknown, _chapter: unknown, context: unknown) => context,
@@ -54,6 +60,25 @@ describe('V3 author decision submission', () => {
     await expect(ai.acceptCandidate(candidate)).rejects.toThrow('正文或审校依据已经变化')
     expect(accept).not.toHaveBeenCalled()
     expect(candidate.status).toBe('proposed')
+  })
+
+  it('records a review with zero findings only after the commit succeeds', async () => {
+    const { ai, session, workspace } = setup()
+    vi.spyOn(useConfigStore(), 'getModelForTask').mockReturnValue({ id: 'review-model' } as ModelConfig)
+    const source = buildChapterReviewInput(session.novel.value!, session.chapter.value!, { knowledge: [],
+      creationDraft: undefined, canonMutations: [], storyMemories: [] })
+    ;(session.contextVersion as Ref<string>).value = source.contextVersion
+    const report = '总体判断：可通过\n必改数量：0'
+    vi.mocked(requestCoveredContentReview).mockResolvedValue(report)
+    const commit = vi.spyOn(workspace, 'commitChapterReview').mockRejectedValueOnce(new Error('写盘失败'))
+      .mockImplementation(async (_id, submission) => ({ review: submission.review, changed: true }))
+    const onboarding = useOnboardingStore()
+    await expect(ai.reviewChapter()).rejects.toThrow('写盘失败')
+    expect(onboarding.state.achieved).toEqual([])
+    await expect(ai.reviewChapter()).resolves.toBe(report)
+    expect(commit).toHaveBeenCalledTimes(2)
+    expect(commit.mock.calls[1][1].review.findings).toEqual([])
+    expect(onboarding.state.achieved).toEqual(['first_review_completed'])
   })
   it('binds rejection to the viewed record and preserves the author explanation', async () => {
     const { ai, workspace, candidate } = setup()

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useConfigStore } from './config'
 import { splitConfig } from '@/services/configSync'
@@ -18,13 +18,15 @@ const local = storage(), session = storage()
 const disk = { value: '' as string | null }
 
 function desktop() {
-  Object.defineProperty(globalThis, 'window', { configurable: true, value: { location: { hostname: '' }, electronAPI: {
+  const electronAPI = {
     configRead: async () => disk.value,
-    configWrite: async (data: string) => { disk.value = data },
-    configEncrypt: async (data: string) => data ? 'enc:' + btoa(data) : '',
+    configWrite: vi.fn(async (data: string) => { disk.value = data }),
+    configEncrypt: vi.fn(async (data: string) => data ? 'enc:' + btoa(data) : ''),
     configDecrypt: async (data: string) => data.startsWith('enc:') ? atob(data.slice(4)) : data,
     configSecurityStatus: async () => ({ encryptionAvailable: true }),
-  } } })
+  }
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { location: { hostname: '' }, electronAPI } })
+  return electronAPI
 }
 function browser() {
   Object.defineProperty(globalThis, 'window', { configurable: true, value: { electronAPI: undefined, location: { hostname: '' } } })
@@ -35,6 +37,61 @@ beforeEach(() => {
   Object.defineProperty(globalThis, 'localStorage', { value: local, configurable: true })
   Object.defineProperty(globalThis, 'sessionStorage', { value: session, configurable: true })
   setActivePinia(createPinia())
+})
+
+describe('flushing settings before exit', () => {
+  it('skips encryption and writes after loading, then persists an in-memory edit', async () => {
+    const { configEncrypt, configWrite } = desktop()
+    disk.value = JSON.stringify({ models: [], assignments: {},
+      webSearchService: { provider: 'tavily', apiKey: 'enc:' + btoa('test-key'), count: 4 } })
+    const store = useConfigStore()
+    expect(await store.loadConfig()).toBe(true)
+    await store.flushPendingSaves()
+    expect(configEncrypt).not.toHaveBeenCalled()
+    expect(configWrite).not.toHaveBeenCalled()
+
+    store.webSearchService.count = 5
+    await store.flushPendingSaves()
+    expect(configEncrypt).toHaveBeenCalledWith('test-key')
+    expect(configWrite).toHaveBeenCalledOnce()
+    expect(JSON.parse(disk.value!).webSearchService).toMatchObject({ count: 5, apiKey: 'enc:' + btoa('test-key') })
+    configEncrypt.mockClear()
+    await store.flushPendingSaves()
+    expect(configEncrypt).not.toHaveBeenCalled()
+    expect(configWrite).toHaveBeenCalledOnce()
+  })
+
+  it('waits for an import and compares the applied settings after the queue drains', async () => {
+    const { configEncrypt, configWrite } = desktop()
+    const store = useConfigStore()
+    await store.loadConfig()
+    let release!: () => void
+    configWrite.mockImplementationOnce(data => new Promise(resolve => {
+      release = () => { disk.value = data; resolve() }
+    }))
+    const importing = store.importConfig({ models: [], assignments: {}, pdfVisionEnabled: true }, () => true)
+    const flushing = store.flushPendingSaves()
+    await vi.waitFor(() => expect(configWrite).toHaveBeenCalledOnce())
+    expect(store.pdfVisionEnabled).toBe(false)
+    configEncrypt.mockClear()
+    release()
+    await Promise.all([importing, flushing])
+    expect(store.pdfVisionEnabled).toBe(true)
+    expect(configEncrypt).not.toHaveBeenCalled()
+    expect(configWrite).toHaveBeenCalledOnce()
+  })
+
+  it('does not cache defaults after a read failure or remember a failed write', async () => {
+    const { configWrite } = desktop()
+    disk.value = '{'
+    const store = useConfigStore()
+    expect(await store.loadConfig()).toBe(false)
+    configWrite.mockRejectedValueOnce(new Error('写盘失败'))
+    await expect(store.flushPendingSaves()).rejects.toThrow('写盘失败')
+    await store.flushPendingSaves()
+    expect(configWrite).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(disk.value!)).toMatchObject({ pdfVisionEnabled: false })
+  })
 })
 
 describe('独立联网搜索服务设置', () => {

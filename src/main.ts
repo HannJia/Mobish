@@ -2,19 +2,21 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
+import { blockNavigationWhileProjectBusy } from './router/busyGuard'
 import { useNovelStore } from './stores/novel'
 import { useConfigStore } from './stores/config'
 import { useKnowledgeStore } from './stores/knowledge'
 import { initializeAiTaskHistory } from './services/aiTaskQueue'
 import { showRecoveryScreen } from './services/recoveryScreen'
-import { cloudApplyBusy, projectTransferBusy, flushEditorDrafts } from './services/appLifecycle'
+import { flushEditorDrafts } from './services/appLifecycle'
 import { useReconstructionWorkspaceStore } from './stores/reconstructionWorkspace'
 import { prepareUpdateInstall } from './services/updateSafety'
 import { CLOUD_SYNC_AVAILABLE } from '@/services/features'
 import { useCloudSyncStore } from './stores/cloudSync'
 import { useCloudPreferencesStore } from './stores/cloudPreferences'
 import { useInspirationSessionsStore } from './stores/inspirationSessions'
-import { initializeProjectKernel } from './services/projectKernelClient'
+import { useOnboardingStore } from './stores/onboarding'
+import { hadProjectSnapshotBeforeInit, initializeProjectKernel } from './services/projectKernelClient'
 import { windowCloseContext } from './services/windowClose'
 
 // 全局样式
@@ -34,13 +36,13 @@ async function bootstrap() {
   }
 
   const pinia = createPinia()
-  router.beforeEach(() => !cloudApplyBusy.value && !projectTransferBusy.value)
+  router.beforeEach(blockNavigationWhileProjectBusy)
   app.use(pinia)
   app.use(router)
 
   try {
     const configStore = useConfigStore()
-    await configStore.loadConfig()
+    const configLoaded = await configStore.loadConfig()
 
     await initializeProjectKernel()
 
@@ -50,6 +52,7 @@ async function bootstrap() {
     const knowledgeStore = useKnowledgeStore()
     await knowledgeStore.initStore()
     await useInspirationSessionsStore().initialize()
+    await useOnboardingStore().initialize({ hadPreExistingSnapshot: hadProjectSnapshotBeforeInit(), configLoadFailed: !configLoaded })
     void initializeAiTaskHistory().catch(error => console.warn('AI task recovery update failed', error))
 
     window.electronAPI?.onBeforeClose?.(async () => {
@@ -59,7 +62,7 @@ async function bootstrap() {
       await Promise.all([
         useInspirationSessionsStore().flushPendingSaves(),
         useReconstructionWorkspaceStore().flushPendingSaves(novelStore.novels.map(novel => novel.id)),
-        configStore.saveConfig(),
+        configStore.flushPendingSaves(),
       ])
       if (CLOUD_SYNC_AVAILABLE) await useCloudSyncStore().flushBeforeClose()
       return windowCloseContext(router.currentRoute.value.path)

@@ -8,8 +8,8 @@ const { spawn } = require('node:child_process')
 const { app, net } = require('electron')
 const { NsisUpdater } = require('electron-updater')
 const { ElectronHttpExecutor } = require('electron-updater/out/electronHttpExecutor')
-const { createUpdateController, validateManifest } = require('../app-main/updater.cjs')
-const { createElectronUpdateFetch, createUpdateTransport, verifyDownloadedFile } = require('../app-main/updateTransport.cjs')
+const { createUpdateController, validateManifest, OFFICIAL_DOWNLOAD_URL } = require('../app-main/updater.cjs')
+const { createElectronUpdateFetch, createUpdateTransport, fetchOfficialManifest, verifyDownloadedFile } = require('../app-main/updateTransport.cjs')
 
 async function main() {
   const directory = process.env.AI_NOVEL_UPDATE_TEST_DIR
@@ -22,6 +22,14 @@ async function main() {
   let downloads = 0
   const filename = 'mobish-1.0.3.exe'
   const metadata = { version: '1.0.3', files: [{ url: filename, size: payload.length, sha512 }] }
+  const officialYaml = [
+    'version: 1.0.3', 'files:', '  - url: ' + filename, '    size: ' + payload.length,
+    '    sha512: ' + sha512, "releaseDate: '2026-11-27T00:00:00Z'",
+  ].join('\n')
+  const officialScenarios = [
+    'official-check', 'official-manifest', 'official-download', 'official-lagging',
+    'official-manifest-redirect', 'official-installer-redirect', 'official-checksum', 'official-gitee', 'official-cancelled',
+  ]
   const requests = []
   let foreignRequests = 0
   const foreign = http.createServer((_request, response) => { foreignRequests++; response.end() })
@@ -30,9 +38,29 @@ async function main() {
   const server = http.createServer((request, response) => {
     requests.push(request.url)
     const [, source, scenario, file] = request.url.split('/')
+    if (source === 'official') {
+      if (file === 'latest.yml') {
+        if (scenario === 'official-manifest-redirect') {
+          response.writeHead(302, { Location: 'http://127.0.0.1:' + foreign.address().port + '/untrusted' }).end()
+          return
+        }
+        const yaml = scenario === 'official-lagging' ? officialYaml.replace('version: 1.0.3', 'version: 1.0.2') : officialYaml
+        response.end(yaml)
+        return
+      }
+      if (file === filename) {
+        if (scenario === 'official-installer-redirect') {
+          response.writeHead(302, { Location: 'http://127.0.0.1:' + foreign.address().port + '/untrusted' }).end()
+          return
+        }
+        const bytes = ['official-checksum', 'official-gitee'].includes(scenario) ? Buffer.alloc(payload.length, 1) : payload
+        response.end(bytes)
+        return
+      }
+    }
     if (['github', 'gitee'].includes(source)) {
       if (file === 'latest.yml') {
-        if (source === 'github' && scenario === 'manifest') { response.writeHead(404).end(); return }
+        if (source === 'github' && ['manifest', 'official-manifest'].includes(scenario)) { response.writeHead(404).end(); return }
         if (source === 'github' && scenario === 'manifest-timeout') {
           response.writeHead(200)
           response.write('{')
@@ -47,12 +75,13 @@ async function main() {
       }
       if (file === filename) {
         if (source === 'github') {
-          if (scenario === 'failed' || scenario === 'both-fail') { response.writeHead(503).end(); return }
+          if (scenario === 'failed' || scenario === 'both-fail'
+            || (officialScenarios.includes(scenario) && scenario !== 'official-cancelled')) { response.writeHead(503).end(); return }
           if (scenario === 'redirect') {
             response.writeHead(302, { Location: `http://127.0.0.1:${foreign.address().port}/payload` }).end()
             return
           }
-          if (scenario === 'stalled' || scenario === 'cancelled') {
+          if (['stalled', 'cancelled', 'official-cancelled'].includes(scenario)) {
             response.writeHead(200)
             response.write(payload.subarray(0, 1))
             startDownload?.()
@@ -118,18 +147,37 @@ async function main() {
       }
       console.log(`UPDATE_DOWNLOAD_SMOKE ${test}: passed`)
     }
-    for (const scenario of ['github', 'manifest', 'manifest-timeout', 'failed', 'checksum', 'size', 'stalled', 'redirect', 'both-fail', 'cancelled']) {
+    const giteeScenarios = ['github', 'manifest', 'manifest-timeout', 'failed', 'checksum', 'size', 'stalled', 'redirect', 'both-fail', 'cancelled']
+    const fetchImpl = createElectronUpdateFetch(net)
+    const testOrigin = new URL(url).origin
+    const errors = {
+      'both-fail': /503/, 'official-lagging': /尚未同步同一版本/,
+      'official-manifest-redirect': /不受信任/, 'official-installer-redirect': /不受信任/,
+      'official-checksum': /校验失败/,
+    }
+    for (const scenario of [...giteeScenarios, ...officialScenarios]) {
       const updater = await makeUpdater(scenario)
       const release = { tag_name: 'v1.0.3', assets: [
         { name: filename, state: 'uploaded', size: payload.length },
         { name: 'latest.yml', state: 'uploaded', size: 200 },
       ] }
+      const officialBase = url + 'official/' + scenario + '/'
+      const isOfficial = officialScenarios.includes(scenario)
+      const cancelled = ['cancelled', 'official-cancelled'].includes(scenario)
       const controller = createUpdateController({
         supported: true, autoCheck: false, currentVersion: '1.0.2',
-        fetchLatest: async () => release, fetchGitee: async (_signal, tag) => {
-          assert.equal(tag, 'v1.0.3')
+        fetchLatest: async () => {
+          if (scenario === 'official-check') throw new Error('GitHub unavailable')
           return release
         },
+        officialBase,
+        fetchOfficial: isOfficial
+          ? signal => fetchOfficialManifest(new URL('latest.yml', officialBase), signal, fetchImpl, testOrigin)
+          : undefined,
+        fetchGitee: !isOfficial || scenario === 'official-gitee' ? async (_signal, tag) => {
+          assert.equal(tag, 'v1.0.3')
+          return release
+        } : undefined,
         getUpdater: () => updater,
         makeTransport: (candidate, signal) => {
           // The transport still validates the exact URL the updater resolves.
@@ -140,8 +188,7 @@ async function main() {
             setFeedURL({ ...options, url: feedUrl })
           }
           return createUpdateTransport({ ...candidate, feedUrl }, {
-            testOrigin: new URL(url).origin, metadataSignal: signal, manifestTimeoutMs: 500, stallTimeoutMs: 500,
-            fetchImpl: createElectronUpdateFetch(net),
+            testOrigin, metadataSignal: signal, manifestTimeoutMs: 500, stallTimeoutMs: 500, fetchImpl,
           })
         },
         verifyDownload: verifyDownloadedFile, publish: () => {},
@@ -149,21 +196,35 @@ async function main() {
       })
       requests.length = 0
       assert.equal((await controller.check()).phase, 'available')
-      if (scenario === 'cancelled') startDownload = () => controller.cancel()
+      if (cancelled) startDownload = () => controller.cancel()
       const state = await controller.download()
       startDownload = undefined
-      if (scenario === 'cancelled' || scenario === 'both-fail') {
-        assert.equal(state.phase, scenario === 'cancelled' ? 'idle' : 'error')
+      if (cancelled || errors[scenario]) {
+        assert.equal(state.phase, cancelled ? 'idle' : 'error')
+        if (errors[scenario]) assert.match(state.error, errors[scenario])
         assert.deepEqual(await fs.readdir(updater.downloadedUpdateHelper.cacheDirForPendingUpdate), [])
       } else {
         assert.equal(state.phase, 'downloaded', state.error)
-        assert.equal(new URL(state.release.url).hostname, scenario === 'github' ? 'github.com' : 'gitee.com')
+        if (isOfficial && scenario !== 'official-gitee') assert.equal(state.release.url, OFFICIAL_DOWNLOAD_URL)
+        else assert.equal(new URL(state.release.url).hostname, scenario === 'github' ? 'github.com' : 'gitee.com')
         assert.deepEqual(await fs.readFile(updater.downloadedUpdateHelper.file), payload)
         const pending = await fs.readdir(updater.downloadedUpdateHelper.cacheDirForPendingUpdate)
         assert.deepEqual(pending.sort(), [filename, 'update-info.json'].sort())
       }
-      if (['github', 'cancelled'].includes(scenario)) assert.ok(!requests.some(url => url.startsWith('/gitee/')))
-      else assert.ok(requests.includes(`/gitee/${scenario}/latest.yml`))
+      if (!isOfficial) {
+        if (scenario === 'github' || cancelled) assert.ok(!requests.some(url => url.startsWith('/gitee/')))
+        else assert.ok(requests.includes('/gitee/' + scenario + '/latest.yml'))
+      }
+      if (isOfficial) {
+        const manifestRequests = requests.filter(request => request === '/official/' + scenario + '/latest.yml')
+        const rejectedDiscovery = ['official-lagging', 'official-manifest-redirect'].includes(scenario)
+        assert.equal(manifestRequests.length, cancelled ? 0 : rejectedDiscovery ? 1 : 2)
+        const installerRequest = '/official/' + scenario + '/' + filename
+        assert.equal(requests.includes(installerRequest), !cancelled && !rejectedDiscovery)
+        if (scenario === 'official-gitee') {
+          assert.ok(requests.indexOf('/gitee/' + scenario + '/latest.yml') > requests.indexOf(installerRequest))
+        } else assert.ok(!requests.some(url => url.startsWith('/gitee/')))
+      }
       assert.equal(foreignRequests, 0)
       controller.dispose()
       console.log(`UPDATE_DOWNLOAD_SMOKE ${scenario}: passed`)

@@ -91,7 +91,7 @@ describe('character relationship workflow', () => {
     wrapper.unmount()
   })
 
-  it('switches chapter relationships and clears stale evidence without restoring the global default', async () => {
+  it('shows the latest chapter relationships, links chapter replay to the codex, and clears stale evidence', async () => {
     const { book, store, a, b, wrapper, button } = await setup()
     await store.updateCharacter(book.id, a.id, { relationships: [{ targetId: b.id, targetName: b.name, relation: '宿敌', dimension: 'allegiance' }] })
     const first = store.addChapter(book.id, { title: '结盟', content: '甲明确表示信任乙。' })!
@@ -103,10 +103,10 @@ describe('character relationship workflow', () => {
       workspace.recordCanonMutation(book.id, applyCandidateChangeToCanon(book, candidate, '2026-10-30T00:00:00.000Z').record)
     }
     await button('关系图').trigger('click'); await flushPromises()
-    await wrapper.get('select[aria-label="关系回看章节"]').setValue(first.id)
-    expect(wrapper.get('[aria-label="有效人物关系"]').text()).toContain('甲 → 乙｜信任：信任')
-    await wrapper.get('select[aria-label="关系回看章节"]').setValue(second.id)
+    // 人物资料页不再按章回看：固定显示最新一章的关系，按章回看交给典籍。
+    expect(wrapper.find('select[aria-label="关系回看章节"]').exists()).toBe(false)
     expect(wrapper.get('[aria-label="有效人物关系"]').text()).toContain('甲 → 乙｜信任：怀疑')
+    expect(wrapper.text()).toContain('按章节回看关系与知情')
     store.updateChapter(book.id, second.id, { content: '甲开始依赖乙。' }); await flushPromises()
     const projected = wrapper.get('[aria-label="有效人物关系"]').text()
     expect(projected).toContain('阵营：宿敌')

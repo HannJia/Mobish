@@ -1,15 +1,18 @@
 <template>
   <Teleport defer to="#v3-crumb">
-    <router-link class="crumb-link" to="/">书架</router-link><span class="crumb-sep">/</span><span class="crumb-b">{{ selectedKB?.name || '资料库' }}</span>
+    <router-link class="crumb-link" to="/">书架</router-link><span class="crumb-sep">/</span>
+    <template v-if="novel"><router-link class="crumb-link" :to="'/codex/' + novel.id">《{{ novel.title }}》</router-link><span class="crumb-sep">/</span></template>
+    <span class="crumb-b">{{ selectedKB?.name || '知识库' }}</span>
   </Teleport>
   <div class="kb-page page-container fade-in" id="knowledge-base">
     <div class="kb-header">
       <div>
         <h2 class="page-title">{{ selectedKB?.name || '知识库' }}</h2>
-        <p v-if="!selectedKBId" class="page-subtitle">全局设定资料与书籍挂载</p>
+        <p v-if="!selectedKBId" class="page-subtitle">{{ novel ? `全局设定资料；勾选挂载后，《${novel.title}》写作时可以引用` : '全局设定资料与书籍挂载' }}</p>
       </div>
       <div class="header-actions">
-        <button v-if="!hasNovelContext" type="button" class="m-btn sm ghost" @click="router.push('/')">返回书架</button>
+        <router-link v-if="returnTo" class="m-btn sm kb-back-btn" :to="returnTo"><span aria-hidden="true">←</span> {{ returnLabel(returnTo) }}</router-link>
+        <button v-else-if="!hasNovelContext" type="button" class="m-btn sm ghost" @click="router.push('/')">返回书架</button>
         <button type="button" class="m-btn sm pri" @click="showCreateModal = true"><V3Icon name="plus" size="s" />创建知识库</button>
       </div>
     </div>
@@ -25,10 +28,13 @@
         <img class="m-art empty-art" :src="libraryArt" alt="">
         <h3>还没有知识库</h3>
         <p>知识库可以存储世界观、人物、势力等设定信息，在 AI 写作时自动注入</p>
-        <button type="button" class="m-btn pri" @click="showCreateModal = true">创建第一个知识库</button>
+        <div class="kb-empty-cta">
+          <button type="button" class="m-btn pri" data-guide="kb.create" @click="onboarding.markSeen('kb.create'); showCreateModal = true">创建第一个知识库</button>
+          <GuideBeacon :visible="kbBeacons.includes('kb.create')" beacon-id="kb.create" />
+        </div>
       </div>
       <div
-        v-for="kb in filteredKnowledgeBases"
+        v-for="(kb, kbIndex) in filteredKnowledgeBases"
         :key="kb.id"
         class="kb-card paper-panel"
         role="button"
@@ -46,7 +52,8 @@
           <span class="kb-card-meta">{{ kb.entries.length }} 条目 · {{ kbActivityTime(kb) ? formatDate(new Date(kbActivityTime(kb)).toISOString()) : '暂无编辑记录' }}{{ hasNovelContext && isBound(kb.id) ? ' · 本书已挂载' : '' }}</span>
         </div>
         <div class="kb-card-actions">
-        <button v-if="hasNovelContext" type="button" class="m-btn xs" :class="{ pri: isBound(kb.id) }" :aria-pressed="isBound(kb.id)"
+        <GuideBeacon v-if="hasNovelContext && kbIndex === 0" :visible="kbBeacons.includes('kb.bind')" beacon-id="kb.bind" />
+        <button v-if="hasNovelContext" type="button" class="m-btn xs" :data-guide="kbIndex === 0 ? 'kb.bind' : undefined" :class="{ pri: isBound(kb.id) }" :aria-pressed="isBound(kb.id)"
           @click.stop="toggleBind(kb.id)">{{ isBound(kb.id) ? '已绑定' : '绑定小说' }}</button>
         <button type="button" class="m-btn xs ghost danger" @click.stop="confirmDeleteKB(kb)">删除</button>
         </div>
@@ -59,7 +66,8 @@
       <div class="kb-detail-header">
         <button type="button" class="m-btn sm ghost" @click="selectedKBId = ''"><V3Icon name="chevR" size="s" class="back-icon" />返回列表</button>
         <div class="detail-actions">
-          <button type="button" class="m-btn sm" @click="openImport()">导入资料</button>
+          <GuideBeacon :visible="kbBeacons.includes('kb.import')" beacon-id="kb.import" />
+          <button type="button" class="m-btn sm" data-guide="kb.import" @click="openImport()">导入资料</button>
           <button v-if="(selectedKB?.entries.length || 0) > 1" type="button" class="m-btn sm" @click="openMerge">合并条目</button>
           <button v-if="featureFlags.knowledgeAiSummary" type="button" class="m-btn sm" :aria-busy="summarizingKB" :disabled="baseSummaryBusy" @click="summarizeSelectedKB">{{ summarizingKB ? '正在整理…' : '整理摘要' }}</button>
           <button type="button" class="m-btn sm pri" @click="openAddEntry"><V3Icon name="plus" size="s" />添加条目</button>
@@ -311,6 +319,10 @@ import { ref, shallowRef, computed, watch, nextTick, onBeforeUnmount } from 'vue
 import { useRoute, useRouter } from 'vue-router'
 import { useDialog, useMessage } from '@/v3/feedback'
 import V3Icon from '@/v3/components/V3Icon.vue'
+import { readReturnTo, returnLabel } from '@/v3/returnTo'
+import GuideBeacon from '@/v3/components/GuideBeacon.vue'
+import { useOnboardingStore } from '@/stores/onboarding'
+import type { GuideBeaconId } from '@/services/onboardingGuide'
 import V3Modal from '@/v3/components/V3Modal.vue'
 import V3Field from '@/v3/components/form/V3Field.vue'
 import V3Input from '@/v3/components/form/V3Input.vue'
@@ -345,6 +357,7 @@ const dialog = useDialog()
 const novelId = computed(() => route.params.novelId as string)
 const novel = computed(() => novelStore.getNovel(novelId.value))
 const hasNovelContext = computed(() => Boolean(route.params.novelId))
+const returnTo = computed(() => readReturnTo(route.query?.returnTo))
 
 const knowledgeBases = computed(() => kbStore.knowledgeBases)
 const selectedKBId = ref('')
@@ -427,7 +440,16 @@ const tagOptions = computed(() => [{ value: '', label: '全部标签' }, ...used
 watch(usedTags, tags => { if (!tags.includes(tagFilter.value)) tagFilter.value = '' })
 
 watch(showImportModal, open => { if (!open) droppedFile.value = null })
+const onboarding = useOnboardingStore()
+const kbBeacons = computed(() => {
+  const candidates: GuideBeaconId[] = []
+  if (!selectedKBId.value && knowledgeBases.value.length === 0) candidates.push('kb.create')
+  if (selectedKBId.value) candidates.push('kb.import')
+  if (!selectedKBId.value && hasNovelContext.value && filteredKnowledgeBases.value.length > 0) candidates.push('kb.bind')
+  return onboarding.visibleBeaconsFor(candidates, 2)
+})
 function openImport(file: File | null = null) {
+  onboarding.markSeen('kb.import')
   droppedFile.value = file
   showImportModal.value = true
 }
@@ -1179,6 +1201,7 @@ function isBound(kbId: string) {
 }
 
 function toggleBind(kbId: string) {
+  onboarding.markSeen('kb.bind')
   if (!hasNovelContext.value) return
   if (isBound(kbId)) {
     novelStore.unbindKnowledgeBase(novelId.value, kbId)
@@ -1194,8 +1217,8 @@ function toggleBind(kbId: string) {
 /* 页面铺满内容区并自己滚动：外层 .main 不滚动且隐藏溢出，不限高度的话整页无法滚动，跳转后也滚不回来。 */
 .kb-page { position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; }
 .summary-budget { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 20px; }
-.summary-budget label { display: grid; gap: 6px; width: 180px; font-size: 12px; }
-.summary-budget > span { flex-basis: 100%; color: var(--ink-3); font-size: 12px; }
+.summary-budget label { display: grid; gap: 6px; width: 180px; font-size: 13px; }
+.summary-budget > span { flex-basis: 100%; color: var(--ink-3); font-size: 13px; }
 .summary-run-status, .summary-coverage { margin: 10px 0; font-size: 12px; line-height: 1.8; color: var(--ink-2); }
 .summary-run-status { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .kb-header {
@@ -1209,6 +1232,8 @@ function toggleBind(kbId: string) {
 .kb-header .page-title { font-family: var(--f-serif); font-weight: 700; letter-spacing: 0.04em; margin: 0; }
 .page-subtitle { margin: 6px 0 0; color: var(--ink-3); font-size: 13px; }
 .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.kb-back-btn { border-color: color-mix(in srgb, var(--zhu) 42%, var(--line)); color: var(--zhu); font-weight: 600; text-decoration: none; }
+.kb-back-btn:hover { background: var(--zhu-soft); border-color: var(--zhu); color: var(--zhu); }
 
 .empty-state {
   display: flex; flex-direction: column; align-items: center;
@@ -1320,7 +1345,7 @@ function toggleBind(kbId: string) {
 .kb-category-count { font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .kb-category-item.active .kb-category-count { color: var(--zhu); }
 .kb-entries { min-width: 0; }
-.kb-drop-hint { margin: 10px 0 0; font-size: 12px; color: var(--ink-3); }
+.kb-drop-hint { margin: 10px 0 0; font-size: 13px; color: var(--ink-3); }
 
 .filter-bar {
   display: flex; gap: 12px; margin-bottom: var(--space-md); align-items: center;
@@ -1350,12 +1375,12 @@ function toggleBind(kbId: string) {
   background: var(--zhu-soft);
 }
 .entry-header { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.entry-meta { flex-shrink: 0; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.entry-meta { flex-shrink: 0; font-size: 13px; color: var(--ink-3); white-space: nowrap; }
 .entry-header .entry-actions { flex-shrink: 0; margin-left: auto; }
 .entry-size { flex-shrink: 0; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .entry-cat {
   flex-shrink: 0;
-  font-size: 11px; padding: 1px 8px; border-radius: var(--r-s);
+  font-size: 12px; padding: 1px 8px; border-radius: var(--r-s);
   background: var(--dai-soft); color: var(--dai);
 }
 .entry-summary-status { margin-left: auto; }
@@ -1371,7 +1396,7 @@ function toggleBind(kbId: string) {
 .entry-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .entry-tags { display: flex; gap: 4px; flex-wrap: wrap; }
 .tag-chip {
-  font-size: 11px; padding: 1px 6px; border-radius: var(--r-s);
+  font-size: 12px; padding: 1px 6px; border-radius: var(--r-s);
   background: var(--zhu-soft); color: var(--zhu);
 }
 .entry-actions { display: flex; gap: 4px; margin-left: auto; }
@@ -1386,7 +1411,7 @@ function toggleBind(kbId: string) {
   box-shadow: var(--shadow-1);
 }
 .kb-summary-toggle { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; cursor: pointer; font-family: var(--f-serif); font-size: 16px; font-weight: 600; color: var(--ink); }
-.kb-summary-toggle small { font-family: var(--f-sans, inherit); font-size: 12px; font-weight: 400; color: var(--ink-3); }
+.kb-summary-toggle small { font-family: var(--f-sans, inherit); font-size: 13px; font-weight: 400; color: var(--ink-3); }
 .kb-summary-panel[open] .kb-summary-toggle { margin-bottom: 12px; }
 .kb-summary-toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .kb-summary-toolbar h4 { margin: 0 0 4px; font-family: var(--f-serif); font-size: 16px; color: var(--ink); }
@@ -1403,7 +1428,7 @@ function toggleBind(kbId: string) {
 .entry-detail-empty { margin: 0; padding: 18px; text-align: center; color: var(--ink-3); font-size: 13px; border: 1px dashed var(--line-2); border-radius: var(--r-l); }
 .entry-outline { scroll-margin-top: 140px; margin: -6px 0 18px; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--panel-2); }
 .entry-outline > summary { display: flex; align-items: baseline; gap: 8px; padding: 8px 12px; cursor: pointer; font-weight: 600; color: var(--ink); }
-.entry-outline > summary small { font-weight: 400; font-size: 12px; color: var(--ink-3); }
+.entry-outline > summary small { font-weight: 400; font-size: 13px; color: var(--ink-3); }
 /* 一、二级标题各占一行并加分隔，三级标题缩进、两列排列 */
 .entry-outline-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 12px; max-height: 320px; overflow-y: auto; padding: 0 12px 10px; }
 .entry-outline-item { padding: 3px 8px; border: 0; border-radius: var(--r-s); background: transparent; color: var(--ink-2); font: inherit; font-size: 13px; line-height: 1.5; cursor: pointer; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1532,7 +1557,7 @@ function toggleBind(kbId: string) {
   width: fit-content;
   padding: 2px 7px;
   border-radius: var(--r-s);
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 .summary-status-empty { color: var(--ink-3); background: var(--hover); }
@@ -1546,7 +1571,7 @@ function toggleBind(kbId: string) {
   font-size: 12px;
   line-height: 1.6;
 }
-.summary-scope-hint { font-size: 11px; }
+.summary-scope-hint { font-size: 13px; }
 .summary-error {
   margin: 8px 0;
   color: var(--zhu);
@@ -1578,7 +1603,7 @@ function toggleBind(kbId: string) {
   background: var(--hover);
   border-radius: var(--r-s);
 }
-.summary-history-item > div { color: var(--ink-3); font-size: 11px; }
+.summary-history-item > div { color: var(--ink-3); font-size: 13px; }
 .summary-history-item p { margin: 4px 0 0; white-space: pre-wrap; line-height: 1.6; }
 .entry-summary-editor {
   margin-top: 20px;
@@ -1608,9 +1633,9 @@ function toggleBind(kbId: string) {
   .kb-entries, .entry-detail-panel { padding: 14px; }
   .entry-summary-status { margin-left: 0; }
 }
-.kb-summary-toolbar p { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.6; }
+.kb-summary-toolbar p { margin: 0; color: var(--ink-3); font-size: 13px; line-height: 1.6; }
 .kb-summary-content { margin: 14px 0 0; white-space: pre-wrap; color: var(--ink-2); line-height: 1.7; font-size: 13px; }
-.kb-summary-time { display: block; margin-top: 10px; color: var(--ink-4); font-size: 11px; }
+.kb-summary-time { display: block; margin-top: 10px; color: var(--ink-4); font-size: 13px; }
 
 /* 表单 */
 .kb-form { display: grid; gap: 4px; }
@@ -1627,4 +1652,5 @@ function toggleBind(kbId: string) {
   font-size: 12px;
   color: var(--ink-3);
 }
+.kb-empty-cta { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
 </style>

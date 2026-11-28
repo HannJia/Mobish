@@ -5,8 +5,12 @@
       <div class="head">
         <div><div class="eyebrow">{{ hello.date }}</div><h2 class="hello">{{ hello.hello }}</h2></div>
         <div class="head-acts">
+          <button v-if="!onboarding.showChecklist" type="button" class="m-btn ghost" data-replay-onboarding @click="onboarding.replay()">首次使用</button>
           <button type="button" class="m-btn" @click="importInput?.click()"><V3Icon name="import" size="s" />导入项目</button>
-          <button type="button" class="m-btn" :disabled="busy" @click="exportProject"><V3Icon name="shield" size="s" />备份项目</button>
+          <span class="backup-act-wrap">
+            <button type="button" class="m-btn" data-guide="shelf.backup" :disabled="busy" @click="exportProject"><V3Icon name="shield" size="s" />备份项目</button>
+            <GuideBeacon v-if="showBackupBeacon" beacon-id="shelf.backup" scene="shelf" />
+          </span>
           <router-link to="/create" class="m-btn zhu"><V3Icon name="plus" size="s" />新建作品</router-link>
           <input ref="importInput" type="file" accept=".json,application/json" hidden @change="onImportFile">
         </div>
@@ -43,6 +47,7 @@
               </div>
             </div>
           </section>
+          <GuideChecklist v-if="resume" compact />
           <section v-else class="m-card empty-hero">
             <div class="m-empty">
               <img class="m-art" :src="emptyShelfArt" alt="">
@@ -50,6 +55,7 @@
               <p>从一句灵感、已有大纲或空白模板开始你的第一部作品。也可以导入以前的项目备份。</p>
               <div class="empty-acts"><router-link to="/create" class="m-btn zhu lg"><V3Icon name="plus" size="s" />新建第一部作品</router-link>
                 <button type="button" class="m-btn lg" @click="importInput?.click()">导入项目备份</button></div>
+              <GuideChecklist />
             </div>
           </section>
 
@@ -138,12 +144,12 @@
       </div>
     </div>
   </div>
-  <div v-if="confirmState" class="m-overlay" @click.self="confirmState = null" @keydown.esc="confirmState = null">
+  <div v-if="confirmState" class="m-overlay" @click.self="!busy && (confirmState = null)" @keydown.esc="!busy && (confirmState = null)">
     <div class="m-modal small" role="alertdialog" aria-modal="true" :aria-label="confirmState.title">
       <div class="m-modal-h"><h3>{{ confirmState.title }}</h3></div>
       <div class="m-modal-b"><p class="confirm-body">{{ confirmState.body }}</p></div>
-      <div class="m-modal-f"><button ref="cancelBtn" type="button" class="m-btn" @click="confirmState = null">取消</button>
-        <button type="button" class="m-btn" :class="confirmState.danger ? 'zhu' : 'pri'" :disabled="busy" @click="runConfirm">{{ confirmState.ok }}</button></div>
+      <div class="m-modal-f"><button ref="cancelBtn" type="button" class="m-btn" :disabled="busy" @click="confirmState = null">取消</button>
+        <button type="button" class="m-btn" :class="confirmState.danger ? 'zhu' : 'pri'" :disabled="busy" :aria-busy="busy" @click="runConfirm">{{ busy ? (confirmState.busyText || '处理中…') : confirmState.ok }}</button></div>
     </div>
   </div>
 </template>
@@ -152,8 +158,11 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import V3Icon from '../components/V3Icon.vue'
 import WritingHeatmap from '../components/WritingHeatmap.vue'
+import GuideChecklist from '../components/GuideChecklist.vue'
+import GuideBeacon from '../components/GuideBeacon.vue'
 import type { Novel } from '@/types/novel'
 import { useNovelStore } from '@/stores/novel'
+import { useOnboardingStore } from '@/stores/onboarding'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspace'
 import { chapterTitleForDisplay } from '@/v3/write/chapterNumber'
@@ -249,7 +258,7 @@ const busy = ref(false)
 const renameFor = ref<Novel | null>(null), renameText = ref(''), renameInput = ref<HTMLInputElement | null>(null)
 const coverFor = ref<Novel | null>(null)
 const autoCover = computed(() => coverIdOf({ genre: coverFor.value?.genre || '' }))
-interface Confirm { title: string; body: string; ok: string; danger?: boolean; run: () => Promise<void> | void }
+interface Confirm { title: string; body: string; ok: string; busyText?: string; danger?: boolean; closeBeforeRun?: boolean; run: () => Promise<void> | void }
 const confirmState = ref<Confirm | null>(null), cancelBtn = ref<HTMLButtonElement | null>(null)
 function ask(c: Confirm) { confirmState.value = c; nextTick(() => cancelBtn.value?.focus()) }
 
@@ -260,14 +269,23 @@ function act(kind: string, book: Novel) {
   else if (kind === 'archive') { novels.archiveNovel(book.id); toast(`已归档《${book.title}》`) }
   else if (kind === 'unarchive') { novels.unarchiveNovel(book.id); toast(`《${book.title}》已回到书架`) }
   else if (kind === 'restore') ask({ title: '恢复作品', body: `把《${book.title}》从回收站恢复到书架？`, ok: '恢复', run: () => { novels.restoreNovel(book.id); toast('已恢复到书架') } })
-  else if (kind === 'trash') ask({ title: '移入回收站', body: `《${book.title}》会从书架隐藏，仍可在回收站恢复。`, ok: '移入回收站', danger: true,
-    run: async () => { await novels.deleteNovel(book.id); toast('已移入回收站') } })
-  else if (kind === 'purge') ask({ title: '永久删除', body: `将删除《${book.title}》及其章节、数据面板和历史记录，无法恢复。建议先备份项目。`, ok: '永久删除', danger: true,
+  else if (kind === 'trash') ask({ title: '移入回收站', body: `《${book.title}》会从书架隐藏，仍可在回收站恢复。`, ok: '移入回收站', danger: true, closeBeforeRun: true,
+    run: () => {
+      const pending = novels.deleteNovel(book.id)
+      toast('已移入回收站')
+      void pending.catch(error => { toastError(error, '移入回收站未能保存，已恢复作品') })
+    } })
+  else if (kind === 'purge') ask({ title: '永久删除', body: `将删除《${book.title}》及其章节、数据面板和历史记录，无法恢复。建议先备份项目。`, ok: '永久删除', busyText: '正在删除…', danger: true,
     run: async () => { await novels.purgeNovel(book.id); toast('已永久删除') } })
 }
 async function runConfirm() {
   const c = confirmState.value
   if (!c) return
+  if (c.closeBeforeRun) {
+    confirmState.value = null
+    try { await c.run() } catch (e) { toastError(e, '操作没有完成') }
+    return
+  }
   busy.value = true
   try { await c.run(); confirmState.value = null } catch (e) { toastError(e, '操作没有完成') } finally { busy.value = false }
 }
@@ -302,19 +320,25 @@ async function exportProject() {
     downloadProjectBackup(backup, `mobish-backup-${new Date().toISOString().slice(0, 10)}.json`)
     lastBackup.value = new Date().toISOString()
     try { localStorage.setItem(BACKUP_KEY, lastBackup.value) } catch { /* 仅用于显示 */ }
+    onboarding.recordAchievement('first_backup_exported')
+    onboarding.markSeen('shelf.backup')
     toast('项目备份已校验并导出')
   } catch (e) { toastError(e, '备份校验失败') } finally { busy.value = false }
 }
 
 function onKey(e: KeyboardEvent) {
   if (e.key !== 'Escape') return
-  if (confirmState.value) confirmState.value = null
+  if (confirmState.value) { if (!busy.value) confirmState.value = null }
   else if (coverFor.value) coverFor.value = null
   else if (renameFor.value) renameFor.value = null
   else menuFor.value = null
 }
 // 一次性的 Star 提示：用满 7 天且写了 10 章以上，只出现一次
 const totalChapters = computed(() => novels.activeNovels.reduce((sum, novel) => sum + novel.chapters.filter(chapter => chapter.content?.trim()).length, 0))
+const onboarding = useOnboardingStore()
+const showBackupBeacon = computed(() =>
+  !lastBackup.value && onboarding.checklistSummary.coreItems.some(item => item.id === 'first_chapter_saved' && item.done),
+)
 const starPrompt = ref(false)
 function closeStarPrompt() {
   finishStarPrompt()
@@ -346,7 +370,8 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeMenu); window
 .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
 .eyebrow { font-size: 12px; letter-spacing: .2em; color: var(--zhu); font-weight: 600; }
 .hello { font: 600 26px/1.35 var(--f-serif); margin: 4px 0 0; letter-spacing: .06em; }
-.head-acts { display: flex; gap: 8px; }
+.head-acts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.backup-act-wrap { display: inline-flex; align-items: center; gap: 6px; }
 .grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 28px; align-items: start; }
 
 .hero { position: relative; border-radius: var(--r-l); overflow: hidden; min-height: 272px; background: var(--paper); border: 1px solid var(--line); display: flex; }
@@ -379,7 +404,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeMenu); window
 .tiqian { position: absolute; top: 14px; right: 14px; background: #F8F2E2; color: #1E1C19; padding: 10px 5px; writing-mode: vertical-rl; font: 600 15px/1 var(--f-serif);
   letter-spacing: 4px; border: 1px solid #00000020; box-shadow: inset 0 0 0 2px #F8F2E2, inset 0 0 0 3px #8A1F1222; max-height: 72%; overflow: hidden; }
 .badges { position: absolute; left: 10px; bottom: 10px; display: flex; gap: 4px; flex-wrap: wrap; right: 10px; }
-.badges span { font-size: 10.5px; padding: 2px 6px; border-radius: 4px; background: #000000a0; color: #fff; backdrop-filter: blur(4px); }
+.badges span { font-size: 12px; padding: 2px 6px; border-radius: 4px; background: #000000a0; color: #fff; backdrop-filter: blur(4px); }
 .book-i { padding: 10px 2px 0; position: relative; }
 .book-t { display: flex; align-items: center; gap: 4px; font: 600 15px var(--f-serif); letter-spacing: .04em; }
 .book-t > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -393,7 +418,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeMenu); window
 .book-new { aspect-ratio: 2 / 3; border-radius: 7px; border: 1.5px dashed var(--line-2); display: grid; place-items: center; align-content: center; gap: 8px; color: var(--ink-3);
   text-align: center; font-size: 13px; text-decoration: none; transition: border-color .2s, color .2s, background .2s; }
 .book-new:hover { border-color: var(--zhu); color: var(--zhu); background: var(--zhu-soft); }
-.book-new small { color: var(--ink-4); }
+.book-new small { color: var(--ink-3); font-size: 12px; }
 .m-art.small { width: min(220px, 50%); }
 .calendar-box { padding: 16px; }
 .calendar-box :deep(.hm) { width: 100%; overflow-x: auto; }
@@ -406,16 +431,16 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeMenu); window
 .todo:last-of-type { border-bottom: 0; }
 .todo:hover { color: var(--zhu); }
 .todo .icon { margin-top: 1px; }
-.todo-d { font-size: 11.5px; color: var(--ink-3); margin-top: 1px; }
+.todo-d { font-size: 12px; color: var(--ink-3); margin-top: 1px; }
 .m-empty.compact { padding: 8px 0 4px; }
 .m-empty.compact img { width: 150px; }
 .lib { display: flex; gap: 10px; align-items: center; padding: 7px 0; font-size: 13px; text-decoration: none; }
 .lib:hover { color: var(--zhu); }
 .lib i { width: 30px; height: 38px; border-radius: 2px 4px 4px 2px; flex: none; box-shadow: inset 3px 0 0 #ffffff30; }
-.box-note { margin: 0; font-size: 12.5px; color: var(--ink-3); line-height: 1.7; }
+.box-note { margin: 0; font-size: 13px; color: var(--ink-3); line-height: 1.7; }
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
 .stats b { display: block; font-size: 19px; color: var(--ink); }
-.stats span { font-size: 11.5px; color: var(--ink-3); }
+.stats span { font-size: 12px; color: var(--ink-3); }
 
 .m-modal.small { width: min(420px, calc(100vw - 48px)); }
 .confirm-body { margin: 0; font-size: 13.5px; line-height: 1.75; color: var(--ink-2); }
@@ -424,7 +449,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', closeMenu); window
 .pick:hover { background: var(--panel-2); }
 .pick.on { border-color: var(--zhu); background: var(--zhu-soft); }
 .pc { display: block; aspect-ratio: 2 / 3; border-radius: 3px 5px 5px 3px; background-size: cover; background-position: center; box-shadow: var(--shadow-1); }
-.pick small { font-size: 11.5px; color: var(--ink-3); }
+.pick small { font-size: 12px; color: var(--ink-3); }
 
 @media (max-width: 1180px) { .grid { grid-template-columns: 1fr; } .page-in { padding: 22px 28px 48px; } }
 @media (max-width: 720px) { .hero-c { flex-direction: column; } .hero-img::after { background: color-mix(in srgb, var(--paper) 86%, transparent); } }

@@ -1,4 +1,4 @@
-import { computed, onScopeDispose, ref, type Ref } from 'vue'
+import { computed, onScopeDispose, reactive, ref, type Ref } from 'vue'
 import { mergeCommittedSnapshot } from '@/services/committedSnapshotMerge'
 
 export interface PreparedPersistence<T> {
@@ -13,7 +13,7 @@ export function createRevisionPersistence<T extends { id: string }>(
 ) {
   const revisions = new Map<string, number>()
   const persisted = new Map<string, number>()
-  const dirty = new Set<string>()
+  const dirty = reactive(new Set<string>())
   const pendingCount = ref(0)
   const saving = ref(false)
   const saveError = ref('')
@@ -161,7 +161,7 @@ export function createRevisionPersistence<T extends { id: string }>(
     return task
   }
   onScopeDispose(() => { disposed = true; clearTimer() })
-  return { markDirty, adopt, forget, saveNow, flush, transact, saveError, saving,
+  return { markDirty, adopt, forget, saveNow, flush, transact, saveError, saving, isPersisted: (id: string) => !dirty.has(id),
     hasPendingSaves: computed(() => pendingCount.value > 0) }
 }
 

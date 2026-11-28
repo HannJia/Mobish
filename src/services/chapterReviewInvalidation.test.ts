@@ -1,10 +1,16 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { characterStateFixture, stateTestTime as now } from '@/test/characterStateFixture'
 import type { ChapterReview, ReconstructionWorkspaceSnapshot } from '@/types/reconstruction'
 import { buildChapterReviewSignature, buildChapterReviewSourceVersion, buildReviewContextVersion } from './reconstructionReviewVersion'
-import { withStoryReviewInvalidation, invalidateChapterReviews } from './chapterReviewInvalidation'
+import { withStoryReviewInvalidation, withStoryReviewInvalidationAsync, invalidateChapterReviews } from './chapterReviewInvalidation'
 import { registerChapterReviewInvalidation, retainCompletedCandidateSource } from './chapterReviewInvalidationRequests'
+import { projectChapterReview } from './chapterReviewProjection'
+
+vi.mock('./chapterReviewProjection', async importOriginal => {
+  const actual = await importOriginal<typeof import('./chapterReviewProjection')>()
+  return { ...actual, projectChapterReview: vi.fn(actual.projectChapterReview) }
+})
 
 const coverageFor = (signature: string, source: string, overrides: Record<string, unknown> = {}) => ({
   signature, totalChunks: 1, completedChunks: 1, coveredCharacters: source.length, totalCharacters: source.length,
@@ -18,6 +24,45 @@ function review(chapterId: string, sourceVersionId: string): ChapterReview {
 
 describe('chapter review invalidation coordinator', () => {
   beforeEach(() => setActivePinia(createPinia()))
+
+  it('projects each written chapter only once per pass and skips the second pass when no review input changed', () => {
+    const { novel } = characterStateFixture()
+    novel.chapters.forEach((chapter, index) => { chapter.content = '第' + (index + 1) + '章已写正文' })
+    const workspace: ReconstructionWorkspaceSnapshot = { candidates: [], reviewFindings: [], chapterReviews: [], aiRuns: [], canonMutations: [] }
+    const written = novel.chapters.length
+    vi.mocked(projectChapterReview).mockClear()
+    withStoryReviewInvalidation({ novel, workspace }, [], () => 'unchanged')
+    expect(vi.mocked(projectChapterReview)).toHaveBeenCalledTimes(written)
+
+    vi.mocked(projectChapterReview).mockClear()
+    withStoryReviewInvalidation({ novel, workspace }, [], () => { novel.chapters[0].content = '改过的正文' })
+    expect(vi.mocked(projectChapterReview)).toHaveBeenCalledTimes(written * 2)
+  })
+
+  it('the async runner returns exactly what the synchronous one does and still lets the page breathe', async () => {
+    const make = () => {
+      const { novel } = characterStateFixture()
+      // 写过正文的章节达到 8 章才会分批让出主线程，这里补足到 10 章。
+      const template = novel.chapters[0]
+      while (novel.chapters.length < 10) novel.chapters.push({ ...template, id: 'extra-' + novel.chapters.length, chapterIndex: novel.chapters.length })
+      novel.chapters.forEach((chapter, index) => { chapter.content = '第' + (index + 1) + '章已写正文'; chapter.status = 'finalized'; chapter.contentReviewSignature = 'old' })
+      const workspace: ReconstructionWorkspaceSnapshot = { candidates: [], reviewFindings: [], chapterReviews: [], aiRuns: [], canonMutations: [] }
+      return { novel, workspace }
+    }
+    const change = (aggregate: ReturnType<typeof make>) => () => { aggregate.novel.chapters[0].content = '改过的正文'; return 'done' }
+    const left = make(), right = make()
+    const sync = withStoryReviewInvalidation(left, [], change(left))
+    const timers = vi.spyOn(globalThis, 'setTimeout')
+    let tick = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => (tick += 30))
+    const asynchronous = await withStoryReviewInvalidationAsync(right, [], change(right))
+    expect(asynchronous.value).toBe(sync.value)
+    const indexes = (aggregate: ReturnType<typeof make>, ids: string[]) => ids.map(id => aggregate.novel.chapters.findIndex(chapter => chapter.id === id))
+    expect(indexes(right, asynchronous.reviewChapterIds)).toEqual(indexes(left, sync.reviewChapterIds))
+    expect(right.novel.chapters.map(chapter => chapter.contentReviewSignature)).toEqual(left.novel.chapters.map(chapter => chapter.contentReviewSignature))
+    expect(timers).toHaveBeenCalled()
+    vi.restoreAllMocks()
+  })
 
   it('keeps the public invalidation helper conservative outside a transaction', () => {
     const { novel } = characterStateFixture()

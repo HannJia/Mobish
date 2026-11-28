@@ -68,6 +68,19 @@ async function existing(backup: ProjectBackup) {
 }
 
 describe('desktop project kernel integration', () => {
+  it('distinguishes an empty startup from a snapshot that already existed', async () => {
+    const fresh = await import('./projectKernelClient')
+    expect(fresh.hadProjectSnapshotBeforeInit()).toBeNull()
+    await fresh.initializeProjectKernel()
+    expect(fresh.hadProjectSnapshotBeforeInit()).toBe(false)
+    await fresh.initializeProjectKernel()
+    expect(fresh.hadProjectSnapshotBeforeInit()).toBe(false)
+    vi.resetModules()
+    const reopened = await import('./projectKernelClient')
+    await reopened.initializeProjectKernel()
+    expect(reopened.hadProjectSnapshotBeforeInit()).toBe(true)
+  })
+
   it('keeps character bindings and their history across desktop transactions and reopen', async () => {
     const backup = await fixture()
     const { id: novelId, characters: [character] } = backup.novels[0]

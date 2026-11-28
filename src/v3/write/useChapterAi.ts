@@ -28,6 +28,7 @@ import type { CandidateChange, ReviewFinding } from '@/types/reconstruction'
 import type { CharacterMemoryAuthorDecision } from '@/types/characterMemory'
 import type { EditorMark } from '../editor/PlainTextEditor.vue'
 import type { useChapterSession } from './useChapterSession'
+import { useOnboardingStore } from '@/stores/onboarding'
 import { anchorFindings, candidateAnchor, findingMarks, relocateFindings, revisionPreview, staleFindingMarks } from './marks'
 import { buildAnalysisSourceVersionId } from '@/services/reconstructionCandidates'
 
@@ -195,6 +196,8 @@ export function useChapterAi(options: ChapterAiOptions) {
       const submission = buildChapterReviewSubmission(source, report, coverage, workspace.getChapterReviews(novel.id, chapter.id),
         workspace.getCandidates(novel.id), new Date().toISOString())
       await workspace.commitChapterReview(novel.id, submission)
+      try { useOnboardingStore().recordAchievement('first_review_completed') }
+      catch { /* Onboarding must not affect the committed review. */ }
       reviewReport.value = report
       statusText.value = '本章审校已保存。'
       session.markChanged()

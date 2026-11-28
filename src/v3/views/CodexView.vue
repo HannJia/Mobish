@@ -6,25 +6,35 @@
   <div v-else class="codex-page">
     <main class="codex-main">
       <div v-if="returnTo" class="codex-back-bar">
-        <router-link class="codex-back-btn" :to="returnTo"><span aria-hidden="true">←</span> 返回写作</router-link>
+        <router-link class="codex-back-btn" :to="returnTo"><span aria-hidden="true">←</span> {{ returnLabel(returnTo) }}</router-link>
       </div>
-      <header class="codex-head"><div><h1>典籍</h1><p>你确认过的人物认知和关系，按章节整理。</p></div><div class="head-actions"><button v-if="selectedCharacter" class="m-btn sm detail-trigger" type="button" @click="detailOpen = true">人物详情</button><router-link class="m-btn sm" :to="{ path: '/plan/' + novel.id, query: { view: 'workbench', plannerTab: 'memory' } }"><V3Icon name="search" size="s" />检索典籍</router-link></div></header>
+      <header class="codex-head"><div><div class="codex-title-row"><h1>典籍</h1><GuideBeacon :visible="codexBeacons.includes('codex.source')" beacon-id="codex.source" /></div><p>你确认过的人物认知和关系，按章节整理。</p></div><div class="head-actions"><button v-if="selectedCharacter" class="m-btn sm detail-trigger" type="button" @click="detailOpen = true">人物详情</button><router-link class="m-btn sm" :to="{ path: '/plan/' + novel.id, query: { view: 'workbench', plannerTab: 'memory' } }"><V3Icon name="search" size="s" />检索典籍</router-link></div></header>
+      <nav class="codex-sources" aria-label="相关资料">
+        <span class="sources-label">相关资料</span>
+        <router-link v-for="item in sourceLinks" :key="item.path" class="source-link" :to="fromCodex(item.path + novel.id)" :title="item.hint">
+          <V3Icon :name="item.icon" size="s" /><span class="source-text"><strong>{{ item.label }}</strong><small>{{ item.hint }}</small></span><V3Icon name="chevR" size="s" class="source-go" />
+        </router-link>
+      </nav>
       <nav class="codex-tabs" aria-label="典籍视图"><button v-for="item in tabs" :key="item.id" type="button" :class="{ on: activeTab === item.id }" :aria-current="activeTab === item.id ? 'page' : undefined" @click="selectTab(item.id)">{{ item.label }}</button></nav>
 
-      <section v-if="chapters.length" class="projection-control m-panel" aria-label="按章节查看"><span class="muted">查看到</span><strong>第 {{ atIndex + 1 }} 章<span v-if="atIndex === lastChapterIndex"> · 当前</span></strong><input v-model.number="sliderPosition" type="range" min="0" :max="chapters.length - 1" step="1" :disabled="chapters.length < 2" aria-label="按章节查看" :aria-valuetext="'第' + (atIndex + 1) + '章 · ' + (currentChapter ? chapterTitleForDisplay(currentChapter.title, currentChapter.chapterIndex) : '')" /><select :value="atIndex" aria-label="查看章节" @change="selectChapter(Number(($event.target as HTMLSelectElement).value))"><option v-for="chapter in chapters" :key="chapter.id" :value="chapter.chapterIndex">第 {{ chapter.chapterIndex + 1 }} 章 · {{ chapterTitleForDisplay(chapter.title, chapter.chapterIndex) }}</option></select></section>
+      <section v-if="chapters.length" class="projection-control m-panel" data-guide="codex.chapter" aria-label="按章节查看"><span class="muted">查看到</span><strong>第 {{ atIndex + 1 }} 章<span v-if="atIndex === lastChapterIndex"> · 当前</span></strong><input v-model.number="sliderPosition" type="range" min="0" :max="chapters.length - 1" step="1" :disabled="chapters.length < 2" aria-label="按章节查看" :aria-valuetext="'第' + (atIndex + 1) + '章 · ' + (currentChapter ? chapterTitleForDisplay(currentChapter.title, currentChapter.chapterIndex) : '')" @change="onboarding.markSeen('codex.chapter')" /><select :value="atIndex" aria-label="查看章节" @change="onboarding.markSeen('codex.chapter'); selectChapter(Number(($event.target as HTMLSelectElement).value))"><option v-for="chapter in chapters" :key="chapter.id" :value="chapter.chapterIndex">第 {{ chapter.chapterIndex + 1 }} 章 · {{ chapterTitleForDisplay(chapter.title, chapter.chapterIndex) }}</option></select><GuideBeacon :visible="codexBeacons.includes('codex.chapter')" beacon-id="codex.chapter" /></section>
       <p v-else class="projection-empty">还没有章节。</p>
       <p v-if="projectionIssues" class="projection-notice">{{ projectionIssues }} 处来源待核对，核对前不计入人物认知。</p>
 
       <section v-if="activeTab === 'knowledge'" aria-label="知情矩阵">
-        <div v-if="characters.length && facts.length" ref="matrixWrap" class="matrix-wrap" :class="{ 'is-windowed': matrixVirtualized }" tabindex="0" aria-label="人物知情矩阵，可横向滚动" @scroll.passive="onMatrixScroll"><table class="matrix" :class="{ 'is-windowed': matrixVirtualized }" :aria-rowcount="characters.length + 1"><thead><tr><th scope="col">人物 \ 命题</th><th v-for="fact in facts" :key="fact.key" scope="col" :title="fact.key + '\n' + fact.scope">{{ fact.label }}<small>{{ fact.scope || '独立命题' }}</small></th></tr></thead><tbody><tr v-if="matrixWindow.start" class="matrix-window-spacer" aria-hidden="true"><td :colspan="facts.length + 1" :style="{ height: matrixWindow.start * matrixRowHeight + 'px' }" /></tr><tr v-for="row in visibleMatrixRows" :key="row.character.id" :aria-rowindex="row.index + 2"><th scope="row"><button type="button" class="matrix-person" @click="selectCharacter(row.character.id)"><CharacterAvatar :character="row.character" :size="34" /><span>{{ row.character.name }}</span></button></th><td v-for="item in row.cells" :key="item.fact.key"><button type="button" class="matrix-cell" :class="{ selected: selectedCharacter?.id === row.character.id && selectedFact?.key === item.fact.key }" :data-character-id="row.character.id" :data-fact-id="item.fact.key" :aria-pressed="selectedCharacter?.id === row.character.id && selectedFact?.key === item.fact.key" :aria-label="row.character.name + ' · ' + item.fact.label + ' · ' + item.cell.label" @click="selectCell(row.character.id, item.fact.key)"><span class="cell-state" :class="item.cell.tone"><i aria-hidden="true">{{ item.cell.symbol }}</i>{{ item.cell.label }}</span><span class="cell-source">{{ item.cell.since === undefined ? '不作额外推断' : '自第 ' + (item.cell.since! + 1) + ' 章' }}</span></button></td></tr><tr v-if="matrixWindow.end < characters.length" class="matrix-window-spacer" aria-hidden="true"><td :colspan="facts.length + 1" :style="{ height: (characters.length - matrixWindow.end) * matrixRowHeight + 'px' }" /></tr></tbody></table></div>
-        <div v-else class="empty m-panel"><h2>{{ characters.length ? '还没有可显示的人物认知' : '还没有可显示的人物' }}</h2><p>只显示到所选章节为止已确认的记录。</p><router-link class="m-btn sm" :to="withReturnTo('/characters/' + novel.id)">管理人物资料</router-link></div>
+        <div v-if="characters.length && facts.length" ref="matrixWrap" class="matrix-wrap" :class="{ 'is-windowed': matrixVirtualized }" tabindex="0" aria-label="人物知情矩阵，可横向滚动" @scroll.passive="onMatrixScroll"><table class="matrix" :class="{ 'is-windowed': matrixVirtualized }" :aria-rowcount="characters.length + 1"><thead><tr><th scope="col">人物 \ 命题</th><th v-for="fact in facts" :key="fact.key" scope="col" :title="fact.key + '\n' + fact.scope">{{ fact.label }}<small>{{ fact.scope || '独立命题' }}</small></th></tr></thead><tbody><tr v-if="matrixWindow.start" class="matrix-window-spacer" aria-hidden="true"><td :colspan="facts.length + 1" :style="{ height: matrixWindow.start * matrixRowHeight + 'px' }" /></tr><tr v-for="row in visibleMatrixRows" :key="row.character.id" :aria-rowindex="row.index + 2"><th scope="row"><button type="button" class="matrix-person" @click="selectCharacter(row.character.id)"><CharacterAvatar :character="row.character" :size="34" /><span>{{ row.character.name }}</span></button></th><td v-for="(item, cellIndex) in row.cells" :key="item.fact.key"><button type="button" class="matrix-cell" :data-guide="row.index === visibleMatrixRows[0]?.index && cellIndex === 0 ? 'codex.source' : undefined" :class="{ selected: selectedCharacter?.id === row.character.id && selectedFact?.key === item.fact.key }" :data-character-id="row.character.id" :data-fact-id="item.fact.key" :aria-pressed="selectedCharacter?.id === row.character.id && selectedFact?.key === item.fact.key" :aria-label="row.character.name + ' · ' + item.fact.label + ' · ' + item.cell.label" @click="selectCell(row.character.id, item.fact.key)"><span class="cell-state" :class="item.cell.tone"><i aria-hidden="true">{{ item.cell.symbol }}</i>{{ item.cell.label }}</span><span class="cell-source">{{ item.cell.since === undefined ? '不作额外推断' : '自第 ' + (item.cell.since! + 1) + ' 章' }}</span></button></td></tr><tr v-if="matrixWindow.end < characters.length" class="matrix-window-spacer" aria-hidden="true"><td :colspan="facts.length + 1" :style="{ height: (characters.length - matrixWindow.end) * matrixRowHeight + 'px' }" /></tr></tbody></table></div>
+        <div v-else class="empty m-panel"><h2>{{ characters.length ? '还没有可显示的人物认知' : '还没有可显示的人物' }}</h2><p>只显示到所选章节为止已确认的记录。</p><router-link class="m-btn sm" :to="fromCodex('/characters/' + novel.id)">管理人物资料</router-link></div>
         <div class="matrix-legend"><span v-for="state in knowledgeStates" :key="state" :class="state"><i aria-hidden="true">{{ stateSymbols[state] }}</i>{{ stateLabel(state) }}</span><span class="unrecorded">— 未记录</span><span>未确认的候选不显示</span></div>
         <p v-if="pendingKnowledgeCount" class="pending-notice">{{ pendingKnowledgeCount }} 条知情候选尚未明确处理；请到来源章案头逐条核对。</p>
       </section>
 
-      <section v-else-if="activeTab === 'characters'" class="codex-grid" aria-label="人物资料">
+      <section v-else-if="activeTab === 'characters'" class="codex-grid" aria-label="人物状态">
         <article v-for="character in characters" :key="character.id" class="character-card m-panel" :class="{ selected: selectedCharacter?.id === character.id }"><button class="character-select" type="button" :aria-pressed="selectedCharacter?.id === character.id" @click="selectCharacter(character.id)"><div class="character-card-head"><CharacterAvatar :character="character" :size="66" /><div><h2>{{ character.name }}</h2><p>{{ character.identity || '身份未记录' }}</p><div class="tags"><span>{{ character.status || '状态未记录' }}</span><span v-if="character.faction">{{ character.faction }}</span></div></div></div><p class="character-description">{{ character.description || '暂无人物简介。' }}</p></button><div v-if="characterTurningPoints(character.id).length" class="turning-points"><div class="turning-points-label">实际转折</div><div v-for="point in characterTurningPoints(character.id)" :key="point.arc.id + ':' + point.event.id" class="turning-point"><strong>{{ point.event.title }}</strong><span>第 {{ point.event.chapterIndex + 1 }} 章 · {{ point.arc.title }}</span><p v-if="point.event.description">{{ point.event.description }}</p></div></div><p v-else class="character-arc-empty">尚未记录实际转折。</p><router-link class="m-link" :to="characterLocation(character.id)">编辑人物</router-link></article>
         <div v-if="!characters.length" class="empty m-panel">截至所选章节还没有人物资料。</div>
+        <details class="state-history m-panel">
+          <summary>全部状态变化与原文证据</summary>
+          <CharacterStateHistory :novel="novel" :records="workspace.getCanonMutations(novel.id)" />
+        </details>
       </section>
 
       <template v-else-if="activeTab === 'appearances'">
@@ -40,8 +50,7 @@
 
       <section v-else-if="activeTab === 'timeline'" aria-label="故事时间线"><p class="timeline-explanation">左侧为已记录的故事时间，卡片按叙事章节排列；规划与来源待核对均不冒充已发生事实。</p><div class="story-timeline"><article v-for="event in timeline" :key="event.id" class="timeline-row" :class="{ planned: !isOccurredEvent(event), uncertain: event.status === 'unverified' }"><span class="timeline-when">{{ event.storyTime || '时间未记录' }}</span><div class="timeline-card m-panel"><div class="event-tags"><span>{{ event.chapterIndex < 0 ? '全书规划' : '第 ' + (event.chapterIndex + 1) + ' 章' }}</span><span>{{ event.status === 'unverified' ? '来源待核对' : isOccurredEvent(event) ? '发生记录' : '计划，非已发生' }}</span><span>{{ event.type }}</span></div><h2>{{ event.title }}</h2><p>{{ event.description || '未记录描述' }}</p><router-link class="m-link" :to="{ path: '/plan/' + novel.id, query: { view: 'workbench', plannerTab: 'timeline', plannerSelection: event.id } }">查看事件与来源</router-link></div></article></div><div v-if="!timeline.length" class="empty m-panel">截至所选章还没有有效事件或规划记录。</div></section>
 
-      <section v-else class="resource-grid"><router-link class="resource-card m-panel" :to="withReturnTo('/inspiration/' + novel.id)"><strong>灵感记录</strong><span>查看创建阶段保留的探索对话和灵感片段</span></router-link><router-link class="resource-card m-panel" :to="'/knowledge/' + novel.id"><strong>资料库</strong><span>管理本书挂载的知识库和资料来源</span></router-link><router-link class="resource-card m-panel" :to="withReturnTo('/data/' + novel.id)"><strong>数据面板</strong><span>查看数值、装备、公式和按章变化</span></router-link><router-link class="resource-card m-panel" :to="{ path: '/plan/' + novel.id, query: { view: 'workbench', plannerTab: 'memory' } }"><strong>故事回顾</strong><span>打开项目记忆检索和全书、分卷、场景回顾</span></router-link></section>
-      <footer class="codex-links"><router-link :to="withReturnTo('/characters/' + novel.id)">管理人物</router-link><router-link :to="'/knowledge/' + novel.id">本书资料</router-link><router-link :to="withReturnTo('/data/' + novel.id)">数据面板</router-link></footer>
+      <section v-else class="resource-grid"><router-link class="resource-card m-panel" :to="fromCodex('/inspiration/' + novel.id)"><strong>灵感记录</strong><span>查看创建阶段保留的探索对话和灵感片段</span></router-link><router-link class="resource-card m-panel" :to="fromCodex('/knowledge/' + novel.id)"><strong>知识库</strong><span>管理本书挂载的知识库和资料来源</span></router-link><router-link class="resource-card m-panel" :to="fromCodex('/data/' + novel.id)"><strong>数据面板</strong><span>查看数值、装备、公式和按章变化</span></router-link><router-link class="resource-card m-panel" :to="{ path: '/plan/' + novel.id, query: { view: 'workbench', plannerTab: 'memory' } }"><strong>故事回顾</strong><span>打开项目记忆检索和全书、分卷、场景回顾</span></router-link></section>
     </main>
 
     <button v-if="detailOpen" class="detail-backdrop" type="button" aria-label="关闭人物详情" @click="detailOpen = false" />
@@ -73,8 +82,14 @@ import { projectCanonicalEntities } from '@/services/entityProvenance'
 import { buildAnalysisSourceVersionId } from '@/services/reconstructionCandidates'
 import { getAppearancePlans } from '@/services/characterAppearances'
 import ChapterAppearances from '@/v3/characters/ChapterAppearances.vue'
+import CharacterStateHistory from '@/components/CharacterStateHistory.vue'
 import CharacterAvatar from '@/components/CharacterAvatar.vue'
 import V3Icon from '@/v3/components/V3Icon.vue'
+import type { IconName } from '@/v3/icons'
+import { readReturnTo, returnLabel } from '@/v3/returnTo'
+import GuideBeacon from '@/v3/components/GuideBeacon.vue'
+import { useOnboardingStore } from '@/stores/onboarding'
+import type { GuideBeaconId } from '@/services/onboardingGuide'
 import type { EventLogEntry, StoryArc } from '@/types/novel'
 import type { CanonMutationRecord, EvidenceRef, KnowledgeState } from '@/types/reconstruction'
 import type { MemoryKnowledgeEdge } from '@/types/characterMemory'
@@ -85,17 +100,19 @@ type KnowledgeCell = { states: MemoryKnowledgeEdge[]; issues: Array<{ record: Ca
 const route = useRoute(), router = useRouter(), novels = useNovelStore(), workspace = useReconstructionWorkspaceStore()
 const novelId = computed(() => typeof route.params.novelId === 'string' ? route.params.novelId : '')
 const novel = computed(() => novels.getNovel(novelId.value))
-const returnTo = computed(() => {
-  const raw = typeof route.query.returnTo === 'string' ? route.query.returnTo.trim() : ''
-  return raw.startsWith('/') && !raw.startsWith('//') ? raw : ''
-})
-function withReturnTo(path: string, extra?: Record<string, string>) {
-  const query = { ...(extra || {}), ...(returnTo.value ? { returnTo: returnTo.value } : {}) }
-  return Object.keys(query).length ? { path, query } : path
+const returnTo = computed(() => readReturnTo(route.query?.returnTo))
+/** 从典籍去源资料页：带上典籍自己的完整地址，目标页显示“← 返回典籍”，回来时仍保留典籍的视图和它自己的返回去处。 */
+function fromCodex(path: string, extra?: Record<string, string>) {
+  return { path, query: { ...(extra || {}), returnTo: route.fullPath || '/codex/' + novelId.value } }
 }
+const sourceLinks: Array<{ path: string; label: string; hint: string; icon: IconName }> = [
+  { path: '/characters/', label: '人物资料', hint: '人物设定、头像与关系', icon: 'user' },
+  { path: '/data/', label: '数据面板', hint: '物品、数值等随章节变化的状态', icon: 'grid' },
+  { path: '/knowledge/', label: '知识库', hint: '挂到本书的设定与参考资料', icon: 'book' },
+]
 const loading = ref(true), error = ref(''), activeTab = ref<CodexTab>('knowledge'), detailOpen = ref(false)
 const selectedCharacterId = ref(''), selectedFactId = ref(''), projectionIndex = ref<number>()
-const tabs: Array<{ id: CodexTab; label: string }> = [{ id: 'knowledge', label: '知情矩阵' }, { id: 'characters', label: '人物' }, { id: 'appearances', label: '出场对照' }, { id: 'relations', label: '关系网' }, { id: 'timeline', label: '时间线' }, { id: 'resources', label: '资料与回顾' }]
+const tabs: Array<{ id: CodexTab; label: string }> = [{ id: 'knowledge', label: '知情矩阵' }, { id: 'characters', label: '人物状态' }, { id: 'appearances', label: '出场对照' }, { id: 'relations', label: '关系网' }, { id: 'timeline', label: '时间线' }, { id: 'resources', label: '资料与回顾' }]
 const knowledgeStates: KnowledgeState[] = ['knows', 'suspects', 'does_not_know', 'false_belief']
 const stateSymbols: Record<KnowledgeState, string> = { knows: '●', suspects: '◐', does_not_know: '○', false_belief: '×' }
 const chapters = computed(() => [...(novel.value?.chapters || [])].sort((a, b) => a.chapterIndex - b.chapterIndex))
@@ -263,7 +280,7 @@ function evidenceLocation(evidence: EvidenceRef) {
   return { path: '/write/' + novelId.value + '/' + chapter.id, query: { evidenceVersion: evidence.sourceVersionId, evidenceStart: String(start), evidenceEnd: String(end) } }
 }
 function sourceChapterLabel(id?: string) { const chapter = chapters.value.find(chapter => chapter.id === id); return chapter ? '第 ' + (chapter.chapterIndex + 1) + ' 章 · ' + chapterTitleForDisplay(chapter.title, chapter.chapterIndex) : '来源章已删除或未记录' }
-function characterLocation(id: string) { return withReturnTo('/characters/' + novelId.value, { character: id }) }
+function characterLocation(id: string) { return fromCodex('/characters/' + novelId.value, { character: id }) }
 function updateQuery() { void router.replace({ query: { ...route.query, tab: activeTab.value, atChapter: atIndex.value < 0 ? undefined : String(atIndex.value + 1), character: selectedCharacter.value?.id, fact: selectedFact.value?.key } }) }
 function selectTab(tab: CodexTab) { activeTab.value = tab; updateQuery() }
 function selectChapter(index: number) { if (!chapters.value.some(chapter => chapter.chapterIndex === index)) return; projectionIndex.value = index; updateQuery() }
@@ -277,7 +294,15 @@ function showAppearanceKnowledge(id: string) {
   selectedFactId.value = usefulFact?.key || ''
   selectCharacter(id)
 }
-function selectCell(characterId: string, factId: string) { selectedCharacterId.value = characterId; selectedFactId.value = factId; detailOpen.value = true; updateQuery() }
+const onboarding = useOnboardingStore()
+const codexBeacons = computed(() => {
+  if (loading.value || error.value || !novel.value) return []
+  const candidates: GuideBeaconId[] = []
+  if (chapters.value.length >= 2) candidates.push('codex.chapter')
+  if (activeTab.value === 'knowledge' && characters.value.length > 0 && facts.value.length > 0) candidates.push('codex.source')
+  return onboarding.visibleBeaconsFor(candidates, 2)
+})
+function selectCell(characterId: string, factId: string) { onboarding.markSeen('codex.source'); selectedCharacterId.value = characterId; selectedFactId.value = factId; detailOpen.value = true; updateQuery() }
 watch(() => route.query, query => {
   if (tabs.some(tab => tab.id === query?.tab)) activeTab.value = query.tab as CodexTab
   const index = typeof query?.atChapter === 'string' ? Number(query.atChapter) - 1 : undefined
@@ -297,7 +322,7 @@ onMounted(async () => { try { if (!novelId.value) throw new Error('典籍缺少�
 .codex-back-btn:hover { background: var(--zhu-soft); border-color: var(--zhu); color: var(--zhu); }
 .codex-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
 .codex-head h1 { margin: 0 0 3px; font: 600 18px var(--f-serif); }
-.codex-head p { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.6; }
+.codex-head p { margin: 0; color: var(--ink-3); font-size: 13px; line-height: 1.6; }
 .head-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .codex-tabs { display: flex; gap: 4px; margin-bottom: 18px; border-bottom: 1px solid var(--line); overflow-x: auto; }
 .codex-tabs button { padding: 10px; border-bottom: 2px solid transparent; color: var(--ink-3); font-size: 14px; white-space: nowrap; }
@@ -307,9 +332,9 @@ onMounted(async () => { try { if (!novelId.value) throw new Error('典籍缺少�
 .projection-control .muted { color: var(--ink-3); font-size: 12px; flex-shrink: 0; }
 .projection-control strong { min-width: 132px; font: 600 14px var(--f-serif); white-space: nowrap; }
 .projection-control input { min-width: 50px; flex: 1; accent-color: var(--zhu); }
-.projection-control select { max-width: 180px; min-width: 0; border: 0; background: transparent; color: var(--ink-3); font: 11px var(--f-ui); text-overflow: ellipsis; }
+.projection-control select { max-width: 180px; min-width: 0; min-height: 26px; border: 0; background: transparent; color: var(--ink-3); font: 12px var(--f-ui); text-overflow: ellipsis; }
 .projection-control option { color: var(--ink); background: var(--paper); }
-.projection-empty, .projection-notice, .pending-notice { color: var(--ink-3); font-size: 12px; line-height: 1.8; }
+.projection-empty, .projection-notice, .pending-notice { color: var(--ink-3); font-size: 13px; line-height: 1.8; }
 .projection-notice { color: var(--jin); }
 .matrix-wrap { overflow: auto; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--paper); }
 .matrix-wrap.is-windowed { max-height: min(70vh, 520px); }
@@ -320,7 +345,7 @@ onMounted(async () => { try { if (!novelId.value) throw new Error('典籍缺少�
 .matrix.is-windowed tbody tr:not(.matrix-window-spacer) { height: 58px; }
 .matrix.is-windowed tbody tr:not(.matrix-window-spacer) .matrix-person, .matrix.is-windowed tbody tr:not(.matrix-window-spacer) .matrix-cell { box-sizing: border-box; height: 58px; overflow: hidden; }
 .matrix thead th { min-width: 148px; max-width: 210px; padding: 10px; background: var(--panel); color: var(--ink-2); font-size: 12px; line-height: 1.5; vertical-align: bottom; }
-.matrix thead th:first-child { min-width: 160px; }.matrix thead small { display: block; margin-top: 3px; color: var(--ink-4); font-size: 10px; font-weight: 400; }
+.matrix thead th:first-child { min-width: 160px; }.matrix thead small { display: block; margin-top: 3px; color: var(--ink-4); font-size: 11px; font-weight: 400; }
 .matrix.is-windowed thead th { position: sticky; top: 0; z-index: 2; }
 .matrix.is-windowed thead th:first-child { left: 0; z-index: 3; }
 .matrix tbody th { position: sticky; left: 0; z-index: 1; background: var(--panel); }
@@ -328,20 +353,20 @@ onMounted(async () => { try { if (!novelId.value) throw new Error('典籍缺少�
 .matrix-cell { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; width: 100%; min-height: 58px; gap: 3px; padding: 8px 10px; text-align: left; }
 .matrix-cell:hover, .matrix-person:hover { background: var(--hover); }.matrix-cell.selected { box-shadow: inset 0 0 0 2px var(--zhu); }
 .cell-state { display: flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; }.cell-state i, .matrix-legend i { font-style: normal; }
-.cell-source { color: var(--ink-4); font: 10.5px var(--f-num); }
-.knows { color: var(--qing); }.suspects, .unverified, .conflict { color: var(--jin); }.does_not_know, .unrecorded { color: var(--ink-4); }.false_belief { color: var(--zi); }
+.cell-source { color: var(--ink-3); font: 12px var(--f-num); }
+.knows { color: var(--qing); }.suspects, .unverified, .conflict { color: var(--jin); }.does_not_know, .unrecorded { color: var(--ink-3); }.false_belief { color: var(--zi); }
 .matrix-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 12px; color: var(--ink-3); font-size: 12px; }
 .matrix-legend span { display: flex; align-items: center; gap: 5px; }
 .codex-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
 .character-card { min-width: 0; padding: 16px; }.character-card.selected { border-color: var(--line-2); }
 .character-select { width: 100%; text-align: left; }.character-card-head { display: flex; align-items: center; gap: 12px; }
 .character-card-head > div { min-width: 0; }.character-card h2 { margin: 0; font: 600 17px var(--f-serif); }
-.character-card-head p { margin: 3px 0 5px; color: var(--ink-3); font-size: 12px; }
-.tags, .event-tags { display: flex; flex-wrap: wrap; gap: 5px; }.tags span, .event-tags span { padding: 2px 6px; border: 1px solid var(--line-2); border-radius: 3px; color: var(--ink-3); font-size: 10px; }
+.character-card-head p { margin: 3px 0 5px; color: var(--ink-3); font-size: 13px; }
+.tags, .event-tags { display: flex; flex-wrap: wrap; gap: 5px; }.tags span, .event-tags span { padding: 2px 6px; border: 1px solid var(--line-2); border-radius: 3px; color: var(--ink-3); font-size: 11px; }
 .character-description { margin: 12px 0 10px; padding: 8px 10px; border-radius: 6px; background: var(--panel); color: var(--ink-2); font-size: 13px; line-height: 1.65; white-space: pre-wrap; }
-.character-arc-empty { margin: 8px 0; color: var(--ink-4); font-size: 10px; line-height: 1.6; }
-.turning-points { margin: 12px 0 8px; padding-top: 10px; border-top: 1px solid var(--line); }.turning-points-label { color: var(--ink-3); font-size: 11px; }
-.turning-point { display: grid; gap: 3px; margin-top: 8px; }.turning-point strong { font: 600 12px var(--f-serif); }.turning-point span { color: var(--ink-4); font-size: 10px; }.turning-point p { margin: 0; color: var(--ink-3); font-size: 11px; line-height: 1.6; }
+.character-arc-empty { margin: 8px 0; color: var(--ink-4); font-size: 11px; line-height: 1.6; }
+.turning-points { margin: 12px 0 8px; padding-top: 10px; border-top: 1px solid var(--line); }.turning-points-label { color: var(--ink-3); font-size: 12px; }
+.turning-point { display: grid; gap: 3px; margin-top: 8px; }.turning-point strong { font: 600 12px var(--f-serif); }.turning-point span { color: var(--ink-4); font-size: 11px; }.turning-point p { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.6; }
 :deep(.character-avatar) { border-radius: 50%; border-color: var(--line-2); background: var(--paper); }
 .relation-scroll { overflow: auto; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--paper); }.relation-graph { position: relative; height: 520px; }.relation-graph svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .relationship-line { fill: none; stroke: var(--ink-3); stroke-width: 1.4; vector-effect: non-scaling-stroke; }.relationship-label { fill: var(--ink-2); stroke: var(--paper); stroke-width: 5px; paint-order: stroke; font: 12px var(--f-ui); }
@@ -354,17 +379,27 @@ onMounted(async () => { try { if (!novelId.value) throw new Error('典籍缺少�
 .timeline-when { position: absolute; left: -120px; top: 12px; width: 92px; color: var(--ink-3); text-align: right; font: 12px/1.5 var(--f-serif); overflow-wrap: anywhere; }
 .timeline-card { padding: 12px 14px; }.timeline-card h2 { margin: 5px 0 4px; font: 600 15px var(--f-serif); }.timeline-card p { margin: 0; font-size: 12.5px; line-height: 1.7; }.timeline-row.planned .timeline-card { border-style: dashed; }.timeline-row.uncertain .timeline-card { border-color: var(--jin); }
 .resource-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }.resource-card { display: grid; gap: 8px; padding: 18px; text-decoration: none; }.resource-card strong { font: 600 16px var(--f-serif); color: var(--ink); }.resource-card span { color: var(--ink-3); font-size: 12px; line-height: 1.8; }
-.codex-links { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 28px; }.codex-links a { color: var(--ink-3); font-size: 11px; text-decoration: none; }.codex-links a:hover { color: var(--zhu); }
-.codex-detail { min-width: 0; overflow: auto; padding: 20px; border-left: 1px solid var(--line); background: var(--panel); }.detail-person { display: flex; align-items: center; gap: 12px; }.eyebrow { color: var(--zhu); font-size: 11px; letter-spacing: .1em; }.detail-person h2 { margin: 2px 0 0; font: 600 20px/1.35 var(--f-serif); }
-.detail-section-heading { margin: 22px 0 8px; color: var(--ink-3); font-size: 12px; font-weight: 500; letter-spacing: .06em; }.detail-proposition { margin: 0 0 6px; font: 16px/1.7 var(--f-serif); overflow-wrap: anywhere; }.proposition-scope { margin: 4px 0 10px; color: var(--ink-4); font-size: 10px; line-height: 1.6; }
-.detail-state { display: inline-block; padding: 3px 7px; border-radius: 3px; background: var(--hover); font-size: 12.5px; }.current-knowledge p, .conflict-notice { font-size: 12px; line-height: 1.8; }.current-knowledge small { display: block; color: var(--ink-4); font-size: 10px; }.conflict-notice { color: var(--jin); }
+.state-history { grid-column: 1 / -1; margin-top: 4px; padding: 12px 16px; }.state-history > summary { cursor: pointer; color: var(--ink-2); font-weight: 600; }
+.codex-sources { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin: 0 0 16px; }
+.sources-label { align-self: center; margin-right: 4px; color: var(--ink-3); font: 600 12px var(--f-ui); letter-spacing: .08em; }
+.source-link { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 10px 6px 12px; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--paper); color: var(--ink-2); text-decoration: none; transition: border-color .15s, background .15s; }
+.source-link:hover { border-color: var(--zhu-mid); background: var(--zhu-soft); color: var(--ink); }
+.source-link:focus-visible { outline: 2px solid var(--zhu); outline-offset: 2px; }
+.source-text { display: grid; line-height: 1.35; }.source-text strong { font-size: 13px; font-weight: 600; color: var(--ink); }.source-text small { font-size: 12px; color: var(--ink-3); }
+.source-go { color: var(--ink-3); margin-left: auto; padding-left: 2px; }
+@media (max-width: 680px) { .sources-label { width: 100%; }.source-link { flex: 1 1 100%; } }
+.codex-links { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 28px; }.codex-links a { display: inline-flex; align-items: center; min-height: 24px; padding: 0 4px; color: var(--ink-3); font-size: 12px; text-decoration: none; }.codex-links a:hover { color: var(--zhu); }
+.codex-detail { min-width: 0; overflow: auto; padding: 20px; border-left: 1px solid var(--line); background: var(--panel); }.detail-person { display: flex; align-items: center; gap: 12px; }.eyebrow { color: var(--zhu); font-size: 13px; letter-spacing: .1em; }.detail-person h2 { margin: 2px 0 0; font: 600 20px/1.35 var(--f-serif); }
+.detail-section-heading { margin: 22px 0 8px; color: var(--ink-3); font-size: 13px; font-weight: 500; letter-spacing: .06em; }.detail-proposition { margin: 0 0 6px; font: 16px/1.7 var(--f-serif); overflow-wrap: anywhere; }.proposition-scope { margin: 4px 0 10px; color: var(--ink-4); font-size: 11px; line-height: 1.6; }
+.detail-state { display: inline-block; padding: 3px 7px; border-radius: 3px; background: var(--hover); font-size: 13px; }.current-knowledge p, .conflict-notice { font-size: 13px; line-height: 1.8; }.current-knowledge small { display: block; color: var(--ink-4); font-size: 11px; }.conflict-notice { color: var(--jin); }
 .knowledge-history { position: relative; padding-left: 18px; }.knowledge-history::before { content: ''; position: absolute; left: 5px; top: 6px; bottom: 6px; width: 1px; background: var(--line-2); }.history-item { position: relative; margin-bottom: 18px; }.history-item::before { content: ''; position: absolute; left: -17px; top: 5px; width: 9px; height: 9px; border: 2px solid var(--ink-3); border-radius: 50%; background: var(--paper); }.history-item.invalid::before { border-color: var(--jin); border-style: dashed; }
-.history-head { display: flex; flex-wrap: wrap; gap: 5px; color: var(--ink-3); font-size: 12px; }.history-warning { color: var(--jin); font-size: 10px; }.history-item > strong { display: block; margin: 3px 0; font-size: 13px; }.history-item > p { margin: 5px 0; font-size: 12px; line-height: 1.7; }.history-issue, .identity-note { color: var(--ink-4); }
+.history-head { display: flex; flex-wrap: wrap; gap: 5px; color: var(--ink-3); font-size: 12px; }.history-warning { color: var(--jin); font-size: 11px; }.history-item > strong { display: block; margin: 3px 0; font-size: 13px; }.history-item > p { margin: 5px 0; font-size: 12px; line-height: 1.7; }.history-issue, .identity-note { color: var(--ink-4); }
 blockquote { margin: 8px 0; padding-left: 10px; border-left: 2px solid var(--line); color: var(--ink-2); font: 13px/1.8 var(--f-serif); white-space: pre-wrap; overflow-wrap: anywhere; }blockquote a { display: block; color: var(--zhu); font: 11px var(--f-ui); text-decoration: none; margin-top: 5px; }
-.isolation-note { display: flex; gap: 8px; padding: 12px; margin-top: 16px; border: 1px dashed var(--line-2); border-radius: var(--r-m); color: var(--ink-3); font-size: 12px; line-height: 1.7; }.isolation-note svg { flex-shrink: 0; margin-top: 3px; }
-.detail-description { font: 14px/1.9 var(--f-serif); white-space: pre-wrap; }.detail-empty { color: var(--ink-3); font-size: 12px; line-height: 1.8; }.detail-edit { margin-top: 12px; }
+.isolation-note { display: flex; gap: 8px; padding: 12px; margin-top: 16px; border: 1px dashed var(--line-2); border-radius: var(--r-m); color: var(--ink-3); font-size: 13px; line-height: 1.7; }.isolation-note svg { flex-shrink: 0; margin-top: 3px; }
+.detail-description { font: 14px/1.9 var(--f-serif); white-space: pre-wrap; }.detail-empty { color: var(--ink-3); font-size: 13px; line-height: 1.8; }.detail-edit { margin-top: 12px; }
 .detail-mobile-head, .detail-trigger, .detail-backdrop { display: none; }.empty { padding: 28px; color: var(--ink-3); font-size: 13px; line-height: 1.8; }.empty h2 { margin: 0 0 8px; color: var(--ink-2); font: 600 17px var(--f-serif); }.empty p { margin: 0 0 14px; }.codex-state { padding: 60px; color: var(--ink-3); }.codex-state.error { color: var(--zhu); }
 .m-link { display: inline-flex; padding: 5px 0; color: var(--zhu); font: 12px var(--f-ui); text-decoration: none; }.m-link:hover { text-decoration: underline; }
 @media (max-width: 1100px) { .codex-page { grid-template-columns: minmax(0, 1fr); }.codex-detail { display: none; }.codex-detail.is-open { display: block; position: absolute; z-index: 11; inset: 0 0 0 auto; width: min(360px, 100%); box-shadow: var(--shadow-2); }.detail-trigger { display: inline-flex; }.detail-backdrop { display: block; position: absolute; inset: 0; z-index: 10; background: var(--ink); opacity: .16; }.detail-mobile-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; color: var(--ink-3); font-size: 12px; } }
-@media (max-width: 680px) { .codex-main { padding: 18px 14px 32px; }.codex-head { align-items: flex-start; gap: 10px; }.head-actions { gap: 5px; }.codex-head p { font-size: 11px; }.head-actions .m-btn { padding: 5px 7px; font-size: 11px; }.codex-tabs button { padding: 10px 8px; font-size: 13px; }.projection-control { flex-wrap: wrap; gap: 10px; padding: 12px; }.projection-control strong { min-width: 0; }.projection-control input { flex-basis: 45%; }.projection-control select { flex: 0 0 100%; max-width: 100%; }.codex-grid { grid-template-columns: 1fr; }.story-timeline { padding-left: 82px; }.story-timeline::before { left: 66px; }.timeline-when { left: -82px; width: 54px; font-size: 11px; }.codex-detail { padding: 16px; } }
+@media (max-width: 680px) { .codex-main { padding: 18px 14px 32px; }.codex-head { align-items: flex-start; gap: 10px; }.head-actions { gap: 5px; }.codex-head p { font-size: 12px; }.head-actions .m-btn { padding: 5px 7px; font-size: 12px; }.codex-tabs button { padding: 10px 8px; font-size: 13px; }.projection-control { flex-wrap: wrap; gap: 10px; padding: 12px; }.projection-control strong { min-width: 0; }.projection-control input { flex-basis: 45%; }.projection-control select { flex: 0 0 100%; max-width: 100%; }.codex-grid { grid-template-columns: 1fr; }.story-timeline { padding-left: 82px; }.story-timeline::before { left: 66px; }.timeline-when { left: -82px; width: 54px; font-size: 12px; }.codex-detail { padding: 16px; } }
+.codex-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 </style>

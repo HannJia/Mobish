@@ -6,17 +6,19 @@
   </Teleport>
   <div class="book-page">
     <template v-if="novel">
-      <nav class="book-nav" aria-label="作品工具">
-        <template v-if="returnTo">
-          <router-link class="book-back-btn" :to="returnTo">
-            <span aria-hidden="true">←</span> 返回写作
-          </router-link>
-          <span class="book-nav-sep" aria-hidden="true" />
-        </template>
+      <!-- 从别的页面带着返回地址进来：只说清“从哪来、现在在哪”，不再摆出整排工具页签。 -->
+      <nav v-if="returnTo" class="book-nav book-context" aria-label="返回来源页">
+        <router-link class="book-back-btn" :to="returnTo">
+          <span aria-hidden="true">←</span> {{ returnLabel(returnTo) }}
+        </router-link>
+        <span class="book-nav-sep" aria-hidden="true" />
+        <span class="book-context-here" aria-current="page">{{ route.meta.title }}</span>
+      </nav>
+      <nav v-else class="book-nav" aria-label="作品工具">
         <router-link :to="'/write/' + novel.id">写作台</router-link>
-        <router-link :to="toolRoute('/plan/' + novel.id)">结构与规划</router-link>
-        <router-link :to="toolRoute('/codex/' + novel.id)">典籍</router-link>
-        <router-link v-for="item in tools" :key="item.id" :to="toolRoute('/' + item.id + '/' + novel.id)" :aria-current="route.meta.bookTool === item.id ? 'page' : undefined">{{ item.label }}</router-link>
+        <router-link :to="'/plan/' + novel.id">结构与规划</router-link>
+        <router-link :to="'/codex/' + novel.id">典籍</router-link>
+        <router-link v-for="item in tools" :key="item.id" :to="'/' + item.id + '/' + novel.id" :aria-current="route.meta.bookTool === item.id ? 'page' : undefined">{{ item.label }}</router-link>
       </nav>
       <main class="book-body"><slot /></main>
     </template>
@@ -28,16 +30,11 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
+import { readReturnTo, returnLabel } from '@/v3/returnTo'
 
 const route = useRoute(), novels = useNovelStore()
 const novel = computed(() => novels.getNovel(String(route.params.novelId)))
-const returnTo = computed(() => {
-  const raw = typeof route.query.returnTo === 'string' ? route.query.returnTo.trim() : ''
-  return raw.startsWith('/') && !raw.startsWith('//') ? raw : ''
-})
-function toolRoute(path: string) {
-  return returnTo.value ? { path, query: { returnTo: returnTo.value } } : path
-}
+const returnTo = computed(() => readReturnTo(route.query?.returnTo))
 const tools = [
   { id: 'characters', label: '人物资料' }, { id: 'data', label: '数据面板' },
   { id: 'inspiration', label: '灵感记录' }, { id: 'chapters', label: '章节管理' }, { id: 'outline', label: '总纲修订' },
@@ -55,6 +52,7 @@ const tools = [
 }
 .book-nav a.book-back-btn:hover { background: var(--zhu-soft); border-color: var(--zhu); color: var(--zhu); }
 .book-nav-sep { width: 1px; height: 14px; background: var(--line-2); margin: 0 2px; flex: none; }
+.book-context-here { padding: 0 6px; color: var(--ink); font: 600 13px var(--f-ui); }
 .tool-empty { padding: 48px 20px; text-align: center; color: var(--ink-3); }
 .book-crumb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.crumb-b, .crumb-sep { flex-shrink: 0; white-space: nowrap; }
 @media (max-width: 680px) { .book-page { padding: 16px 12px 32px; }.book-nav { gap: 3px; }.book-nav a { padding: 6px 8px; } }

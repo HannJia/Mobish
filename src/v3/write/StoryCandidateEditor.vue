@@ -150,12 +150,12 @@ function confirm() {
 .story-candidate-editor textarea { resize: vertical; }
 .story-candidate-editor input[type=checkbox] { width: auto; justify-self: start; }
 .proposition-choice, .conflict-choice, .same-wording { display: grid; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
-.same-wording p { margin: 0; font-size: 12px; color: var(--ink-2); }
+.same-wording p { margin: 0; font-size: 13px; color: var(--ink-2); }
 .same-wording button { justify-self: start; padding: 5px 8px; border-radius: 5px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); cursor: pointer; text-align: left; }
-.edit-hint, .edit-evidence, .fixed-identity { margin: 0; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
+.edit-hint, .edit-evidence, .fixed-identity { margin: 0; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
 .edit-error { color: var(--zhu); }
 .edit-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .edit-actions button { padding: 7px 10px; border-radius: 5px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); cursor: pointer; }
-.edit-actions button:first-child { background: var(--zhu); color: white; }
+.edit-actions button:first-child { background: var(--zhu-solid); color: white; }
 .edit-actions button:disabled { opacity: .55; cursor: default; }
 </style>

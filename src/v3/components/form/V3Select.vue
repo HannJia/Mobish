@@ -54,5 +54,5 @@ function toggle(value: OptionValue) {
 <style scoped>
 /* 推荐项：主题色描边和浅底，三种主题下都清楚 */
 .m-chip.m-chip-highlight { border-color: var(--zhu); background: var(--zhu-soft); color: var(--ink); font-weight: 600; }
-.m-chip-tag { margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--zhu); color: #fffdf8; font-size: 11px; font-weight: 600; }
+.m-chip-tag { margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--zhu-solid); color: #fffdf8; font-size: 12px; font-weight: 600; }
 </style>

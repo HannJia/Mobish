@@ -2,7 +2,10 @@
   <BookPage>
   <div class="characters-page" id="characters-page">
     <div class="chars-header">
-      <h2 class="page-title">角色库</h2>
+      <div>
+        <h2 class="page-title">人物资料</h2>
+        <p class="page-subtitle">编辑人物设定本身；想看某一章时人物知道什么、处于什么状态，去典籍的“人物状态”。</p>
+      </div>
       <div class="header-actions">
         <button type="button" class="m-btn zhu" :disabled="savingEdit" @click="startNewCharacter"><V3Icon name="plus" size="s" />手动添加</button>
         <button type="button" class="m-btn" :aria-busy="scanning" :disabled="scanning || relationshipScanning || characterScanSaving || !!characterScanResult" @click="aiScanCharacters">AI 扫描角色</button>
@@ -40,22 +43,11 @@
     <p v-if="characterHistoryLoading" role="status">正在读取人物关系…</p>
     <p v-if="characterHistoryError" class="entity-source-alert" role="alert">{{ characterHistoryError }} <button type="button" class="m-btn sm" @click="loadCharacterHistory">重新读取</button></p>
     <div class="relationship-boundary">
-      <label>关系回看至
-        <select v-model="relationshipChapterId" class="m-input m-select" aria-label="关系回看章节" :disabled="relationshipScanning">
-          <option v-if="!relationshipChapters.length" value="">作者基础设定</option>
-          <option v-for="chapter in relationshipChapters" :key="chapter.id" :value="chapter.id">第{{ chapter.chapterIndex + 1 }}章 {{ chapter.title }}</option>
-        </select>
-      </label>
-      <span>显示章末有效关系；箭头表示方向。章节确认的变化优先于基础关系。</span>
+      <span>关系图和人物详情显示最新一章结束时的关系与认知。</span>
+      <router-link class="m-link" :to="{ path: '/codex/' + novelId, query: { tab: 'relations', returnTo: route.fullPath } }">按章节回看关系与知情 → 典籍</router-link>
     </div>
     <p v-for="item in relationshipProjection.invalid" :key="item.record.id" class="entity-source-alert" role="status">{{ item.record.summary }}：{{ item.issue }}，关系待核对。</p>
     <div v-if="novel" class="char-history-row">
-    <details class="paper-panel char-history" @toggle="loadCharacterHistory">
-      <summary>知情与关系历史</summary>
-      <p v-if="characterHistoryError" role="alert">{{ characterHistoryError }}</p>
-      <p v-else-if="characterHistoryLoading">正在读取人物状态历史…</p>
-      <CharacterStateHistory v-else :novel="novel" :records="reconstructionWorkspace.getCanonMutations(novelId)" />
-    </details>
 
     <details class="paper-panel char-history">
       <summary>人物变更影响</summary>
@@ -231,7 +223,7 @@
 
     <!-- 添加/编辑弹窗 -->
     <V3Modal v-model:show="showAddModal" :title="editingId ? '编辑角色资料' : '添加角色'" :closable="!savingEdit" size="wide"
-      description="输入会暂存为未提交草稿，关闭后可在角色库恢复。">
+      description="输入会暂存为未提交草稿，关闭后可在人物资料页恢复。">
       <div v-if="formConflict" class="entity-source-alert" role="alert">
         {{ formConflict }}
         <details><summary>查看最新正式资料</summary><pre style="white-space: pre-wrap">{{ latestFormSource }}</pre></details>
@@ -360,7 +352,6 @@ import { callAI } from '@/services/ai'
 import { parseAiJsonArray } from '@/utils/aiJson'
 import type { Character } from '@/types/novel'
 import CharacterAvatar from '@/components/CharacterAvatar.vue'
-import CharacterStateHistory from '@/components/CharacterStateHistory.vue'
 import EntitySourceHistory from '@/components/EntitySourceHistory.vue'
 import StoryImpactHistory from '@/components/StoryImpactHistory.vue'
 import { projectCanonicalEntities } from '@/services/entityProvenance'
@@ -443,11 +434,13 @@ const relationshipError = ref('')
 const relationshipResult = ref<{ chapterId: string; sourceVersion: string; characterBaseline: string; candidates: CandidateChange[] } | null>(null)
 const relationshipChapters = computed(() => (novel.value?.chapters || []).slice().sort((a, b) => a.chapterIndex - b.chapterIndex))
 const relationshipChapter = computed(() => relationshipChapters.value.find(chapter => chapter.id === relationshipChapterId.value))
+// 人物资料页只看最新一章的关系与认知；按章回看在典籍。补全关系弹窗仍用 relationshipChapterId 自选章节。
+const latestChapter = computed(() => relationshipChapters.value[relationshipChapters.value.length - 1])
 watch(relationshipChapters, chapters => {
   if (!chapters.some(chapter => chapter.id === relationshipChapterId.value)) relationshipChapterId.value = chapters[chapters.length - 1]?.id || ''
 }, { immediate: true })
 const relationshipProjection = computed(() => novel.value ? getRelationshipProjection(novel.value,
-  reconstructionWorkspace.getCanonMutations(novelId.value), relationshipChapter.value?.chapterIndex) : { edges: [], invalid: [] })
+  reconstructionWorkspace.getCanonMutations(novelId.value), latestChapter.value?.chapterIndex) : { edges: [], invalid: [] })
 let analysisController: AbortController | null = null
 let graphPositions: Array<{ x: number; y: number; char: Character }> = []
 const graphFit = ref(true)
@@ -645,8 +638,8 @@ const selectedAvatar = computed(() => {
 
 const filteredChars = computed(() => {
   let list = viewMode.value === 'graph' && novel.value
-    ? projectCanonicalEntities(novel.value, relationshipChapter.value ? relationshipChapter.value.chapterIndex + 1 : undefined).characters
-      .filter(character => !relationshipChapter.value || character.firstAppearChapter <= relationshipChapter.value.chapterIndex)
+    ? projectCanonicalEntities(novel.value, latestChapter.value ? latestChapter.value.chapterIndex + 1 : undefined).characters
+      .filter(character => !latestChapter.value || character.firstAppearChapter <= latestChapter.value.chapterIndex)
     : characters.value
   if (searchText.value) {
     const q = searchText.value.toLowerCase()
@@ -662,7 +655,7 @@ const selectedChar = computed(() => characters.value.find(c => c.id === selected
 const relationTargetOptions = computed(() => characters.value.filter(char => char.id !== editingId.value).map(char => ({ label: char.name, value: char.id })))
 const selectedRelations = computed(() => relationshipProjection.value.edges.filter(edge => edge.source.id === selectedId.value || edge.target.id === selectedId.value))
 const dimensionOptions = [...relationshipDimensionOptions, { value: 'custom', label: '自定义维度' }]
-const selectedKnowledge = computed(() => novel.value ? getCharacterStateSnapshot(novel.value, reconstructionWorkspace.getCanonMutations(novelId.value), relationshipChapter.value?.chapterIndex ?? -1, 'through').knowledge.filter(state => state.characterId === selectedId.value) : [])
+const selectedKnowledge = computed(() => novel.value ? getCharacterStateSnapshot(novel.value, reconstructionWorkspace.getCanonMutations(novelId.value), latestChapter.value?.chapterIndex ?? -1, 'through').knowledge.filter(state => state.characterId === selectedId.value) : [])
 const relationshipEdges = computed(() => {
   const ids = new Set(filteredChars.value.map(char => char.id))
   return relationshipProjection.value.edges.filter(edge => ids.has(edge.source.id) && ids.has(edge.target.id))
@@ -1195,6 +1188,7 @@ watch(selectedId, () => { if (viewMode.value === 'graph') nextTick(drawRelations
   margin-bottom: var(--space-lg);
 }
 .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.chars-header .page-subtitle { margin: 6px 0 0; color: var(--ink-3); font-size: 13px; line-height: 1.6; }
 
 .filter-bar {
   display: flex; gap: 12px; margin-bottom: var(--space-md); align-items: center;
@@ -1252,7 +1246,7 @@ watch(selectedId, () => { if (viewMode.value === 'graph') nextTick(drawRelations
 .char-name { font-family: var(--f-serif); font-size: 16px; font-weight: 700; color: var(--ink); margin-bottom: 2px; }
 .char-identity { font-size: 12px; color: var(--ink-3); display: block; margin-bottom: 6px; }
 .char-status {
-  font-size: 11px; padding: 1px 8px; border-radius: 100px;
+  font-size: 12px; padding: 1px 8px; border-radius: 100px;
   display: inline-block;
   border: 1px solid currentColor;
 }
@@ -1264,7 +1258,7 @@ watch(selectedId, () => { if (viewMode.value === 'graph') nextTick(drawRelations
 
 .char-tags { grid-column: 2; display: flex; gap: 4px; flex-wrap: wrap; }
 .char-tag {
-  font-size: 11px; padding: 1px 8px; border-radius: var(--r-s);
+  font-size: 12px; padding: 1px 8px; border-radius: var(--r-s);
   border: 1px solid var(--line-2);
   background: var(--panel-2); color: var(--ink-2);
 }
@@ -1285,7 +1279,7 @@ watch(selectedId, () => { if (viewMode.value === 'graph') nextTick(drawRelations
 
 /* 表单 */
 .char-form { display: flex; flex-direction: column; gap: 8px; }
-.entity-source-note { margin: 4px 0; color: var(--ink-3); font-size: 12px; line-height: 1.6; }
+.entity-source-note { margin: 4px 0; color: var(--ink-3); font-size: 13px; line-height: 1.6; }
 .save-error { margin: 4px 0; color: var(--zhu); font-size: 13px; line-height: 1.6; }
 .char-form label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
 
@@ -1327,7 +1321,7 @@ watch(selectedId, () => { if (viewMode.value === 'graph') nextTick(drawRelations
 .avatar-picker { display: flex; flex-direction: column; gap: 12px; }
 .avatar-preview { display: flex; align-items: center; gap: 12px; }
 .avatar-preview-box { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.avatar-preview-label { font-size: 11px; color: var(--ink-3); text-align: center; }
+.avatar-preview-label { font-size: 12px; color: var(--ink-3); text-align: center; }
 .avatar-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .avatar-empty { padding: 24px; text-align: center; color: var(--ink-3); font-size: 13px; border: 1px dashed var(--line-2); border-radius: var(--r-m); }
 .avatar-count { font-size: 12px; color: var(--ink-3); text-align: center; }
@@ -1376,7 +1370,7 @@ watch(selectedId, () => { if (viewMode.value === 'graph') nextTick(drawRelations
 }
 
 .appear-tag {
-  font-size: 11px;
+  font-size: 12px;
   padding: 2px 8px;
   border-radius: 100px;
   background: var(--zhu-soft);
@@ -1419,11 +1413,11 @@ watch(selectedId, () => { if (viewMode.value === 'graph') nextTick(drawRelations
 .avatar-preview-box { gap: 8px; }
 .avatar-picker { min-width: 0; }
 .avatar-picker h3 { font: 600 15px var(--f-serif); margin: 0; }
-.avatar-help { color: var(--ink-3); font-size: 12px; margin: 0; }
+.avatar-help { color: var(--ink-3); font-size: 13px; margin: 0; }
 .avatar-filters { flex-direction: column; align-items: flex-start; }
 .avatar-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: 390px; gap: 8px; }
 .avatar-tile { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 8px 3px; }
-.avatar-tile-label { font-size: 11px; color: var(--ink-2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.avatar-tile-label { font-size: 12px; color: var(--ink-2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .char-relationships { grid-column: 1 / -1; display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 16px; }
 @media (max-width: 760px) { .char-form { grid-template-columns: 1fr; gap: 20px; } .avatar-grid { max-height: 320px; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 </style>

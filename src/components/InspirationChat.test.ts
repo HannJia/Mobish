@@ -1000,4 +1000,27 @@ describe('inspiration search controls', () => {
     expect(wrapper.emitted('session-reset')?.length).toBeGreaterThanOrEqual(2)
     wrapper.unmount()
   })
+
+  it('renders breakdown handoff provenance as clickable links without exposing raw markdown or internal markers', async () => {
+    useInspirationSessionsStore().adopt([parseInspirationSession({
+      id: 'breakdown-handoff-session',
+      title: '拆书 · 开篇节奏',
+      updatedAt: '2026-11-27T06:00:00.000Z',
+      messages: [{
+        role: 'user',
+        content: '请结合我确认的拆书成果讨论。\n\n开篇前三段先抛冲突\n\n参考书《测试样本》\n第一卷 / 第一章 / 段落 2 · 字符 10–42 / [回看出处](#/breakdown/job-1?card=card-1&evidence=0&version=v1)\n〔拆书记录 breakdown-abc123〕',
+      }],
+    })])
+    const wrapper = mountChat()
+    const msg = wrapper.get('.inspiration-message.user')
+    expect(msg.text()).toContain('开篇前三段先抛冲突')
+    expect(msg.text()).toContain('第一卷 / 第一章 / 段落 2 · 字符 10–42')
+    expect(msg.text()).not.toContain('#/breakdown/job-1')
+    expect(msg.text()).not.toContain('breakdown-abc123')
+    const linkBtn = msg.get('.inspiration-breakdown-link')
+    expect(linkBtn.text()).toContain('回看出处')
+    await linkBtn.trigger('click')
+    expect(window.location.hash).toBe('#/breakdown/job-1?card=card-1&evidence=0&version=v1')
+    wrapper.unmount()
+  })
 })

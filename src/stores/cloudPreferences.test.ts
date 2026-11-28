@@ -4,12 +4,14 @@ import { webcrypto } from 'node:crypto'
 import { createPinia, setActivePinia } from 'pinia'
 import { reactive, watch } from 'vue'
 import { useConfigStore } from './config'
+import { useOnboardingStore } from './onboarding'
 import { useCloudPreferencesStore } from './cloudPreferences'
 import { useThemeStore } from './theme'
 import { hashPayload, canonicalJson } from '@/services/cloudSyncModel'
 import { parsePreferences, settingsDigest, splitConfig } from '@/services/configSync'
 import { sealVault } from '@/services/configVault'
 import { activeAiCount } from '@/services/aiActivity'
+import { defaultOnboardingState, ONBOARDING_STORAGE_KEY } from '@/services/onboardingGuide'
 import { cloudApplyBusy, cloudPreferencesBusy, cloudConfigApplying } from '@/services/appLifecycle'
 
 const memory = vi.hoisted(() => ({ cloud: null as any, remote: null as any, supported: true, posts: [] as any[],
@@ -86,12 +88,19 @@ async function legacyCloud() {
 
 describe('账号授权的自动配置同步', () => {
   it('requires opt-in, then automatically uploads without another password or plaintext secret', async () => {
+    localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(defaultOnboardingState('new')))
+    const onboarding = useOnboardingStore()
+    await onboarding.initialize()
+    onboarding.markSeen('marker-only-local')
+    onboarding.recordAchievement('first_book_created')
     addModel(); await config.saveConfig()
     await prefs.syncNow()
     expect(memory.posts).toHaveLength(0)
     await prefs.setEnabled(true)
     expect(memory.posts).toHaveLength(1)
     const request = JSON.stringify(memory.posts[0])
+    expect(localStorage.getItem(ONBOARDING_STORAGE_KEY)).toContain('marker-only-local')
+    expect(request).not.toMatch(/marker-only-local|first_book_created|onboarding|checklist|achieved/)
     expect(request).not.toContain('fixture-model-credential')
     expect(request).not.toContain(memory.key)
     const bundle = parsePreferences(memory.remote.payload)

@@ -15,6 +15,7 @@ import { useReconstructionWorkspaceStore } from './reconstructionWorkspace'
 const memory = vi.hoisted(() => ({
   state: null as any, conflicts: [] as any[], records: new Map<string, any>(), userId: 'owner',
   onPull: null as null | (() => void | Promise<void>), onPush: null as null | (() => Promise<void>), failSave: false, expired: false,
+  onManifest: null as null | ((signal: AbortSignal) => Promise<void>),
   requests: [] as { endpoint: string; path: string }[],
   workspaces: new Map<string, any>(),
 }))
@@ -56,6 +57,7 @@ vi.mock('@/services/cloudSyncApi', async importOriginal => {
       user: { id: memory.userId, username: memory.userId, role: 'user', quotaBytes: 100000000, usedBytes: 0 } }
     if (path === 'auth/logout' || path === 'auth/password') return { ok: true }
     if (path === 'sync/manifest?include=inspiration') {
+      if (memory.onManifest) await memory.onManifest(options.signal)
       if (memory.expired) throw new original.CloudApiError(401, '登录已过期，请重新登录。')
       return { protocol: 1, features: ['inspiration'], records: [...memory.records.values()].map(({ payload, ...meta }) => meta) }
     }
@@ -90,6 +92,7 @@ beforeEach(async () => {
   memory.userId = 'owner'
   memory.onPull = null
   memory.onPush = null
+  memory.onManifest = null
   memory.failSave = false
   memory.expired = false
   memory.requests = []
@@ -396,6 +399,58 @@ describe('云同步状态机', () => {
     await loginAndEnable()
     await sync.syncNow()
     expect(memory.records.get(`novel:${novel.id}`).version).toBe(1)
+  })
+  it('does no network work on close for an unchanged shelf with no scheduled sync', async () => {
+    const novel = addBook()
+    await loginAndEnable()
+    memory.requests = []
+    await remoteEdit(`novel:${novel.id}`, '只有远端变化')
+    await sync.flushBeforeClose()
+    expect(memory.requests).toEqual([])
+    expect(useNovelStore().getNovel(novel.id)?.title).toBe(novel.title)
+  })
+  it('uploads an unscheduled local edit before closing even if the previous sync succeeded', async () => {
+    const novel = addBook()
+    await loginAndEnable()
+    memory.requests = []
+    useNovelStore().getNovel(novel.id)!.title = '关窗前本机改动'
+    await sync.flushBeforeClose()
+    expect(memory.requests.map(item => item.path)).toEqual(['sync/manifest?include=inspiration', 'sync/push'])
+    expect(memory.records.get(`novel:${novel.id}`).payload).toContain('关窗前本机改动')
+  })
+  it('drains a scheduled sync on close without leaving another timer to fire', async () => {
+    await loginAndEnable()
+    memory.requests = []
+    sync.schedule()
+    await sync.flushBeforeClose()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(memory.requests.map(item => item.path)).toEqual(['sync/manifest?include=inspiration'])
+  })
+  it('waits for an in-flight account operation before checking whether sync is enabled', async () => {
+    await loginAndEnable()
+    memory.requests = []
+    const loggingOut = sync.logout()
+    await sync.flushBeforeClose()
+    await loggingOut
+    expect(sync.session).toBeNull()
+    expect(memory.requests.map(item => item.path)).toEqual(['auth/logout'])
+  })
+  it('keeps the 12-second abort for an outgoing close sync and leaves the local edit available', async () => {
+    const novel = addBook()
+    await loginAndEnable()
+    useNovelStore().getNovel(novel.id)!.title = '网络超时后保留'
+    let signal: AbortSignal | undefined
+    memory.onManifest = requestSignal => new Promise((_resolve, reject) => {
+      signal = requestSignal
+      signal.addEventListener('abort', () => reject(new Error('请求超时')), { once: true })
+    })
+    const closing = expect(sync.flushBeforeClose()).rejects.toThrow('本地已保存，但云同步未完成')
+    await vi.waitFor(() => expect(signal).toBeDefined())
+    expect(signal?.aborted).toBe(false)
+    await vi.advanceTimersByTimeAsync(12000)
+    await closing
+    expect(signal?.aborted).toBe(true)
+    expect(useNovelStore().getNovel(novel.id)?.title).toBe('网络超时后保留')
   })
   it('pulls an updated book on the shelf', async () => {
     const novel = addBook()

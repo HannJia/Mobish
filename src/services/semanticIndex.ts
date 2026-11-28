@@ -699,34 +699,50 @@ function diversifyEvidence(evidence: SemanticEvidence[], maxResults: number): Se
   return selected
 }
 
-function relevantExcerpt(text: string, query: string, limit: number): string {
+export function relevantExcerpt(text: string, query: string, limit: number): string {
   const normalized = text.replace(/\s+/g, ' ').trim()
   if (normalized.length <= limit) return normalized
   const terms = Array.from(new Set(tokenize(query)))
   const lower = normalized.toLowerCase()
   const starts = new Set([0])
   const windowSize = limit - 2
-  for (const term of terms) {
+  // 每个词的全部出现位置（含重叠），按位置升序；窗口内的命中用二分查找，避免对每个候选窗口重复切片搜索。
+  const positions = terms.map(term => {
+    const found: number[] = []
     let at = lower.indexOf(term)
-    while (at >= 0) {
+    while (at >= 0) { found.push(at); at = lower.indexOf(term, at + 1) }
+    return found
+  })
+  terms.forEach((term, index) => {
+    let last = -term.length
+    for (const at of positions[index]) {
+      if (at < last + term.length) continue
+      last = at
       starts.add(Math.max(0, Math.min(normalized.length - windowSize, at - Math.floor(windowSize / 3))))
-      at = lower.indexOf(term, at + term.length)
     }
+  })
+  const firstAtOrAfter = (found: number[], from: number) => {
+    let low = 0, high = found.length
+    while (low < high) { const mid = (low + high) >> 1; if (found[mid] < from) low = mid + 1; else high = mid }
+    return low < found.length ? found[low] : -1
   }
   let start = 0
   let best = -1
   let bestMargin = -1
   for (const candidate of starts) {
-    const window = lower.slice(candidate, candidate + windowSize)
-    const score = terms.reduce((sum, term) => sum + (window.includes(term) ? Math.min(term.length, 12) : 0), 0)
-    const matches = terms.flatMap(term => {
-      const offset = window.indexOf(term)
-      return offset < 0 ? [] : [{ start: offset, end: offset + term.length }]
+    const windowEnd = Math.min(candidate + windowSize, lower.length)
+    let score = 0, minStart = Infinity, maxEnd = -Infinity, matched = false
+    terms.forEach((term, index) => {
+      const at = firstAtOrAfter(positions[index], candidate)
+      if (at < 0 || at + term.length > windowEnd) return
+      score += Math.min(term.length, 12)
+      matched = true
+      minStart = Math.min(minStart, at - candidate)
+      maxEnd = Math.max(maxEnd, at - candidate + term.length)
     })
     // Equal keyword coverage should leave room around the matched fact, so a
     // hit at the right edge does not cut off the rest of its sentence.
-    const margin = matches.length ? Math.min(Math.min(...matches.map(match => match.start)),
-      windowSize - Math.max(...matches.map(match => match.end))) : 0
+    const margin = matched ? Math.min(minStart, windowSize - maxEnd) : 0
     if (score > best || (score === best && margin > bestMargin)) { best = score; bestMargin = margin; start = candidate }
   }
   return (start > 0 ? '…' : '') + normalized.slice(start, start + windowSize)

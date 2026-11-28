@@ -14,6 +14,8 @@ export interface ModelProviderPreset {
   /** 官方没有可用的内置联网搜索，需要配置独立搜索服务。 */
   needsSearchService?: boolean
   consoleUrl: string
+  signupUrl?: string
+  signupNote?: string
 }
 
 export interface EmbeddingProviderPreset {
@@ -39,11 +41,15 @@ export function isEmbeddingModelName(id: string): boolean {
   return /embed|bge-|bge_|\bbce-|gte-|\bm3e|\be5-|jina-emb|nomic-embed/.test(name)
 }
 
+const siliconflowSignup = {
+  signupUrl: 'https://cloud.siliconflow.cn/i/KSMskNN6',
+  signupNote: '这是作者的邀请链接，通过它注册双方可能获得赠送额度，以硅基流动活动规则为准；也可以直接到官网 https://cloud.siliconflow.cn/ 注册。',
+}
+
 /** 提供 OpenAI 兼容 /embeddings 接口的常用服务商；只填接口地址，模型名由“获取模型”或用户填写。 */
 export const EMBEDDING_PROVIDER_PRESETS: EmbeddingProviderPreset[] = [
   { id: 'siliconflow', label: '硅基流动（bge-m3 目前免费）', baseUrl: 'https://api.siliconflow.cn/v1', modelHint: '如：BAAI/bge-m3', consoleUrl: 'https://cloud.siliconflow.cn/account/ak',
-    defaultModel: 'BAAI/bge-m3', signupUrl: 'https://cloud.siliconflow.cn/i/KSMskNN6',
-    signupNote: '这是作者的邀请链接，通过它注册双方可能获得赠送额度，以硅基流动活动规则为准；也可以直接到官网 https://cloud.siliconflow.cn/ 注册。' },
+    defaultModel: 'BAAI/bge-m3', ...siliconflowSignup },
   { id: 'qwen', label: '通义（阿里云百炼）', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', modelHint: '如：text-embedding-v4', consoleUrl: 'https://bailian.console.aliyun.com/' },
   { id: 'zhipu', label: '智谱', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', modelHint: '如：embedding-3', consoleUrl: 'https://open.bigmodel.cn/usercenter/apikeys' },
   { id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', modelHint: '如：text-embedding-3-small', consoleUrl: 'https://platform.openai.com/api-keys' },
@@ -76,7 +82,7 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
     consoleUrl: 'https://aistudio.google.com/apikey' },
   { id: 'siliconflow', label: '硅基流动', region: 'domestic', baseUrl: 'https://api.siliconflow.cn/v1',
     modelHint: '例如 deepseek-ai/DeepSeek-V3', searchNote: '聚合多家开源模型；没有内置联网搜索，联网时使用你配置的搜索服务。', needsSearchService: true,
-    consoleUrl: 'https://cloud.siliconflow.cn/account/ak' },
+    consoleUrl: 'https://cloud.siliconflow.cn/account/ak', ...siliconflowSignup },
   { id: 'minimax', label: 'MiniMax', region: 'domestic', baseUrl: 'https://api.minimaxi.com/v1',
     modelHint: '可点“获取模型”选择', searchNote: '联网时使用你配置的搜索服务。', needsSearchService: true,
     consoleUrl: 'https://platform.minimaxi.com/' },

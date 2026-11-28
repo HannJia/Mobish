@@ -64,7 +64,13 @@
         class="inspiration-message" :class="item.role">
         <img v-if="item.role === 'assistant'" :src="mojianIcon" alt="" aria-hidden="true" class="inspiration-seal-avatar" />
         <strong>{{ item.role === 'user' ? '我' : isSaveReceipt(item) ? '软件' : 'AI' }}</strong>
-        <div v-html="renderMd(formatMessageText(item))"></div>
+        <div v-html="renderMd(messageParts(item).text)"></div>
+        <div v-if="messageParts(item).links.length" class="inspiration-breakdown-links" role="group" aria-label="拆书出处">
+          <button v-for="(link, linkIndex) in messageParts(item).links" :key="`${link.path}-${linkIndex}`"
+            type="button" class="m-btn sm ghost inspiration-breakdown-link" @click="openBreakdownEvidence(link)">
+            <V3Icon name="book" size="s" /><span>回看出处 · {{ link.label }}</span>
+          </button>
+        </div>
         <ChatSearchEvidence :record="item.search" />
         <div v-if="item.knowledgeReferences?.length || saveReminder?.index === index" class="inspiration-reply-actions">
           <button v-if="item.knowledgeReferences?.length" type="button" class="m-btn inspiration-reference-toggle"
@@ -163,7 +169,8 @@
 <script setup lang="ts">
 import { errorText } from '@/services/userFacingError'
 import { useDialog, useMessage } from '@/v3/feedback'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { routerKey } from 'vue-router'
 import V3Icon from '@/v3/components/V3Icon.vue'
 import V3Modal from '@/v3/components/V3Modal.vue'
 import V3Input from '@/v3/components/form/V3Input.vue'
@@ -186,6 +193,7 @@ import {
 import type { CreateWizardForm } from '@/types/novel'
 import { renderMd } from '@/utils/markdown'
 import { formatChatReply } from '@/utils/chatPresentation'
+import { extractBreakdownMessageParts, type BreakdownEvidenceLink } from '@/services/breakdownEvidenceLinks'
 import ChatSearchEvidence from '@/components/ChatSearchEvidence.vue'
 import SaveChatKnowledge from '@/components/SaveChatKnowledge.vue'
 import InspirationSettingsSummary from '@/components/InspirationSettingsSummary.vue'
@@ -294,9 +302,18 @@ const streamReplyText = computed(() => inspirationReplyText(streamText.value))
 function isSaveReceipt(item: InspirationMessage) {
   return item.role === 'assistant' && /^【(?:软件保存回执|保存成功)】/.test(item.content)
 }
-function formatMessageText(item: InspirationMessage) {
+const router = inject(routerKey, undefined)
+function messageParts(item: InspirationMessage) {
   const base = item.role === 'assistant' ? formatChatReply(item.content, item.search) : item.content
-  return base.replace(/\n?〔拆书记录\s+breakdown-[^〕]+〕/g, '')
+  return extractBreakdownMessageParts(base)
+}
+function openBreakdownEvidence(link: BreakdownEvidenceLink) {
+  if (router) {
+    void router.push({ path: link.path, query: link.query })
+    return
+  }
+  const params = new URLSearchParams(link.query).toString()
+  window.location.hash = '#' + link.path + (params ? '?' + params : '')
 }
 const latestDiscussionIndex = computed(() => {
   for (let index = history.value.length - 1; index >= 0; index--) {
@@ -977,4 +994,6 @@ onBeforeUnmount(() => { persistCurrentHistory(); stop() })
 .inspiration-empty-guide > div { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 24px; }
 .inspiration-empty-guide button { padding: 8px 12px; border: 1px solid var(--line-2); border-radius: var(--r-m); background: var(--paper); color: var(--dai); font: 13px var(--f-ui); cursor: pointer; }
 .inspiration-empty-guide button:hover { border-color: var(--dai); }
+.inspiration-breakdown-links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.inspiration-breakdown-link { max-width: 100%; height: auto; padding: 4px 9px; white-space: normal; text-align: left; border: 1px solid var(--line); color: var(--dai); }
 </style>

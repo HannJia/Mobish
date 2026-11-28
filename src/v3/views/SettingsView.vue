@@ -83,12 +83,14 @@
               <button v-if="model.kind === 'embedding'" type="button" class="m-btn xs ghost" :aria-busy="testingId === model.id" @click="testModel(model)">
                 {{ testingId === model.id ? '测试中...' : '测试' }}
               </button>
-              <ModelSearchTest v-else :model="model" compact :connection="testModelForCombined" />
+              <span v-else :data-guide="firstChatModelId === model.id ? 'settings.test' : undefined" @click="onboarding.markSeen('settings.test')">
+                <ModelSearchTest :model="model" compact :connection="testModelForCombined" />
+              </span>
               <button type="button" class="m-btn xs ghost" @click="editModel(model)">编辑</button>
               <button type="button" class="m-btn xs ghost danger-text" @click="handleDeleteModel(model.id)">删除</button>
             </div>
           </div>
-          <button type="button" id="add-model-btn" class="model-add-card" @click="openAddModel"><V3Icon name="plus" />添加模型<span v-if="dirtyModelKeys.has(null)" class="draft-badge">未保存</span></button>
+          <button type="button" id="add-model-btn" data-guide="settings.add" class="model-add-card" @click="openAddModel"><V3Icon name="plus" />添加模型<span v-if="dirtyModelKeys.has(null)" class="draft-badge">未保存</span></button>
         </div>
           </div>
     <section v-if="showAddModel" class="model-editor" aria-label="编辑模型配置">
@@ -139,16 +141,29 @@
         </V3Field>
         <p v-if="activeProvider" class="model-discovery-hint provider-note">
           {{ activeProvider.label }}：{{ activeProvider.searchNote }}
-          <a :href="activeProvider.consoleUrl" target="_blank" rel="noopener noreferrer">申请 API 密钥</a>
+          <a :href="activeProvider.consoleUrl" target="_blank" rel="noopener noreferrer">{{ activeProvider.region === 'local' ? '前往官网下载' : '申请 API 密钥' }}</a>
+        </p>
+        <p v-if="activeProvider?.signupUrl" class="model-discovery-hint">
+          还没有账号？<a :href="activeProvider.signupUrl" target="_blank" rel="noopener noreferrer">注册{{ activeProvider.label.replace(/（.*$/, '') }}</a>。{{ activeProvider.signupNote }}
         </p>
         <V3Field label="API 密钥">
-          <V3Input
-            v-model:value="modelForm.apiKey"
-            type="password"
-            autocomplete="off"
-            :placeholder="editingModel ? '留空则保留当前 API 密钥' : '填写服务商提供的 API 密钥'"
-            @update:value="handleModelSourceChange"
-          />
+          <div class="api-key-input-row">
+            <V3Input
+              v-model:value="modelForm.apiKey"
+              type="password"
+              autocomplete="off"
+              :placeholder="editingModel ? '留空则保留当前 API 密钥' : '填写服务商提供的 API 密钥'"
+              @update:value="handleModelSourceChange"
+            />
+            <a
+              v-if="apiKeyConsoleLink"
+              class="m-btn sm ghost api-key-console-link"
+              :href="apiKeyConsoleLink.url"
+              target="_blank"
+              rel="noopener noreferrer"
+              :title="`打开${apiKeyConsoleLink.label}控制台获取 API 密钥`"
+            >获取密钥 ↗</a>
+          </div>
           <p v-if="editingModel" class="model-discovery-hint">编辑模型时留空不会清除当前 API 密钥；只有输入新密钥才会替换。</p>
         </V3Field>
         <V3Field label="模型名称（原始 ID）">
@@ -250,7 +265,7 @@
       </section>
 
       <!-- 模型用途分配 -->
-      <section v-show="activeTab === 'models' && configStore.models.length > 0" id="model-task-assignments" tabindex="-1" class="settings-section paper-panel">
+      <section v-show="activeTab === 'models' && configStore.models.length > 0" id="model-task-assignments" data-guide="settings.assign" tabindex="-1" class="settings-section paper-panel">
         <h3 class="subsection-title">任务分配</h3>
         <p class="section-desc">为不同 AI 任务指定使用的模型</p>
         <div class="assignment-grid">
@@ -461,10 +476,37 @@
         <h3 class="about-help-title">信息与帮助</h3>
         <nav class="about-links" aria-label="信息与帮助">
           <a class="about-star" :href="GITHUB_REPO_URL" target="_blank" rel="noopener noreferrer"><strong>在 GitHub 点 Star</strong><small>觉得好用的话，点个 Star 支持一下，也让更多写作者看到墨笔生花。{{ starCount !== null ? `目前 ${starCount} 人点过 Star。` : '' }}</small><span aria-hidden="true">★</span></a>
-          <a href="https://github.com/HannJia/mobish" target="_blank" rel="noopener noreferrer"><strong>项目主页</strong><small>了解墨笔生花的更新动态与相关资源。</small><span aria-hidden="true">↗</span></a>
-          <a href="https://github.com/HannJia/mobish#readme" target="_blank" rel="noopener noreferrer"><strong>使用说明</strong><small>查看功能介绍与使用方法。</small><span aria-hidden="true">↗</span></a>
+          <a href="https://mobish.cn" target="_blank" rel="noopener noreferrer"><strong>官方网站</strong><small>访问 mobish.cn 查看软件介绍、在线帮助与国内备用下载。</small><span aria-hidden="true">↗</span></a>
+          <a href="https://mobish.cn/docs/" target="_blank" rel="noopener noreferrer"><strong>使用说明</strong><small>查看模型配置、知识库、更新与常见问题。</small><span aria-hidden="true">↗</span></a>
+          <a href="https://github.com/HannJia/mobish" target="_blank" rel="noopener noreferrer"><strong>GitHub 仓库</strong><small>查看开源代码、发布历史与更新动态。</small><span aria-hidden="true">↗</span></a>
           <a href="https://github.com/HannJia/mobish/issues" target="_blank" rel="noopener noreferrer"><strong>问题反馈</strong><small>提交使用中遇到的问题与建议。</small><span aria-hidden="true">↗</span></a>
         </nav>
+        <div class="about-community" aria-label="交流群">
+          <div class="about-community-info">
+            <strong>墨笔生花 · 写作交流群（QQ 群）</strong>
+            <small>群号 <code class="about-qq-num">865875979</code> · 交流写作用法、反馈问题、获取新版动态。</small>
+            <div class="about-community-actions">
+              <a class="m-btn sm pri" href="https://qm.qq.com/q/2qF0X0aCMU" target="_blank" rel="noopener noreferrer">一键加群 ↗</a>
+              <button type="button" class="m-btn sm" data-copy-qq-group @click="copyQqGroup">复制群号</button>
+            </div>
+          </div>
+          <div class="about-community-qr" tabindex="0" aria-label="扫码加入墨笔生花写作交流群">
+            <img :src="qqGroupQr" alt="墨笔生花写作交流群二维码" width="84" height="84" />
+            <span>扫码加群</span>
+            <div class="about-community-qr-pop" aria-hidden="true">
+              <img :src="qqGroupQr" alt="" width="200" height="200" />
+              <strong>墨笔生花 · 写作交流群</strong>
+              <small>群号 865875979</small>
+            </div>
+          </div>
+        </div>
+        <div class="about-diagnostics" aria-label="新手引导设置">
+          <div><strong>新手引导与界面提示标记</strong><small>可回到书架重新走一遍首次启程清单（不改动现有作品和模型），或重置各工作台的首次轻提示标记。</small></div>
+          <div class="about-diagnostics-actions">
+            <button type="button" class="m-btn sm" data-replay-onboarding @click="replayOnboarding">重新开启新手引导</button>
+            <button type="button" class="m-btn sm ghost" data-reset-onboarding-markers @click="resetOnboardingMarkers">重置提示标记</button>
+          </div>
+        </div>
         <div class="about-diagnostics">
           <div><strong>反馈问题时附上诊断信息</strong><small>包含版本、系统、作品和知识库数量、模型配置概况；不含作品内容、知识库内容、文件路径、API 密钥和接口地址。</small></div>
           <div class="about-diagnostics-actions">
@@ -513,12 +555,14 @@ import { detectModelProvider, EMBEDDING_PROVIDER_PRESETS, isEmbeddingModelName, 
 import { fetchStarCount, GITHUB_REPO_URL } from '@/services/githubStar'
 import { useNovelStore } from '@/stores/novel'
 import { useKnowledgeStore } from '@/stores/knowledge'
+import { useOnboardingStore } from '@/stores/onboarding'
 import { collectDiagnostics, formatDiagnostics } from '@/services/diagnostics'
 import WebSearchServicePanel from '@/components/WebSearchServicePanel.vue'
 import { CLOUD_SYNC_AVAILABLE } from '@/services/features'
 import type { ChatSearchProtocol } from '@/types/chat'
 import type { WritingSkill, WritingSkillTask } from '@/types/skill'
 import { version as appVersion } from '../../../package.json'
+import qqGroupQr from '@/assets/v3/qq-group-qr.png'
 import notoSerifLicense from '@fontsource-variable/noto-serif-sc/LICENSE?raw'
 import notoSansLicense from '@fontsource-variable/noto-sans-sc/LICENSE?raw'
 import jetbrainsMonoLicense from '@fontsource-variable/jetbrains-mono/LICENSE?raw'
@@ -929,6 +973,7 @@ function editModel(model?: ModelConfig) {
 }
 
 function openAddModel() {
+  onboarding.markSeen('settings.add')
   editModel()
 }
 
@@ -1279,6 +1324,30 @@ function openSkillModal(skill?: WritingSkill) {
   showSkillModal.value = true
 }
 const starCount = ref<number | null>(null)
+const onboarding = useOnboardingStore()
+const firstChatModelId = computed(() => configStore.models.find(model => model.kind !== 'embedding')?.id ?? null)
+async function replayOnboarding() {
+  onboarding.replay()
+  message.success('已重新开启新手引导，正在返回书架')
+  await router.push('/')
+}
+function resetOnboardingMarkers() {
+  onboarding.resetMarkers()
+  message.success('已重置首次提示标记')
+}
+const apiKeyConsoleLink = computed(() => {
+  if (modelForm.kind === 'embedding') {
+    const provider = activeEmbeddingProvider.value
+    return provider ? { url: provider.consoleUrl, label: provider.label.replace(/（.*$/, '') } : null
+  }
+  const provider = activeProvider.value
+  if (!provider || provider.region === 'local') return null
+  return { url: provider.consoleUrl, label: provider.label.replace(/（.*$/, '') }
+})
+async function copyQqGroup() {
+  try { await navigator.clipboard.writeText('865875979'); message.success('QQ 群号 865875979 已复制') }
+  catch { message.error('复制失败，请手动搜索群号 865875979') }
+}
 // 问题反馈的诊断信息（不含作品内容和密钥）
 function diagnosticsData() {
   const novelStore = useNovelStore(), knowledgeStore = useKnowledgeStore()
@@ -1518,7 +1587,7 @@ function handleDeleteSkill(id: string) {
 .section-desc-inline { margin: 4px 0 0; }
 .embedding-form { display: flex; flex-direction: column; gap: 12px; }
 .span-2 { grid-column: span 2; }
-.privacy-note, .disabled-hint { color: var(--ink-3); font-size: 12px; line-height: 1.6; }
+.privacy-note, .disabled-hint { color: var(--ink-3); font-size: 13px; line-height: 1.6; }
 .section-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .setting-inline-toggle { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:16px; padding-top:16px; border-top:1px solid var(--line); }
 .setting-inline-toggle strong { font-size:13px; }
@@ -1529,7 +1598,7 @@ function handleDeleteSkill(id: string) {
 .skill-info { min-width: 0; }
 .skill-name { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .skill-name strong { color: var(--ink); font-size: 14px; }
-.skill-info p { margin-top: 4px; color: var(--ink-3); font-size: 12px; }
+.skill-info p { margin-top: 4px; color: var(--ink-3); font-size: 13px; }
 
 .empty-models {
   text-align: center;
@@ -1592,7 +1661,7 @@ function handleDeleteSkill(id: string) {
 .badge {
   padding: 1px 8px;
   border-radius: 100px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -1632,7 +1701,7 @@ function handleDeleteSkill(id: string) {
 }
 
 .chat-assignment { grid-column: auto; }
-.assignment-hint { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.6; }
+.assignment-hint { margin: 0; color: var(--ink-3); font-size: 13px; line-height: 1.6; }
 
 .assignment-item label {
   font-size: 13px;
@@ -1670,7 +1739,7 @@ function handleDeleteSkill(id: string) {
 .model-discovery-hint,
 .model-discovery-success,
 .model-discovery-error {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -1812,7 +1881,7 @@ function handleDeleteSkill(id: string) {
 .model-security-status { margin-top: -12px; }
 .model-security-status .security-status { background: none; padding: 0 4px; }
 .badge-vector { color: var(--dai); background: var(--dai-soft); }
-.model-kind-text { color: var(--ink-3); font-size: 12px; }
+.model-kind-text { color: var(--ink-3); font-size: 13px; }
 .optional-label { font: 12px var(--f-ui); color: var(--ink-2); padding: 3px 8px; border: 1px solid var(--line-2); border-radius: var(--r-s); vertical-align: middle; }
 .retrieval-model-status { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 24px 0; }
 .retrieval-model-status strong { display: block; margin-top: 8px; overflow-wrap: anywhere; }
@@ -1896,6 +1965,23 @@ function handleDeleteSkill(id: string) {
 .about-links a.about-star strong { color: var(--zhu); }
 .about-links a.about-star > span { color: var(--zhu); }
 .about-diagnostics { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; }
+.about-community { display: flex; justify-content: space-between; align-items: center; gap: 18px; flex-wrap: wrap; margin-top: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.about-community-info { flex: 1 1 280px; display: grid; gap: 6px; }
+.about-community-info strong { font-size: 15px; color: var(--ink); }
+.about-community-info small { color: var(--ink-2); font-size: 13px; line-height: 1.6; }
+.about-qq-num { font-family: var(--f-num); padding: 1px 6px; border-radius: 4px; background: var(--paper); border: 1px solid var(--line); color: var(--ink); }
+.about-community-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.about-community-qr { position: relative; display: grid; justify-items: center; gap: 5px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); cursor: zoom-in; }
+.about-community-qr > img { display: block; width: 84px; height: 84px; border-radius: 6px; background: #fff; padding: 3px; }
+.about-community-qr > span { font-size: 12px; color: var(--ink-3); }
+.about-community-qr-pop { position: absolute; right: 0; bottom: calc(100% + 10px); z-index: 30; display: grid; justify-items: center; gap: 4px; padding: 14px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--paper); box-shadow: var(--shadow-3); opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(6px); transition: opacity .16s ease, transform .16s ease, visibility .16s ease; width: 232px; }
+.about-community-qr-pop img { display: block; width: 200px; height: 200px; border-radius: 8px; background: #fff; padding: 4px; }
+.about-community-qr-pop strong { font-size: 13px; color: var(--ink); margin-top: 4px; }
+.about-community-qr-pop small { font-size: 12px; color: var(--ink-3); }
+.about-community-qr:hover .about-community-qr-pop, .about-community-qr:focus-visible .about-community-qr-pop { opacity: 1; visibility: visible; transform: translateY(0); }
+.api-key-input-row { display: flex; align-items: stretch; gap: 8px; }
+.api-key-input-row > :first-child { flex: 1; min-width: 0; }
+.api-key-console-link { flex: none; white-space: nowrap; display: inline-flex; align-items: center; text-decoration: none; }
 .about-diagnostics strong { display: block; font-size: 14px; }
 .about-diagnostics small { color: var(--ink-3); font-size: 12px; line-height: 1.6; }
 .about-diagnostics > div:first-child { flex: 1 1 320px; }
@@ -1910,7 +1996,7 @@ function handleDeleteSkill(id: string) {
 .font-licenses > summary { font-weight: 600; }
 .font-license-note, .font-license-package { margin: 8px 0; color: var(--ink-2); line-height: 1.6; overflow-wrap: anywhere; }
 .font-license-item { padding: 4px 0; border-top: 1px solid var(--line); }
-.font-license-item summary span { margin-left: 6px; color: var(--ink-2); font-size: 12px; }
+.font-license-item summary span { margin-left: 6px; color: var(--ink-2); font-size: 13px; }
 .font-license-package { font-size: 12px; }
 .font-license-heading { margin: 12px 0 6px; font-size: 12px; font-weight: 600; }
 .font-license-text { max-height: 18rem; overflow: auto; margin: 0 0 12px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--desk); color: var(--ink-2); font: 12px/1.6 var(--f-num); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
@@ -1937,7 +2023,7 @@ function handleDeleteSkill(id: string) {
 .settings-v3 :deep(.cloud-page-subtitle) { font-size: 13px; }
 .settings-v3 :deep(.history-panel h2) { margin: 0; font: 600 20px var(--f-serif); }
 .settings-v3 :deep(.history-panel h3) { font: 600 16px var(--f-serif); }
-.settings-v3 :deep(.history-panel p) { color: var(--ink-3); font-size: 12px; line-height: 1.8; }
+.settings-v3 :deep(.history-panel p) { color: var(--ink-3); font-size: 13px; line-height: 1.8; }
 .settings-v3 :deep(.history-panel button) { min-height: 32px; max-width: 100%; padding: 6px 12px; border: 1px solid var(--line-2); border-radius: var(--r-s); background: var(--paper); color: var(--ink-2); font: 12px var(--f-ui); }
 .settings-v3 :deep(.history-panel button:hover:not(:disabled)) { border-color: var(--ink-3); color: var(--ink); }
 .settings-v3 :deep(.history-panel button:focus-visible) { outline: 2px solid var(--zhu); outline-offset: 2px; }
@@ -1953,13 +2039,13 @@ function handleDeleteSkill(id: string) {
 .settings-v3 .model-detail { margin-top: 4px; color: var(--ink-3); font: 12px var(--f-num); }
 .settings-v3 .model-key, .settings-v3 .model-tested-at { display: none; }
 .settings-v3 .model-test-result { display: flex; flex: none; flex-direction: column; align-items: flex-end; gap: 2px; }
-.settings-v3 .model-status { flex: none; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.settings-v3 .model-status { flex: none; padding: 2px 7px; border-radius: 4px; font-size: 12px; font-weight: 600; }
 .settings-v3 .model-status.ok { background: var(--qing-soft); color: var(--qing); }
 .settings-v3 .model-status.fail { background: var(--zhu-soft); color: var(--zhu); }
 .settings-v3 .model-status.testing { background: var(--hover); color: var(--ink-3); }
-.settings-v3 .model-tested-at { color: var(--ink-3); font: 11px var(--f-num); white-space: nowrap; }
+.settings-v3 .model-tested-at { color: var(--ink-3); font: 12px var(--f-num); white-space: nowrap; }
 .settings-v3 .model-badges { margin-top: 5px; }
-.settings-v3 .badge { padding: 1px 7px; border: 1px solid var(--line-2); border-radius: 4px; background: none; color: var(--ink-3); font-size: 11px; font-weight: 500; }
+.settings-v3 .badge { padding: 1px 7px; border: 1px solid var(--line-2); border-radius: 4px; background: none; color: var(--ink-3); font-size: 12px; font-weight: 500; }
 .settings-v3 .model-actions { flex-wrap: wrap; align-items: center; gap: 2px 6px; margin: 3px -6px -2px; padding-top: 5px; border-top: 1px dashed var(--line); }
 .settings-v3 .model-add-card { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 104px; border: 1px dashed var(--line-2); border-radius: var(--r-m); background: none; color: var(--ink-3); font-size: 13px; cursor: pointer; }
 .settings-v3 .model-add-card:hover { border-color: var(--zhu); color: var(--zhu); }
@@ -1975,7 +2061,7 @@ function handleDeleteSkill(id: string) {
 .settings-v3 .assignment-item:first-child { border-top: 0; }
 .settings-v3 .assignment-item.m-field { margin-bottom: 0; }
 .settings-v3 .assignment-item > :deep(label) { color: var(--ink); font-size: 15px; font-weight: 600; }
-.settings-v3 .assignment-hint { grid-column: 3; grid-row: 1 / span 2; color: var(--ink-3); font-size: 12px; }
+.settings-v3 .assignment-hint { grid-column: 3; grid-row: 1 / span 2; color: var(--ink-3); font-size: 13px; }
 /* 推荐说明放在任务名称和下拉框下面一行；右侧的补充说明跨两行。模型例子只写系列名，避免版本号很快过时。 */
 .settings-v3 .assignment-item > :deep(label) { grid-column: 1; grid-row: 1; }
 .settings-v3 .assignment-item > :not(label):not(p) { grid-column: 2; grid-row: 1; }
@@ -1988,7 +2074,7 @@ function handleDeleteSkill(id: string) {
 .settings-v3 .workflow-card--active { border-color: var(--zhu); background: var(--paper); box-shadow: 0 0 0 3px var(--zhu-soft); }
 .settings-v3 .workflow-symbol { display: none; }
 .settings-v3 .workflow-card h4 { margin: 0; color: var(--ink); font: 600 16px var(--f-serif); }
-.settings-v3 .workflow-card p { margin: 6px 0 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.65; }
+.settings-v3 .workflow-card p { margin: 6px 0 0; color: var(--ink-3); font-size: 13px; line-height: 1.65; }
 .settings-v3 .workflow-preview { padding: 18px 20px; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--paper); }
 .settings-v3 .workflow-preview h3, .settings-v3 .retrieval-howto h3 { margin: 0 0 6px; font: 600 17px var(--f-serif); }
 

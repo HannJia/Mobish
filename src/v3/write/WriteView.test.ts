@@ -244,6 +244,33 @@ describe('V3 写作台原型交互', () => {
     await flushPromises()
     expect(wrapper.find('.desk-side').isVisible()).toBe(true)
   })
+  it('目录默认只展开当前章所在的卷，手动展开后保留', async () => {
+    const novel = state.session.novel.value!
+    novel.volumes.push({ id: 'v2', volumeIndex: 1, title: '旧河', theme: '', summary: '', keyTurningPoints: '', characterChanges: '', estimatedChapters: 1, estimatedWordCount: 1 })
+    const other = useNovelStore().addChapter(novel.id, { title: '渡口', content: '另一卷的章' })!
+    other.volumeIndex = 1
+    const router = await mountDesk()
+    let heads = wrapper.findAll('.volume-head')
+    expect(heads).toHaveLength(2)
+    expect(heads[0].attributes('aria-expanded')).toBe('true')
+    expect(heads[1].attributes('aria-expanded')).toBe('false')
+    expect(wrapper.findAll('.tree-item')).toHaveLength(1)
+    // 跳到另一卷的章：新卷自动展开，上一卷因为是自动展开的、没被手动动过，随之收起。
+    await router.push(`/write/${novel.id}/${other.id}`)
+    await flushPromises()
+    heads = wrapper.findAll('.volume-head')
+    expect(heads[0].attributes('aria-expanded')).toBe('false')
+    expect(heads[1].attributes('aria-expanded')).toBe('true')
+    // 手动展开过的卷不会被自动收起。
+    await heads[0].trigger('click')
+    expect(wrapper.findAll('.tree-item')).toHaveLength(2)
+    await router.push(`/write/${novel.id}/${currentChapter.id}`)
+    await flushPromises()
+    heads = wrapper.findAll('.volume-head')
+    expect(heads[0].attributes('aria-expanded')).toBe('true')
+    expect(heads[1].attributes('aria-expanded')).toBe('false')
+  })
+
   it('写作模式切换只保存偏好，不自动请求模型', async () => {
     await mountDesk()
     const mode = [...document.querySelectorAll<HTMLButtonElement>('#v3-tools button')].find(item => item.textContent === '协作')!
@@ -499,5 +526,16 @@ describe('V3 写作台原型交互', () => {
     expect(button('确认定稿').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[role="dialog"]').text()).toContain('关闭后重新核对')
     expect(state.ai.finalizeChapter).not.toHaveBeenCalled()
+  })
+  it('写作台支持切换手机阅读宽度预览并持久化设置', async () => {
+    localStorage.removeItem('mojian-v3-writing-typography')
+    await mountDesk()
+    expect(wrapper.get('.paper').classes()).not.toContain('mobile-preview')
+    await button('手机预览').trigger('click')
+    expect(wrapper.get('.paper').classes()).toContain('mobile-preview')
+    expect(wrapper.find('.mobile-preview-bar').exists()).toBe(true)
+    expect(JSON.parse(localStorage.getItem('mojian-v3-writing-typography') || '{}').mobilePreview).toBe(true)
+    await button('恢复常规稿纸').trigger('click')
+    expect(wrapper.get('.paper').classes()).not.toContain('mobile-preview')
   })
 })

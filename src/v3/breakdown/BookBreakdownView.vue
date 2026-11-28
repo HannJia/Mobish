@@ -18,9 +18,9 @@
         <template v-else-if="!job">
           <header class="page-title"><h2>新建拆书</h2><p>选原文、定范围，拆出可以回到原句的写法。</p></header>
           <section class="breakdown-panel">
-            <h3>原文</h3>
-            <div class="actions">
-              <button v-for="option in originOptions" :key="option.id" type="button" class="m-btn" :class="{ pri: originKind === option.id }" @click="chooseOrigin(option.id)">{{ option.label }}</button>
+            <div class="bd-sec-head"><h3>原文</h3><GuideBeacon :visible="breakdownBeacons.includes('breakdown.source')" beacon-id="breakdown.source" /></div>
+            <div class="actions" data-guide="breakdown.source">
+              <button v-for="option in originOptions" :key="option.id" type="button" class="m-btn" :class="{ pri: originKind === option.id }" @click="onboarding.markSeen('breakdown.source'); chooseOrigin(option.id)">{{ option.label }}</button>
             </div>
             <label v-if="originKind === 'file'" class="field">导入 TXT、Markdown、HTML、DOCX、EPUB 或 PDF
               <input type="file" accept=".txt,.md,.markdown,.html,.htm,.docx,.epub,.pdf" :disabled="importing" @change="importSource">
@@ -66,10 +66,11 @@
             <label class="field">想学什么<select class="m-in" v-model="topic"><option v-for="name in BREAKDOWN_TOPICS" :key="name">{{ name }}</option></select></label>
             <label v-if="topic === '自定义问题'" class="field">你的问题<input v-model.trim="question" class="m-in" maxlength="300"></label>
             <p v-if="estimate" class="m-muted">{{ estimate.characters.toLocaleString() }} 字符 · 预计 {{ estimate.calls }} 次调用 · 预留约 {{ estimate.tokens.toLocaleString() }} tokens</p>
-            <div class="budget">
+            <div class="budget" data-guide="breakdown.budget">
               <label class="field">调用上限<input v-model.number="calls" class="m-in" type="number" min="1" step="1"></label>
               <label class="field">Token 上限<input v-model.number="tokens" class="m-in" type="number" min="1" step="1"></label>
               <button type="button" class="m-btn pri" :disabled="!canCreate" @click="start">开始分析</button>
+              <GuideBeacon :visible="breakdownBeacons.includes('breakdown.budget')" beacon-id="breakdown.budget" />
             </div>
             <p v-if="!store.model" class="m-muted">请先在设置配置大纲或默认对话模型。</p>
           </section>
@@ -110,6 +111,7 @@
                 <p v-if="job.report" class="m-muted">跨章报告取材于 {{ job.report.coveredUnits }} / {{ job.units.length }} 个已分析单元。</p>
                 <p v-if="!activeCards.length" class="m-muted">{{ finishedParts ? '已读范围暂未得到分析卡。' : '完成一个分析单元后即可在这里核对。' }}</p>
                 <BreakdownCardView v-for="item in displayedCards" :key="item.card.id" :item="item.card" :heading="item.heading"
+                  :guide-first-quote="item.card.id === firstCardWithEvidenceId"
                   :selectable="!!item.card.evidence.length && !sourceChanged" :checked="selectedCards.includes(item.card.id)"
                   :can-edit="!running && !store.busy" @select="toggleCard(item.card.id)" @open="showEvidence(item.card, $event)" @save="saveCard" />
                 <button v-if="activeCards.length > displayedCards.length" class="m-btn" type="button" @click="displayLimit += 30">再显示 30 条成果</button>
@@ -120,7 +122,7 @@
                 </details>
               </div>
               <aside class="breakdown-panel evidence-panel" aria-label="原文核对">
-                <h3>原文核对</h3>
+                <div class="bd-sec-head"><h3>原文核对</h3><GuideBeacon :visible="breakdownBeacons.includes('breakdown.quote')" beacon-id="breakdown.quote" /></div>
                 <template v-if="excerpt">
                   <p>{{ excerpt.heading }} · 段落 {{ excerpt.paragraph }} · 字符 {{ excerpt.start + 1 }}–{{ excerpt.end }}</p>
                   <p v-if="excerpt.version !== job.source.version" class="breakdown-error">此引文来自旧版原文。</p>
@@ -177,6 +179,9 @@ import type { BreakdownCard, BreakdownHandoff, BreakdownJob, BreakdownScope } fr
 import { useBookBreakdownStore } from '@/stores/bookBreakdown'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import { useNovelStore } from '@/stores/novel'
+import { useOnboardingStore } from '@/stores/onboarding'
+import type { GuideBeaconId } from '@/services/onboardingGuide'
+import GuideBeacon from '@/v3/components/GuideBeacon.vue'
 import { useInspirationSessionsStore } from '@/stores/inspirationSessions'
 import { breakdownHandoffDraft, destinationRoute, HANDOFF_NAMES, publishBreakdownHandoff, suggestBreakdownHandoff } from './bookBreakdownHandoff'
 import BreakdownCardView from './BreakdownCard.vue'
@@ -361,7 +366,20 @@ onMounted(async () => {
 watch([handoffOpen, handoffKind, targetId, targetChapterId], stopSuggestion)
 onBeforeUnmount(stopSuggestion)
 
+const onboarding = useOnboardingStore()
+const firstCardWithEvidenceId = computed(() => displayedCards.value.find(item => item.card.evidence.length > 0)?.card.id ?? null)
+const breakdownBeacons = computed(() => {
+  const candidates: GuideBeaconId[] = []
+  if (!job.value) {
+    candidates.push('breakdown.source')
+    if (source.value) candidates.push('breakdown.budget')
+  } else if (firstCardWithEvidenceId.value) {
+    candidates.push('breakdown.quote')
+  }
+  return onboarding.visibleBeaconsFor(candidates, 2)
+})
 async function start() {
+  onboarding.markSeen('breakdown.budget')
   if (!source.value || !canCreate.value) return
   error.value = ''
   try {
@@ -387,6 +405,7 @@ async function saveCard(card: BreakdownCard) {
   try { await store.editCard(job.value, card) } catch (value) { fail(value) }
 }
 async function showEvidence(card: BreakdownCard, index: number, version = job.value?.source.version) {
+  onboarding.markSeen('breakdown.quote')
   const current = job.value
   const evidence = card.evidence[index]
   if (!current || !evidence || !version) return
@@ -510,4 +529,6 @@ progress { width: 100%; height: 8px; accent-color: var(--zhu); margin-top: 10px;
 .excerpt { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
 .excerpt mark { background: var(--zhu-soft); color: var(--zhu); }
 @media (max-width: 860px) { .breakdown-workbench { grid-template-columns: 150px minmax(0, 1fr); } .breakdown-results { grid-template-columns: 1fr; } .evidence-panel { grid-row: 1; position: static; } }
+.bd-sec-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bd-sec-head h3 { margin: 0; }
 </style>

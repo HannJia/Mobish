@@ -12,29 +12,78 @@ export function invalidateChapterReviews(novel: Novel, chapterIds: string[]): st
   return registerChapterReviewInvalidation(novel, chapterIds)
 }
 
-function reviewInputs(aggregate: StoryAggregate, knowledge: KnowledgeBase[]): Map<string, ReviewIdentity> {
-  const { novel, workspace } = aggregate
-  return new Map(novel.chapters.filter(chapter => chapter.content.trim()).map(chapter => {
-    const context = buildReviewContextVersion(novel, chapter, knowledge, workspace.creationDraft, workspace.canonMutations, workspace.storyMemories)
-    return [chapter.id, { signature: buildChapterReviewSignature(chapter.content, context),
-      sourceVersionId: buildChapterReviewSourceVersion(chapter.content, context) }]
-  }))
+/**
+ * The per-chapter projection is expensive (~0.2 s each), so the work is written as a generator that
+ * yields between chapters. The synchronous runner drains it at once; the async runner hands the main
+ * thread back to the page every few milliseconds so the UI stays responsive on long books.
+ */
+type Steps<T> = Generator<void, T, void>
+
+function runSync<T>(steps: Steps<T>): T {
+  let step = steps.next()
+  while (!step.done) step = steps.next()
+  return step.value
 }
 
-/** Run one synchronous mutation against a private aggregate, before its atomic durable save. */
-export function withStoryReviewInvalidation<R>(aggregate: StoryAggregate, knowledge: KnowledgeBase[], operation: () => R) {
+const yieldToPage = () => new Promise<void>(resolve => setTimeout(resolve, 0))
+
+async function runAsync<T>(steps: Steps<T>): Promise<T> {
+  let sliceStart = performance.now()
+  let step = steps.next()
+  while (!step.done) {
+    if (performance.now() - sliceStart > 24) { await yieldToPage(); sliceStart = performance.now() }
+    step = steps.next()
+  }
+  return step.value
+}
+
+/** Short books finish in well under a frame; only long ones are worth splitting (and splitting adds timer hops). */
+const YIELD_FROM_WRITTEN_CHAPTERS = 8
+
+function* reviewInputsSteps(aggregate: StoryAggregate, knowledge: KnowledgeBase[]): Steps<Map<string, ReviewIdentity>> {
+  const { novel, workspace } = aggregate
+  const identities = new Map<string, ReviewIdentity>()
+  const written = novel.chapters.filter(chapter => chapter.content.trim())
+  const split = written.length >= YIELD_FROM_WRITTEN_CHAPTERS
+  for (const chapter of written) {
+    const context = buildReviewContextVersion(novel, chapter, knowledge, workspace.creationDraft, workspace.canonMutations, workspace.storyMemories)
+    identities.set(chapter.id, { signature: buildChapterReviewSignature(chapter.content, context),
+      sourceVersionId: buildChapterReviewSourceVersion(chapter.content, context) })
+    if (split) yield
+  }
+  return identities
+}
+
+function reviewInputs(aggregate: StoryAggregate, knowledge: KnowledgeBase[]): Map<string, ReviewIdentity> {
+  return runSync(reviewInputsSteps(aggregate, knowledge))
+}
+
+/**
+ * Review identities are a pure function of these inputs. When a transaction leaves them byte-identical,
+ * the expensive per-chapter projection does not need to run again (it is ~0.3 s per chapter).
+ */
+function reviewInputsKey(aggregate: StoryAggregate, knowledge: KnowledgeBase[]): string {
+  const { novel, workspace } = aggregate
+  return JSON.stringify([novel, knowledge, workspace.creationDraft, workspace.canonMutations, workspace.storyMemories])
+}
+
+function* invalidationSteps<R>(aggregate: StoryAggregate, knowledge: KnowledgeBase[], operation: () => R) {
   const { novel, workspace } = aggregate
   const capturedKnowledge = JSON.parse(JSON.stringify(knowledge)) as KnowledgeBase[]
-  const before = reviewInputs(aggregate, capturedKnowledge)
+  const beforeKey = reviewInputsKey(aggregate, capturedKnowledge)
+  const before = yield* reviewInputsSteps(aggregate, capturedKnowledge)
   const priorReports = new Set((workspace.impactReports || []).map(report => report.id))
   let value: R
   let requests: string[][] = []
+  // From here to the end of the operation nothing yields, so the mutation stays atomic.
   const scope = beginChapterReviewInvalidationScope(novel)
   try {
     value = operation()
     if (value && typeof (value as { then?: unknown }).then === 'function') throw new Error('故事事务修改必须同步完成')
   } finally { requests = endChapterReviewInvalidationScope(novel) }
-  const after = reviewInputs(aggregate, capturedKnowledge), invalidated = new Set<string>()
+  const inputsUnchanged = reviewInputsKey(aggregate, capturedKnowledge) === beforeKey
+  const after = inputsUnchanged ? before : yield* reviewInputsSteps(aggregate, capturedKnowledge)
+  const invalidated = new Set<string>()
   for (const chapter of novel.chapters) {
     const previous = before.get(chapter.id), current = after.get(chapter.id)
     if (previous?.signature === current?.signature) continue
@@ -58,10 +107,23 @@ export function withStoryReviewInvalidation<R>(aggregate: StoryAggregate, knowle
     report.reviewPolicy = 'changed-inputs'
     report.reviewChapterIds = [...invalidated]
   }
+  // Recompute later only if something feeding the identities moved after this point.
+  const settledKey = reviewInputsKey(aggregate, capturedKnowledge)
   return { value, reviewChapterIds: [...invalidated], assertKnowledgeCurrent(currentKnowledge: KnowledgeBase[]) {
+    if (reviewInputsKey(aggregate, currentKnowledge) === settledKey) return
     const current = reviewInputs(aggregate, currentKnowledge)
     if (current.size !== after.size || [...after].some(([id, input]) => current.get(id)?.signature !== input.signature)) {
       throw new Error('知识库参考已变化，本次故事修改未保存，请核对后重试。')
     }
   } }
+}
+
+/** Run one synchronous mutation against a private aggregate, before its atomic durable save. */
+export function withStoryReviewInvalidation<R>(aggregate: StoryAggregate, knowledge: KnowledgeBase[], operation: () => R) {
+  return runSync(invalidationSteps(aggregate, knowledge, operation))
+}
+
+/** Same result, but gives the page back to the UI between chapters; the aggregate must be a private copy. */
+export function withStoryReviewInvalidationAsync<R>(aggregate: StoryAggregate, knowledge: KnowledgeBase[], operation: () => R) {
+  return runAsync(invalidationSteps(aggregate, knowledge, operation))
 }

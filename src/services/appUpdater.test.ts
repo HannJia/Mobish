@@ -4,7 +4,9 @@ import { EventEmitter } from 'node:events'
 import path from 'node:path'
 
 const requireLocal = createRequire(path.resolve('app-main/main.js'))
-const { createUpdateController, parseRelease, validateManifest } = requireLocal('./updater.cjs')
+const { createUpdateController, parseOfficialManifest, parseRelease, validateManifest,
+  OFFICIAL_UPDATE_BASE, OFFICIAL_DOWNLOAD_URL } = requireLocal('./updater.cjs')
+const { createUpdateTransport, fetchOfficialManifest } = requireLocal('./updateTransport.cjs')
 const { createUpdateHandshake } = requireLocal('./updateHandshake.cjs')
 const installer = 'mobish-1.0.3.exe'
 const giteeReleaseUrl = 'https://gitee.com/hannjia/Mobish/releases/tag/v1.0.3'
@@ -13,6 +15,7 @@ function release() {
     assets: [{ name: installer, state: 'uploaded', size: 300 }, { name: 'latest.yml', state: 'uploaded', size: 200 }] }
 }
 const manifest = () => ({ version: '1.0.3', files: [{ url: installer, size: 300, sha512: Buffer.alloc(64, 1).toString('base64') }] })
+const officialManifest = (version = '1.0.3') => 'version: ' + version + '\nreleaseDate: "2026-09-14T08:00:00Z"\n'
 function setup(extra: Record<string, unknown> = {}) {
   const token = { cancel: vi.fn() }
   const updater = Object.assign(new EventEmitter(), {
@@ -257,6 +260,118 @@ describe('update save handshake', () => {
     await vi.advanceTimersByTimeAsync(100)
     await timeout
     expect(handshake.busy).toBe(false)
+  })
+})
+
+describe('official update fallback', () => {
+  it('parses top-level fields and derives the installer and download page', () => {
+    const customBase = 'https://dl.mobish.cn/test/'
+    const raw = "\uFEFFversion: '1.0.3' # stable\r\nfiles:\r\n  version: 9.0.0\r\nreleaseDate: 2026-09-14T08:00:00Z\r\n"
+    expect(parseOfficialManifest(raw, '1.0.2', 'arm64', 'v1.0.3', customBase)).toEqual({
+      version: '1.0.3', tag: 'v1.0.3', source: 'official', url: OFFICIAL_DOWNLOAD_URL, feedUrl: customBase,
+      installer, installerSize: undefined, notes: '', publishedAt: '2026-09-14T08:00:00Z', canDownload: false,
+    })
+    expect(parseOfficialManifest(raw, '1.0.3')).toBeNull()
+    expect(parseOfficialManifest(raw, '1.0.4')).toBeNull()
+  })
+
+  it.each(['1.0.3-rc.1', '1.0.3+test', '../../payload', 'v1.0.3', '1.00.3', '1.0.3\nversion: 1.0.4'])(
+    'rejects invalid official manifest version %j', version => {
+      expect(() => parseOfficialManifest(officialManifest(version), '1.0.2')).toThrow()
+    },
+  )
+
+  it.each(['current', 'available'])('keeps GitHub when its check succeeds as %s', async phase => {
+    const fetchOfficial = vi.fn(async () => officialManifest())
+    const { controller } = setup({ currentVersion: phase === 'current' ? '1.0.3' : '1.0.2', fetchOfficial })
+    expect((await controller.check()).phase).toBe(phase)
+    expect(fetchOfficial).not.toHaveBeenCalled()
+    controller.dispose()
+  })
+
+  it.each(['API', 'manifest', 'timeout'])('uses the official source after a GitHub %s failure', async reason => {
+    vi.useFakeTimers()
+    const fetchOfficial = vi.fn(async () => officialManifest())
+    const fetchGitee = vi.fn(async () => release())
+    const { controller, options, updater } = setup({ fetchOfficial, fetchGitee, checkTimeoutMs: 50 })
+    if (reason === 'API') options.fetchLatest.mockRejectedValueOnce(new Error('fetch failed'))
+    else if (reason === 'timeout') options.fetchLatest.mockImplementationOnce(() => new Promise(() => {}))
+    else updater.checkForUpdates.mockRejectedValueOnce(new Error('invalid latest.yml'))
+    const check = controller.check()
+    await vi.advanceTimersByTimeAsync(50)
+    expect(await check).toMatchObject({ phase: 'available', release: {
+      url: OFFICIAL_DOWNLOAD_URL, canDownload: true,
+      notes: reason === 'manifest' ? '# 修复问题' : '',
+      publishedAt: reason === 'manifest' ? '2026-09-13T08:00:00Z' : '2026-09-14T08:00:00Z',
+    } })
+    expect(updater.setFeedURL).toHaveBeenLastCalledWith(expect.objectContaining({ url: OFFICIAL_UPDATE_BASE }))
+    expect(fetchGitee).not.toHaveBeenCalled()
+    controller.openRelease()
+    expect(options.openExternal).toHaveBeenCalledWith(OFFICIAL_DOWNLOAD_URL)
+    controller.dispose()
+  })
+
+  it('clears a failed GitHub download and verifies the same version from the official source', async () => {
+    const fetchOfficial = vi.fn(async () => officialManifest())
+    const verifyDownload = vi.fn(async () => undefined)
+    const { controller, updater } = setup({ fetchOfficial, verifyDownload })
+    const clear = vi.fn(async () => undefined)
+    Object.assign(updater, { downloadedUpdateHelper: { clear } })
+    await controller.check()
+    updater.downloadUpdate.mockRejectedValueOnce(new Error('download interrupted'))
+    expect(await controller.download()).toMatchObject({ phase: 'downloaded', release: {
+      version: '1.0.3', url: OFFICIAL_DOWNLOAD_URL, notes: '# 修复问题', publishedAt: '2026-09-13T08:00:00Z',
+    } })
+    expect(clear).toHaveBeenCalledBefore(fetchOfficial)
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2)
+    expect(updater.downloadUpdate).toHaveBeenCalledTimes(2)
+    expect(verifyDownload).toHaveBeenCalledExactlyOnceWith(undefined, manifest().files[0])
+    controller.dispose()
+  })
+
+  it.each(['1.0.1', '1.0.2', '1.0.4'])('refuses mismatched official version %s during download fallback', async version => {
+    const { controller, updater } = setup({ fetchOfficial: async () => officialManifest(version) })
+    await controller.check()
+    updater.downloadUpdate.mockRejectedValueOnce(new Error('download interrupted'))
+    expect(await controller.download()).toMatchObject({
+      phase: 'error', release: { version: '1.0.3' }, error: '官网备用源尚未同步同一版本的更新文件。',
+    })
+    expect(updater.checkForUpdates).toHaveBeenCalledOnce()
+    expect(updater.downloadUpdate).toHaveBeenCalledOnce()
+    controller.dispose()
+  })
+
+  it('tries Gitee after the official download fails verification', async () => {
+    const fetchOfficial = vi.fn(async () => officialManifest())
+    const fetchGitee = vi.fn(async () => release())
+    const verifyDownload = vi.fn(async () => undefined)
+    verifyDownload.mockRejectedValueOnce(new Error('SHA512 checksum mismatch'))
+    const { controller, updater } = setup({ fetchOfficial, fetchGitee, verifyDownload })
+    await controller.check()
+    updater.downloadUpdate.mockRejectedValueOnce(new Error('download interrupted'))
+    expect(await controller.download()).toMatchObject({ phase: 'downloaded', release: { url: giteeReleaseUrl } })
+    expect(fetchOfficial).toHaveBeenCalledBefore(fetchGitee)
+    expect(fetchGitee).toHaveBeenCalledExactlyOnceWith(expect.any(AbortSignal), 'v1.0.3')
+    expect(verifyDownload).toHaveBeenCalledTimes(2)
+    controller.dispose()
+  })
+
+  it('rejects redirects to any other origin, even a trusted GitHub host or a supplied staticOrigin', async () => {
+    const url = new URL('latest.yml', OFFICIAL_UPDATE_BASE)
+    const signal = AbortSignal.timeout(5000)
+    const fetchImpl = vi.fn(async () => Response.redirect('https://github.com/other/latest.yml'))
+    await expect(fetchOfficialManifest(url, signal, fetchImpl)).rejects.toThrow('不受信任')
+    await expect(createUpdateTransport({
+      source: 'official', feedUrl: OFFICIAL_UPDATE_BASE, staticOrigin: 'https://github.com',
+    }, { fetchImpl }).request()).rejects.toThrow('不受信任')
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(fetchImpl).toHaveBeenLastCalledWith(url, expect.objectContaining({ redirect: 'manual' }))
+  })
+
+  it('bounds official metadata reads', async () => {
+    const fetchImpl = vi.fn(async () => new Response(new Uint8Array(1024 * 1024 + 1)))
+    await expect(fetchOfficialManifest(new URL('latest.yml', OFFICIAL_UPDATE_BASE), AbortSignal.timeout(5000), fetchImpl))
+      .rejects.toThrow('数据过大')
   })
 })
 

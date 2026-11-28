@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({ novels: vi.fn(), knowledge: vi.fn(), config: v
 vi.mock('@/stores/novel', () => ({ useNovelStore: () => ({ novels: [], flushPendingSaves: mocks.novels }) }))
 vi.mock('@/stores/reconstructionWorkspace', () => ({ useReconstructionWorkspaceStore: () => ({ flushPendingSaves: async () => {} }) }))
 vi.mock('@/stores/knowledge', () => ({ useKnowledgeStore: () => ({ flushPendingSaves: mocks.knowledge }) }))
-vi.mock('@/stores/config', () => ({ useConfigStore: () => ({ saveConfig: mocks.config }) }))
+vi.mock('@/stores/config', () => ({ useConfigStore: () => ({ flushPendingSaves: mocks.config }) }))
 vi.mock('@/stores/inspirationSessions', () => ({ useInspirationSessionsStore: () => ({ flushPendingSaves: async () => {} }) }))
 vi.mock('./aiTaskQueue', () => ({ chapterBackgroundQueue: mocks.queue }))
 vi.mock('./projectTransfer', async () => ({ projectTransferBusy: (await import('vue')).ref(false) }))

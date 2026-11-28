@@ -130,7 +130,7 @@ export async function restoreProjectHistory(token: string): Promise<void> {
     } else { await persist(); novels.publishCreatedNovel(scope.novel!) }
     // Publish only this workspace; concurrent author edits win and stay available to the next flush.
     workspaces.publishCreatedWorkspace(id, before
-      ? mergeCommittedSnapshot(before, scope.workspace!, liveWorkspace()!) : scope.workspace!)
+      ? mergeCommittedSnapshot(before, scope.workspace!, liveWorkspace()!) : scope.workspace!, scope.workspace!)
     previews.delete(token)
   })
 }

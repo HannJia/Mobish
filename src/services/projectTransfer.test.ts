@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useNovelStore } from '@/stores/novel'
 import { useKnowledgeStore } from '@/stores/knowledge'
+import { useOnboardingStore } from '@/stores/onboarding'
+import { defaultOnboardingState, ONBOARDING_STORAGE_KEY } from './onboardingGuide'
 import { createTestProjectBackup as createProjectBackup } from '@/test/projectBackupFixture'
 import { importProject, projectTransferBusy } from './projectTransfer'
 import { replaceProjectInDb } from './db/project'
@@ -19,9 +21,14 @@ vi.mock('./db/reconstruction', () => ({
 vi.mock('./db/novels', () => ({ saveNovelToDb: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('./db/knowledge', () => ({ saveKnowledgeBaseToDb: vi.fn().mockResolvedValue(undefined) }))
 beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks() })
+afterEach(() => vi.unstubAllGlobals())
 
 describe('project import store boundary', () => {
   it('keeps stores unchanged on failure, retains a restore point first, and adopts only after commit', async () => {
+    vi.stubGlobal('localStorage', { getItem: (key: string) => key === ONBOARDING_STORAGE_KEY ? JSON.stringify(defaultOnboardingState('new')) : null,
+      setItem: vi.fn() })
+    const onboarding = useOnboardingStore()
+    await onboarding.initialize()
     const novels = useNovelStore()
     const knowledge = useKnowledgeStore()
     const book = novels.addNovel({ genre: '', subGenre: '', tags: [], targetWordCountMin: 1, targetWordCountMax: 2,
@@ -31,12 +38,14 @@ describe('project import store boundary', () => {
     backup.novels[0].title = '导入书名'
     vi.mocked(replaceProjectInDb).mockRejectedValueOnce(new Error('写盘失败'))
     await expect(importProject(backup)).rejects.toThrow('写盘失败')
+    expect(onboarding.showChecklist).toBe(true)
     expect(novels.getNovel(book.id)).toBe(original)
     expect(projectTransferBusy.value).toBe(false)
     expect(retainProjectRestorePoint).toHaveBeenCalled()
     expect(vi.mocked(retainProjectRestorePoint).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(replaceProjectInDb).mock.invocationCallOrder[0])
     vi.mocked(replaceProjectInDb).mockResolvedValue(undefined)
     await importProject(backup)
+    expect(onboarding.showChecklist).toBe(false)
     expect(novels.getNovel(book.id)?.title).toBe('导入书名')
     expect(novels.getNovel(book.id)).not.toBe(original)
     expect(knowledge.knowledgeBases).toEqual([])

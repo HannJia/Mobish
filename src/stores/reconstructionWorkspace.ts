@@ -39,7 +39,7 @@ import { commitChapterAnalysis, type ChapterAnalysisSubmission } from '@/service
 import { saveWritingSuggestion, type SaveWritingSuggestionInput } from '@/services/writingSuggestionTransactions'
 import { useNovelStore } from './novel'
 import { useKnowledgeStore } from './knowledge'
-import { withStoryReviewInvalidation } from '@/services/chapterReviewInvalidation'
+import { withStoryReviewInvalidationAsync } from '@/services/chapterReviewInvalidation'
 import { projectTransferBusy, cloudApplyBusy, appUpdateInstalling, isDraftFlushTokenActive, type DraftFlushToken } from '@/services/appLifecycle'
 import type { Novel } from '@/types/novel'
 import type { StoryMemoryRecord } from '@/types/storyMemory'
@@ -52,6 +52,20 @@ export interface StoryTransactionOptions<P = undefined> {
   prepare?: () => Promise<P>
   /** Supplies aggregate metadata at durable-save time, without a second transaction. */
   revisionAcceptance?: (prepared: P) => RevisionAcceptance | undefined
+}
+
+function serializeWorkspace(snapshot: ReconstructionWorkspaceSnapshot): string {
+  return JSON.stringify({
+    editorDrafts: snapshot.editorDrafts || [],
+    creationDraft: snapshot.creationDraft,
+    candidates: snapshot.candidates,
+    reviewFindings: snapshot.reviewFindings,
+    chapterReviews: snapshot.chapterReviews || [],
+    aiRuns: snapshot.aiRuns || [],
+    storyMemories: snapshot.storyMemories || [],
+    impactReports: snapshot.impactReports || [],
+    canonMutations: snapshot.canonMutations,
+  })
 }
 
 export const useReconstructionWorkspaceStore = defineStore('reconstructionWorkspace', () => {
@@ -67,6 +81,12 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
   const impactReportsByNovel = ref<Record<string, StoryImpactReport[]>>({})
   const persistenceByNovel = new Map<string, Promise<unknown>>()
   const hydrated = new Set<string>()
+  const persistedByNovel = new Map<string, { snapshot: ReconstructionWorkspaceSnapshot; json: string }>()
+
+  function rememberPersistedWorkspace(novelId: string, json: string) {
+    // Keep the baseline independent of objects returned to editors or published in Pinia.
+    persistedByNovel.set(novelId, { snapshot: JSON.parse(json), json })
+  }
 
   function serializePersistence<T>(novelId: string, operation: () => Promise<T>): Promise<T> {
     const previous = persistenceByNovel.get(novelId) || Promise.resolve()
@@ -159,6 +179,7 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
   function clearNovel(novelId: string) {
     delete editorDraftsByNovel.value[novelId]
     hydrated.delete(novelId)
+    persistedByNovel.delete(novelId)
     delete candidatesByNovel.value[novelId]
     delete canonMutationsByNovel.value[novelId]
     delete creationDraftsByNovel.value[novelId]
@@ -179,7 +200,8 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
   }
 
   /** Publish a newly created workspace only after its story aggregate is durable. */
-  function publishCreatedWorkspace(novelId: string, snapshot: ReconstructionWorkspaceSnapshot): void {
+  function publishCreatedWorkspace(novelId: string, snapshot: ReconstructionWorkspaceSnapshot, persisted = snapshot): void {
+    rememberPersistedWorkspace(novelId, serializeWorkspace(persisted))
     adoptWorkspace(novelId, JSON.parse(JSON.stringify(snapshot)))
   }
 
@@ -245,6 +267,19 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
     aiRunsByNovel.value[novelId] = [...next, run]
   }
 
+  async function persistAiRun(novelId: string, run: AiRun) {
+    await saveReconstructionRun(novelId, run)
+    const persisted = persistedByNovel.get(novelId)?.snapshot
+    if (persisted) {
+      const aiRuns = [...(persisted.aiRuns || [])]
+      const index = aiRuns.findIndex(item => item.id === run.id)
+      if (index < 0) aiRuns.push(run)
+      else aiRuns[index] = run
+      rememberPersistedWorkspace(novelId, serializeWorkspace({ ...persisted, aiRuns }))
+    }
+    replaceAiRun(novelId, run)
+  }
+
   async function saveAiRun(novelId: string, run: AiRun): Promise<void> {
     const captured: AiRun = JSON.parse(JSON.stringify(run))
     await serializePersistence(novelId, async () => {
@@ -260,8 +295,7 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
           if (!next || old.status !== 'pending' && JSON.stringify(old) !== JSON.stringify(next)) throw new Error('任务账本已变化，拒绝覆盖已记录请求')
         }
       }
-      await saveReconstructionRun(novelId, captured)
-      replaceAiRun(novelId, captured)
+      await persistAiRun(novelId, captured)
     })
   }
 
@@ -277,7 +311,8 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
       if (task.stage === 'draft') { task.sourceVersionId = captured.sourceVersionId; task.openBaseline = captured.openBaseline; next.tokenBudget = captured.tokenBudget ?? next.tokenBudget; next.requestLimit = captured.requestLimit ?? next.requestLimit }
       if (task.stage === 'committed') { task.stage = 'paused'; task.candidate = undefined; next.status = 'paused' }
       next.updatedAt = new Date().toISOString(); task.updatedAt = next.updatedAt
-      await saveReconstructionRun(novelId, next); replaceAiRun(novelId, next); return next
+      await persistAiRun(novelId, next)
+      return next
     })
   }
   async function saveMemoryTaskDraft(novelId: string, runId: string, draft: { title: string; body: string; sourceVersionId: string }, flushToken?: DraftFlushToken): Promise<AiRun> {
@@ -288,7 +323,8 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
       const next: AiRun = JSON.parse(JSON.stringify(current))
       next.memoryTask!.titleDraft = draft.title; next.memoryTask!.bodyDraft = draft.body
       next.updatedAt = new Date().toISOString(); next.memoryTask!.updatedAt = next.updatedAt
-      await saveReconstructionRun(novelId, next); replaceAiRun(novelId, next); return next
+      await persistAiRun(novelId, next)
+      return next
     })
   }
   async function saveAiRunLimits(novelId: string, expected: AiRun, limits: { tokenBudget: number; requestLimit: number }): Promise<void> {
@@ -298,8 +334,7 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
       const current = getAiRun(novelId, captured.id)
       if (!current || JSON.stringify(current) !== JSON.stringify(captured)) throw new Error('任务记录已经变化，请刷新后调整额度。')
       const next = reviseAiRunLimits(current, capturedLimits, new Date().toISOString())
-      await saveReconstructionRun(novelId, next)
-      replaceAiRun(novelId, next)
+      await persistAiRun(novelId, next)
     })
   }
 
@@ -350,6 +385,7 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
 
   async function hydrateFromPersistence(novelId: string) {
     return serializePersistence(novelId, async () => {
+      persistedByNovel.delete(novelId)
       const snapshot = await loadReconstructionWorkspace(novelId)
       const recovered = (snapshot.aiRuns || []).map(run => {
         if (run.taskType !== 'memory_update' || !run.memoryTask) return run
@@ -375,6 +411,7 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
           if (run.taskType === 'memory_update' && run.memoryTask?.stage === 'interrupted') await saveReconstructionRun(novelId, run)
         }
       }
+      rememberPersistedWorkspace(novelId, serializeWorkspace(snapshot))
       adoptWorkspace(novelId, snapshot)
       return snapshot
     })
@@ -406,7 +443,8 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
     storyMemoriesByNovel.value = {}
     impactReportsByNovel.value = {}
     hydrated.clear()
-    for (const workspace of workspaces) adoptWorkspace(workspace.novelId, JSON.parse(JSON.stringify(workspace)))
+    persistedByNovel.clear()
+    for (const workspace of workspaces) publishCreatedWorkspace(workspace.novelId, workspace)
   }
 
   function snapshotForPersistence(novelId: string) {
@@ -446,6 +484,7 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
       assertCreationAvailable()
       if (expected.novel) throw new Error('作品已经存在，请刷新书架后重试。')
       await saveStoryAggregate({ novel: capturedNovel, workspace: capturedWorkspace }, expected)
+      rememberPersistedWorkspace(capturedNovel.id, serializeWorkspace(capturedWorkspace))
     })
   }
 
@@ -478,7 +517,9 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
       if (next === snapshot.creationDraft) return
       snapshot.creationDraft = next
       validateReconstructionCreationDraft(snapshot.creationDraft)
-      await saveReconstructionWorkspace(novelId, snapshot)
+      const json = serializeWorkspace(snapshot)
+      await saveReconstructionWorkspace(novelId, JSON.parse(json))
+      rememberPersistedWorkspace(novelId, json)
       creationDraftsByNovel.value[novelId] = snapshot.creationDraft
     })
   }
@@ -513,6 +554,8 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
     return serializePersistence(captured.novelId, async () => {
       assertAvailable()
       const result = await commitEditorDraftCommand(captured, assertAvailable)
+      const persisted = persistedByNovel.get(captured.novelId)?.snapshot
+      if (persisted) rememberPersistedWorkspace(captured.novelId, serializeWorkspace({ ...persisted, editorDrafts: result.drafts }))
       editorDraftsByNovel.value[captured.novelId] = JSON.parse(JSON.stringify(result.drafts))
       return JSON.parse(JSON.stringify(result.draft)) as EditorDraft
     })
@@ -561,9 +604,9 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
 
   async function saveCurrentWorkspace(novelId: string): Promise<void> {
     const persisted = await loadReconstructionWorkspace(novelId)
-    const snapshot = currentWorkspace(novelId, persisted)
-    const serialized = JSON.stringify(snapshot)
-    if (serialized !== JSON.stringify(persisted)) await saveReconstructionWorkspace(novelId, JSON.parse(serialized))
+    const json = serializeWorkspace(currentWorkspace(novelId, persisted))
+    if (json !== serializeWorkspace(persisted)) await saveReconstructionWorkspace(novelId, JSON.parse(json))
+    rememberPersistedWorkspace(novelId, json)
   }
 
   async function commitScenePlanningEdit(novelId: string, edit: ScenePlanningEdit, baseline: string) {
@@ -592,16 +635,27 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
   }
 
   async function flushPendingSaves(novelIds: string[]): Promise<void> {
-    // Include saves queued while an earlier save or hydration was running.
-    while (persistenceByNovel.size || editorDraftWork.size) {
-      const results = await Promise.allSettled([...persistenceByNovel.values(), ...editorDraftWork])
-      const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
-      if (failure) throw failure.reason
-    }
     const maps = [editorDraftsByNovel, creationDraftsByNovel, candidatesByNovel, reviewFindingsByNovel, reviewsByNovel, aiRunsByNovel, canonMutationsByNovel, storyMemoriesByNovel, impactReportsByNovel]
-    for (const novelId of novelIds) {
-      if (!maps.some(map => Object.prototype.hasOwnProperty.call(map.value, novelId)) && !hydrated.has(novelId)) continue
-      await serializePersistence(novelId, () => saveCurrentWorkspace(novelId))
+    const checked = new Set<string>()
+    while (true) {
+      // Include saves and edits made while an earlier save or hydration was running.
+      while (persistenceByNovel.size || editorDraftWork.size) {
+        const results = await Promise.allSettled([...persistenceByNovel.values(), ...editorDraftWork])
+        const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+        if (failure) throw failure.reason
+      }
+      const pending = novelIds.filter(novelId => {
+        const isHydrated = hydrated.has(novelId)
+        if (!isHydrated && !maps.some(map => Object.prototype.hasOwnProperty.call(map.value, novelId))) return false
+        const persisted = persistedByNovel.get(novelId)
+        return !(isHydrated || checked.has(novelId)) || !persisted
+          || serializeWorkspace(currentWorkspace(novelId, persisted.snapshot)) !== persisted.json
+      })
+      if (!pending.length) return
+      for (const novelId of pending) {
+        await serializePersistence(novelId, () => saveCurrentWorkspace(novelId))
+        checked.add(novelId)
+      }
     }
   }
 
@@ -625,7 +679,7 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
         before = JSON.parse(JSON.stringify(currentWorkspace(novelId, expected.workspace)))
         committed = JSON.parse(JSON.stringify(before))
         const aggregate = { novel, workspace: committed }
-        const reviewed = withStoryReviewInvalidation(aggregate, useKnowledgeStore().knowledgeBases, () => operation(aggregate, prepared))
+        const reviewed = await withStoryReviewInvalidationAsync(aggregate, useKnowledgeStore().knowledgeBases, () => operation(aggregate, prepared))
         const value = reviewed.value
         if (skipPersistence?.(value)) return { value, persist: null }
         didCommit = true
@@ -635,6 +689,7 @@ export const useReconstructionWorkspaceStore = defineStore('reconstructionWorksp
         }) }
       })
       if (!didCommit) return value
+      rememberPersistedWorkspace(novelId, serializeWorkspace(committed))
       adoptWorkspace(novelId, mergeCommittedSnapshot(before, committed, currentWorkspace(novelId, before)))
       return value
     })

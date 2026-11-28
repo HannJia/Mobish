@@ -1,5 +1,5 @@
 <template>
-  <section class="skeleton-picker" aria-label="选择和编辑故事骨架">
+  <section v-show="!(hideEmpty && !skeletons.length && !busy)" class="skeleton-picker" aria-label="选择和编辑故事骨架">
     <div v-if="skeletons.length" class="toolbar">
       <div class="seg" role="group" aria-label="视图切换">
         <button type="button" :aria-pressed="activeView === 'cards'" @click="activeView = 'cards'">方案对照</button>
@@ -25,7 +25,23 @@
       </div>
     </div>
 
-    <div v-else class="start-empty">
+    <div v-else-if="busy" class="gen-placeholder" role="status" aria-live="polite" aria-label="正在生成故事骨架候选">
+      <template v-for="n in 3" :key="n">
+        <article v-if="streaming?.[n - 1]" class="ph-card arrived">
+          <div class="ph-head"><span class="mini-seal">{{ slotTag(n - 1) }}</span><strong>{{ streaming[n - 1].title || '未命名方案' }}</strong></div>
+          <p class="ph-logline">{{ streaming[n - 1].logline || streaming[n - 1].premise }}</p>
+          <ol class="ph-beats"><li v-for="beat in streaming[n - 1].beats.slice(0, 7)" :key="beat.id">{{ beat.title }}</li></ol>
+        </article>
+        <article v-else class="ph-card" aria-hidden="true">
+          <i class="ph w40" /><i class="ph" /><i class="ph w70" />
+          <div class="ph-curve" />
+          <i class="ph" /><i class="ph" /><i class="ph w55" />
+        </article>
+      </template>
+      <p class="gen-hint">AI 正在生成候选<template v-if="streamChars"> · 已收到 {{ streamChars.toLocaleString() }} 字</template> · 第 {{ Math.min((streaming?.length || 0) + 1, 3) }} / 3 个方案；每个方案生成完就会先出现在这里。</p>
+    </div>
+
+    <div v-else-if="!hideEmpty" class="start-empty">
       <div class="start-inner">
         <h3>尚未生成故事骨架候选</h3>
         <p>可以让 AI 根据已确认的作品契约生成 3 个不同方向的故事骨架，或直接手写一个方案。</p>
@@ -35,6 +51,7 @@
         </div>
       </div>
     </div>
+
 
     <!-- 视图 1：方案对照（三列 subgrid 卡片，主线在前 + SVG 情节起伏曲线） -->
     <div v-if="skeletons.length && activeView === 'cards'" class="stage">
@@ -301,7 +318,7 @@
           <button type="button" class="m-btn" :disabled="busy" @click="emit('save')">
             {{ selected.complete === false ? '已核对补齐，保存作者版本' : '保存作者版本' }}
           </button>
-          <button type="button" class="m-btn zhu" :disabled="busy || dirty || !canConfirm" @click="emit('confirm')">
+          <button type="button" class="m-btn zhu" data-guide="create.direction" :disabled="busy || dirty || !canConfirm" @click="emit('confirm')">
             确认此方案为正式方向
           </button>
         </template>
@@ -318,7 +335,7 @@ import { useConfigStore } from '@/stores/config'
 import { errorText } from '@/services/userFacingError'
 import { mixExcerpts, reviewStoryMix, type MixConflict, type MixExcerpt, type MixReview } from '@/services/storyCreationMix'
 
-const props = defineProps<{ skeletons: PlotSkeleton[]; selectedId?: string; confirmedId?: string; busy?: boolean; dirty?: boolean; hasOutline?: boolean }>()
+const props = defineProps<{ skeletons: PlotSkeleton[]; selectedId?: string; confirmedId?: string; busy?: boolean; dirty?: boolean; hasOutline?: boolean; streaming?: PlotSkeleton[]; streamChars?: number; hideEmpty?: boolean }>()
 const emit = defineEmits<{ select: [id: string]; edit: [skeleton: PlotSkeleton]; confirm: []; save: []; create: []; regenerate: []; mix: [sources: SkeletonSourceSelection[], review?: MixReview] }>()
 
 const activeView = ref<'cards' | 'lanes' | 'desk'>(props.skeletons.length <= 1 ? 'desk' : 'cards')
@@ -657,6 +674,20 @@ const footerStatusText = computed(() => {
 .toolbar-right { display: flex; align-items: center; gap: 6px; flex: none; }
 
 .stage { min-height: 0; min-width: 0; position: relative; }
+.gen-placeholder { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.ph-card { padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); min-height: 260px; }
+.ph { display: block; height: 12px; margin: 10px 0; border-radius: 6px; background: linear-gradient(90deg, var(--panel-2), var(--line), var(--panel-2)); background-size: 200% 100%; animation: ph-shimmer 1.4s infinite; }
+.ph.w40 { width: 40%; height: 16px; }.ph.w70 { width: 70%; }.ph.w55 { width: 55%; }
+.ph-card.arrived { animation: ph-in .35s ease both; }
+.ph-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }.ph-head strong { font: 600 16px var(--f-serif); }
+.ph-logline { margin: 0 0 10px; color: var(--ink-2); font-size: 13px; line-height: 1.7; }
+.ph-beats { margin: 0; padding-left: 20px; color: var(--ink-3); font-size: 13px; line-height: 1.9; }
+@keyframes ph-in { from { opacity: 0; transform: translateY(6px); } }
+.ph-curve { height: 70px; margin: 14px 0; border-radius: 8px; background: var(--panel-2); opacity: .6; }
+.gen-hint { grid-column: 1 / -1; margin: 0; color: var(--ink-3); font-size: 13px; text-align: center; }
+@keyframes ph-shimmer { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .ph { animation: none; } }
+@media (max-width: 900px) { .gen-placeholder { grid-template-columns: minmax(0, 1fr); } }
 .start-empty { display: grid; place-items: center; min-height: 280px; border: 1px dashed var(--line-2); border-radius: 12px; background: var(--paper); }
 .start-inner { display: grid; gap: 10px; justify-items: center; text-align: center; max-width: 480px; padding: 20px; }
 .start-inner h3 { margin: 0; font: 600 18px var(--f-serif); }

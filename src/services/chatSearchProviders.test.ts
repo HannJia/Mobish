@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { createPinia, setActivePinia } from 'pinia'
 import { chatWithOptionalSearch, parseSearchResponse, resolveChatSearchMode, resolveChatSearchProtocol, searchProtocolDescription } from './chatSearch'
-import { autoSearchAdapter, detectModelProvider, isEmbeddingModelName, MODEL_PROVIDER_PRESETS } from './modelProviders'
+import { autoSearchAdapter, detectModelProvider, EMBEDDING_PROVIDER_PRESETS, isEmbeddingModelName, MODEL_PROVIDER_PRESETS } from './modelProviders'
 import { buildWebSearchRequest, isWebSearchServiceConfigured, parseWebSearchResults, resolveBaseUrl, SEARCH_TIMEOUT_MS, searchContextMessage, searchWeb, searchWebWithFallback } from './webSearchService'
 import { useConfigStore, type ModelConfig } from '@/stores/config'
 
@@ -18,6 +18,15 @@ beforeEach(() => setActivePinia(createPinia()))
 afterEach(() => vi.unstubAllGlobals())
 
 describe('official provider presets', () => {
+  it('uses the same SiliconFlow registration link and disclosure for writing and embeddings', () => {
+    const embedding = EMBEDDING_PROVIDER_PRESETS.find(item => item.id === 'siliconflow')
+    const writing = MODEL_PROVIDER_PRESETS.find(item => item.id === 'siliconflow')
+    expect(writing?.signupUrl).toBe('https://cloud.siliconflow.cn/i/KSMskNN6')
+    expect(writing?.signupUrl).toBe(embedding?.signupUrl)
+    expect(writing?.signupNote).toContain('作者的邀请链接')
+    expect(writing?.signupNote).toBe(embedding?.signupNote)
+  })
+
   it('recognizes official hosts and leaves relays alone', () => {
     expect(detectModelProvider('https://api.deepseek.com')?.id).toBe('deepseek')
     expect(detectModelProvider('https://dashscope.aliyuncs.com/compatible-mode/v1')?.id).toBe('qwen')

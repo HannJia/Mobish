@@ -59,7 +59,11 @@
       <button v-if="error" :disabled="busy" @click="reloadLatest">保留输入并重新读取规划</button>
       <p v-if="pendingCount" role="status">{{ pendingCount }} 项输入或输出尚未完成保存；切换后仍保留在保存队列。</p>
       <button :disabled="busy" @click="retryRecovery">重试本页及离页保留的输入与输出</button>
-      <pre v-if="generating && liveOutput" class="partial-output">{{ liveOutput }}</pre>
+      <div v-if="generating && liveScenes.length" class="live-scenes" role="status" aria-live="polite">
+        <p class="live-scenes-head">AI 正在设计场景 · 已出现 {{ liveScenes.length }} 个，生成完成后保存为候选方案</p>
+        <article v-for="(scene, index) in liveScenes" :key="index" class="live-scene"><strong>{{ index + 1 }} · {{ scene.title || '未命名场景' }}</strong><p v-if="scene.purpose">{{ scene.purpose }}</p></article>
+      </div>
+      <pre v-else-if="generating && liveOutput" class="partial-output">{{ liveOutput }}</pre>
       <p v-if="notice" role="status">{{ notice }}</p>
     </template>
   </section>
@@ -90,6 +94,11 @@ const draft = computed(() => workspace.getCreationDraft(props.novel.id))
 const recovery = computed(() => sceneRecovery(draft.value))
 const storyConfirmed = computed(() => { try { if (!draft.value) return false; requireConfirmedStory(draft.value); return true } catch { return false } })
 const selectedId = ref(''), busy = ref(false), error = ref(''), notice = ref(''), generating = ref(false), liveOutput = ref('')
+// 生成中逐个场景先出现：每个场景的 JSON 一闭合就能解析，不等整批返回；解析不出时仍显示原始输出。
+const liveScenes = computed<ScenePlan[]>(() => {
+  if (!liveOutput.value) return []
+  try { return recoverPartialScenePlans(liveOutput.value, selectedId.value, 'live', props.novel.characters.map(row => row.id)) } catch { return [] }
+})
 const availablePlans = computed(() => (draft.value?.chapterPlans || []).filter(plan => plan.status !== 'archived' && (plan.endNumber ?? plan.number) === plan.number))
 const requestedPlanId = computed(() => props.initialPlanId)
 const selectedPlan = computed(() => availablePlans.value.find(plan => plan.id === selectedId.value))
@@ -526,13 +535,13 @@ onBeforeUnmount(() => {
 </script>
 <style scoped>
 .scene-planner { display: grid; gap: 16px; max-width: 1100px; }
-.scene-planner p { line-height: 1.8; } .partial-output { max-height:300px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; } .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.scene-planner p { line-height: 1.8; } .live-scenes { display: grid; gap: 8px; } .live-scenes-head { margin: 0; color: var(--ink-3); font-size: 13px; } .live-scene { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); animation: live-scene-in .3s ease both; } .live-scene strong { font: 600 14px var(--f-serif); } .live-scene p { margin: 4px 0 0; color: var(--ink-2); font-size: 13px; } @keyframes live-scene-in { from { opacity: 0; transform: translateY(4px); } } .partial-output { max-height:300px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; } .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 label { display: grid; gap: 6px; } fieldset { min-inline-size: 0; margin: 14px 0; padding: 16px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--paper); }
 input, textarea, select, button { font: inherit; color: var(--ink); background: var(--desk); border: 1px solid var(--line-2); border-radius: 6px; padding: 9px; box-sizing: border-box; }
 textarea, select { width: 100%; } textarea { resize: vertical; } .actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
 input, textarea, select { background: var(--paper); line-height: 1.6; }
 input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--zhu); outline-offset: 2px; }
-.confirm-action { color: #fff8ef; background: var(--zhu); border-color: var(--zhu); }
+.confirm-action { color: #fff8ef; background: var(--zhu-solid); border-color: var(--zhu); }
 button { cursor: pointer; } button:disabled { opacity: .5; cursor: default; } small { font-size: .8em; font-weight: normal; } .error { color: var(--zhu); }
 @media (max-width: 700px) { .field-grid { grid-template-columns: minmax(0, 1fr); } }
 </style>

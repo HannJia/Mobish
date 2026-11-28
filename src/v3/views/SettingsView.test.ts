@@ -933,4 +933,17 @@ describe('模型连接测试结果持久化', () => {
     await vi.waitFor(() => expect(reopened.get('.model-card').text()).toContain('连接正常'))
     expect(reopened.get('.model-tested-at').attributes('datetime')).toBe(testedAt)
   })
+
+  it('shows official website, QQ group info/QR in About and API key shortcut + SiliconFlow invite link in model form', async () => {
+    const wrapper = mountSettings()
+    await wrapper.findAll('button').find(b => b.text().includes('添加模型'))?.trigger('click')
+    await wrapper.findAll('button').find(b => b.text().trim() === '硅基流动')?.trigger('click')
+    expect(wrapper.get('.api-key-console-link').attributes('href')).toBe('https://cloud.siliconflow.cn/account/ak')
+    expect(wrapper.html()).toContain('https://cloud.siliconflow.cn/i/KSMskNN6')
+    await wrapper.findAll('button').find(b => b.text().trim() === '关于')?.trigger('click')
+    expect(wrapper.html()).toContain('https://mobish.cn')
+    expect(wrapper.html()).toContain('https://qm.qq.com/q/2qF0X0aCMU')
+    expect(wrapper.get('.about-community').text()).toContain('865875979')
+    expect(wrapper.find('.about-community-qr img').exists()).toBe(true)
+  })
 })

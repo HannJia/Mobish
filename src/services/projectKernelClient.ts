@@ -5,6 +5,7 @@ import type { ProjectHistoryRunsPage, ProjectHistoryCapacity, ProjectHistoryClea
 
 let library: ProjectLibraryState | null = null
 let initialized = false
+let hadSnapshotBeforeInit: boolean | null = null
 let initializing: Promise<void> | null = null
 let pending: Promise<unknown> = Promise.resolve()
 export const projectIndexWarnings = ref<Array<{ projectId: string; message: string }>>([])
@@ -12,6 +13,7 @@ const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
 export function usesProjectKernel(): boolean { return initialized }
 export function hasProjectKernelBridge(): boolean { return typeof window !== 'undefined' && typeof window.electronAPI?.projectRequest === 'function' }
+export function hadProjectSnapshotBeforeInit(): boolean | null { return initialized ? hadSnapshotBeforeInit : null }
 
 export class ProjectKernelError extends Error {
   constructor(public readonly code: string, message: string) { super(message); this.name = 'ProjectKernelError' }
@@ -58,6 +60,7 @@ export async function initializeProjectKernel(): Promise<void> {
   if (initialized || !hasProjectKernelBridge()) return
   if (!initializing) initializing = (async () => {
     let current = checkedLibrary(await invoke<ProjectLibraryState>({ method: 'read' }), true)
+    hadSnapshotBeforeInit = current.backup !== null
     if (!current.backup) {
       const backup = createProjectBackup({ novels: [], knowledgeBases: [], chapterRevisions: [], inspirationSessions: [], reconstructionWorkspaces: [] })
       current = await invoke<ProjectLibraryState>({ method: 'commit', baseRevision: current.revision, backup, sync: { state: null, conflicts: [] } })

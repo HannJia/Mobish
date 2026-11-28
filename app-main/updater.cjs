@@ -2,6 +2,8 @@ const semver = require('semver')
 
 const RELEASES_URL = 'https://github.com/HannJia/mobish/releases'
 const LATEST_API = 'https://api.github.com/repos/HannJia/mobish/releases/latest'
+const OFFICIAL_UPDATE_BASE = 'https://dl.mobish.cn/'
+const OFFICIAL_DOWNLOAD_URL = 'https://mobish.cn/download/'
 const GITEE_RELEASES_URL = 'https://gitee.com/hannjia/Mobish/releases'
 const GITEE_API = 'https://gitee.com/api/v5/repos/hannjia/Mobish/releases'
 
@@ -44,6 +46,32 @@ function parseRelease(data, currentVersion, arch = 'x64', source = 'github', exp
   }
 }
 
+function parseOfficialManifest(yamlText, currentVersion, arch = 'x64', expectedTag,
+  baseUrl = OFFICIAL_UPDATE_BASE, fallbackMeta) {
+  // Read only top-level scalar metadata. Electron-updater parses the full manifest.
+  const fields = new Map()
+  for (const line of yamlText.replace(/^\uFEFF/, '').split(/\r?\n/)) {
+    const entry = /^(version|releaseDate):(?:[ \t]+(.*))?$/.exec(line)
+    if (!entry) continue
+    const [, key, value = ''] = entry
+    if (fields.has(key)) throw new Error('官网更新清单包含重复字段。')
+    const scalar = /^(?:"([^"]*)"|'([^']*)'|([^"'#][^#]*?))(?:[ \t]+#.*)?$/.exec(value.trim())
+    fields.set(key, scalar?.slice(1).find(part => part !== undefined) || '')
+  }
+  const rawVersion = fields.get('version')
+  const version = /^\d+\.\d+\.\d+$/.test(rawVersion) ? semver.valid(rawVersion) : null
+  if (!version) throw new Error('官网更新清单的版本号无效，或不是正式版本。')
+  const tag = 'v' + version
+  if (expectedTag && tag !== expectedTag) throw new Error('官网备用源尚未同步同一版本的更新文件。')
+  if (!semver.gt(version, currentVersion)) return null
+  return {
+    version, tag, source: 'official', url: OFFICIAL_DOWNLOAD_URL, feedUrl: baseUrl,
+    installer: 'mobish-' + version + '.exe', installerSize: undefined,
+    notes: fallbackMeta?.notes || '', publishedAt: fallbackMeta?.publishedAt || fields.get('releaseDate') || '',
+    canDownload: arch === 'x64',
+  }
+}
+
 function validateManifest(info, release) {
   if (!info || info.version !== release.version || !Array.isArray(info.files) || info.files.length !== 1) {
     throw new Error('更新清单与发布版本不一致，请稍后重新检查。')
@@ -66,7 +94,7 @@ function publicRelease(release) {
 
 function createUpdateController(options) {
   const { supported, currentVersion, fetchLatest, getUpdater, publish, prepareInstall,
-    allowQuit, savePreference, openExternal, fetchGitee, giteeStaticBase, makeTransport,
+    allowQuit, savePreference, openExternal, fetchOfficial, officialBase, fetchGitee, giteeStaticBase, makeTransport,
     verifyDownload, checkTimeoutMs = 15000, arch = 'x64' } = options
   let release = null
   let updater = null
@@ -174,6 +202,32 @@ function createUpdateController(options) {
     const data = await lookup(fetchGitee, tag, signal)
     return parseRelease(data, currentVersion, arch, 'gitee', tag, giteeStaticBase)
   }
+  async function lookupOfficial(tag, signal, fallbackMeta) {
+    const yaml = await lookup(fetchOfficial, undefined, signal)
+    return parseOfficialManifest(yaml, currentVersion, arch, tag, officialBase, fallbackMeta)
+  }
+  async function tryFallback(primary, error, useRelease, signal) {
+    const attempts = []
+    if (fetchOfficial && (!primary || primary.source === 'github')) {
+      attempts.push(() => lookupOfficial(primary?.tag, signal, primary))
+    }
+    if (fetchGitee && primary?.source !== 'gitee') {
+      attempts.push(() => lookupGitee(primary?.tag, signal))
+    }
+    let failure = error
+    for (const attempt of attempts) {
+      signal?.throwIfAborted()
+      try {
+        const fallback = await attempt()
+        signal?.throwIfAborted()
+        if (fallback) await useRelease(fallback)
+        return
+      } catch (error) {
+        failure = error
+      }
+    }
+    throw failure
+  }
   async function check() {
     if (disposed || !supported || ['downloaded', 'installing', 'downloading'].includes(state.phase)) return snapshot()
     await exclusive(async () => {
@@ -189,13 +243,11 @@ function createUpdateController(options) {
           release = parseRelease(await lookup(fetchLatest), currentVersion, arch)
           if (release && arch === 'x64') await prepareRelease(release)
         } catch (error) {
-          if (!fetchGitee) throw error
-          const fallback = await lookupGitee(release?.tag)
-          if (fallback) {
+          await tryFallback(release, error, async fallback => {
             release ||= fallback
             if (arch === 'x64') await prepareRelease(fallback)
             release = fallback
-          }
+          })
         }
         set({
           phase: release ? 'available' : 'current', release: publicRelease(release),
@@ -224,28 +276,31 @@ function createUpdateController(options) {
       set({ phase: 'downloading', percent: 0, error: '', transferred: 0, total: 0, bytesPerSecond: 0 })
       const client = ensureUpdater()
       async function downloadRelease() {
-        const files = await client.downloadUpdate(downloadToken)
-        await verifyDownload?.(files, installerManifest)
-        downloadAbort.signal.throwIfAborted()
+        try {
+          const files = await client.downloadUpdate(downloadToken)
+          await verifyDownload?.(files, installerManifest)
+          downloadAbort.signal.throwIfAborted()
+        } catch (error) {
+          await client.downloadedUpdateHelper?.clear()
+          throw error
+        }
       }
       try {
         try {
           await downloadRelease()
         } catch (error) {
-          await client.downloadedUpdateHelper?.clear()
-          if (cancelled || release.source !== 'github' || !fetchGitee) throw error
           ready = false
           downloadToken = null
-          const fallback = await lookupGitee(release.tag, downloadAbort.signal)
-          await prepareRelease(fallback, downloadAbort.signal)
-          release = fallback
-          set({ release: publicRelease(release), percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 })
-          await downloadRelease()
+          await tryFallback(release, error, async fallback => {
+            await prepareRelease(fallback, downloadAbort.signal)
+            release = fallback
+            set({ release: publicRelease(release), percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 })
+            await downloadRelease()
+          }, downloadAbort.signal)
         }
         set({ phase: 'downloaded', percent: 100 })
       } catch (error) {
         ready = false
-        await client.downloadedUpdateHelper?.clear()
         if (cancelled) set({ phase: 'idle', percent: 0, transferred: 0, total: 0, bytesPerSecond: 0, error: '' })
         else fail(error)
       } finally {
@@ -323,4 +378,5 @@ function createUpdateController(options) {
   }
 }
 
-module.exports = { createUpdateController, parseRelease, releaseVersion, validateManifest, RELEASES_URL, LATEST_API, GITEE_API }
+module.exports = { createUpdateController, parseRelease, parseOfficialManifest, releaseVersion, validateManifest,
+  RELEASES_URL, LATEST_API, GITEE_API, OFFICIAL_UPDATE_BASE, OFFICIAL_DOWNLOAD_URL }

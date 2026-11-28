@@ -18,8 +18,9 @@
       <i :class="displayStatus === 'finalized' || gateReady ? 'ok' : session.workflow.value?.blockers.length ? 'warn' : 'todo'" />
       <span>定稿检查 · {{ displayStatus === 'finalized' ? '已定稿' : gateReady ? '可提交定稿' : session.workflow.value?.blockers.length ? `${session.workflow.value.blockers.length} 处阻塞` : '待核对' }}</span>
     </button>
-    <button type="button" class="m-btn top-gate-btn top-review-btn" :title="deskReview.detail" :disabled="busy || locked || !session.content.value.trim()" @click="reviewChapter"><V3Icon name="refresh" size="s" />全章审校</button>
-    <button type="button" class="m-btn zhu top-gate-btn" :title="deskReview.detail" :disabled="busy || !session.workflow.value?.primary || locked" @click="openCompletion"><V3Icon name="stamp" size="s" />{{ primaryLabel }} · 核对</button>
+    <button type="button" class="m-btn top-gate-btn top-review-btn" data-guide="write.review" :title="deskReview.detail" :disabled="busy || locked || !session.content.value.trim()" @click="reviewChapter"><V3Icon name="refresh" size="s" />全章审校</button>
+    <button type="button" class="m-btn zhu top-gate-btn" data-guide="write.finalize" :title="deskReview.detail" :disabled="busy || !session.workflow.value?.primary || locked" @click="openCompletionWithGuide"><V3Icon name="stamp" size="s" />{{ primaryLabel }} · 核对</button>
+    <GuideBeacon :visible="writeBeacons.includes('write.finalize')" beacon-id="write.finalize" />
     <span class="top-sep" aria-hidden="true" />
     <div class="mode-wrap">
       <div class="m-seg" role="group" aria-label="写作模式">
@@ -27,7 +28,8 @@
         <button type="button" :class="{ on: session.novel.value?.writingMode === 'ai' }" :disabled="busy" @click="setMode('ai')">协作</button>
         <button type="button" :disabled="busy" @click="openAuto">自动</button>
       </div>
-      <button type="button" class="m-ibtn mode-info" aria-label="三种写作模式的区别" :aria-expanded="modeInfoOpen" @click="modeInfoOpen = !modeInfoOpen"><V3Icon name="info" size="s" /></button>
+      <button type="button" class="m-ibtn mode-info" data-guide="write.mode" aria-label="三种写作模式的区别" :aria-expanded="modeInfoOpen" @click="toggleModeInfo"><V3Icon name="info" size="s" /></button>
+      <GuideBeacon :visible="writeBeacons.includes('write.mode')" beacon-id="write.mode" />
       <div class="mode-pop" :class="{ open: modeInfoOpen }" role="tooltip">
         <strong>写作模式 · 区别在于谁来写正文</strong>
         <div><b>主笔</b><p>你写正文，AI 提供批注、检索、选区候选与审校。</p></div>
@@ -36,7 +38,7 @@
         <small><V3Icon name="lock" size="s" />AI 正文先是候选；故事变化需逐条确认后入典。</small>
       </div>
     </div>
-    <button class="top-save" type="button" :disabled="session.saving.value || locked" aria-label="保存正文" @click="save"><i :class="session.saved.value ? 'ok' : 'warn'" />{{ session.saving.value ? '保存中…' : session.saved.value ? '已保存' : '未保存' }}</button>
+    <button class="top-save" data-guide="write.save" type="button" :disabled="session.saving.value || locked" aria-label="保存正文" @click="save"><i :class="session.saved.value ? 'ok' : 'warn'" />{{ session.saving.value ? '保存中…' : session.saved.value ? '已保存' : '未保存' }}</button>
   </Teleport>
   <Teleport defer to="#v3-view-tools">
     <button type="button" class="m-ibtn" :class="{ 'view-on': sideOpen && !focused }" title="目录" aria-label="切换目录" :aria-pressed="sideOpen && !focused" @click="toggleSide"><V3Icon name="sideL" /></button>
@@ -48,8 +50,8 @@
       :title="foreshadowAlerts.map(alert => `${alert.title}：${alert.text}`).join('；')">伏笔提醒 {{ foreshadowAlerts.length }}</router-link>
     <span class="status-it"><V3Icon name="type" size="s" />本章 <b class="m-num">{{ wordCount.toLocaleString() }}</b> 字 · 目标 {{ lengthPolicy.minWords }}–{{ lengthPolicy.maxWords }}</span>
     <div ref="typographyControl" class="write-type-control" @click.stop @keydown.esc.stop.prevent="typographyOpen = false">
-      <button type="button" class="status-it write-type-trigger" aria-label="正文排版" title="正文排版"
-        :aria-expanded="typographyOpen" @click="typographyOpen = !typographyOpen"><V3Icon name="type" size="s" />正文排版</button>
+      <button type="button" class="status-it write-type-trigger" data-guide="write.type" aria-label="正文排版" title="正文排版"
+        :aria-expanded="typographyOpen" @click="toggleTypography"><V3Icon name="type" size="s" />正文排版</button>
       <section v-if="typographyOpen" class="write-type-pop" role="dialog" aria-label="正文排版设置">
         <header><strong>正文排版</strong><button type="button" class="m-ibtn" title="恢复默认排版" aria-label="恢复默认排版" @click="resetTypography"><V3Icon name="refresh" size="s" /></button></header>
         <label class="write-type-field" for="write-font-size"><span>字号</span><output>{{ typography.fontSize }} px</output>
@@ -64,8 +66,19 @@
           <input id="write-letter-spacing" type="range" min="0" max="0.12" step="0.01" :value="typography.letterSpacing" aria-label="字间距"
             @input="setTypography('letterSpacing', Number(($event.target as HTMLInputElement).value))">
         </label>
+        <label class="write-type-toggle">
+          <span>手机阅读宽度（390px）</span>
+          <input type="checkbox" :checked="mobilePreview" aria-label="手机阅读宽度预览" @change="setMobilePreview(($event.target as HTMLInputElement).checked)">
+        </label>
       </section>
     </div>
+    <button type="button" class="status-it write-type-trigger" data-guide="write.mobile" :class="{ on: mobilePreview }" :aria-pressed="mobilePreview"
+      aria-label="手机阅读宽度预览" title="按手机阅读宽度（390px）预览段落换行" @click="setMobilePreview(!mobilePreview)">
+      {{ mobilePreview ? '退出手机预览' : '手机预览' }}
+    </button>
+    <GuideBeacon :visible="writeBeacons.includes('write.type')" beacon-id="write.type" />
+    <GuideBeacon :visible="writeBeacons.includes('write.margin')" beacon-id="write.margin" />
+    <GuideBeacon :visible="writeBeacons.includes('write.candidate')" beacon-id="write.candidate" />
     <span v-if="ai.statusText.value" class="status-it status-note" :title="ai.statusText.value">{{ ai.statusText.value }}</span>
   </Teleport>
 
@@ -75,7 +88,7 @@
   <div v-else class="write-page" :class="{ 'no-side': !sideOpen || focused, 'no-desk': !deskOpen || focused, 'is-focused': focused }">
     <aside v-if="sideOpen && !focused" class="write-side tree-side" aria-label="章节目录">
       <div class="side-head"><strong>目录</strong><button type="button" class="m-ibtn" title="新建章节" aria-label="新建章节" :disabled="busy" @click="addChapter"><V3Icon name="plus" size="s" /></button></div>
-      <div class="chapter-tree">
+      <div ref="chapterTreeEl" class="chapter-tree">
         <section v-for="group in chapterGroups" :key="group.key" class="tree-volume">
           <button type="button" class="volume-head" :aria-expanded="!closedGroups.has(group.key)" @click="toggleGroup(group.key)"><V3Icon :name="closedGroups.has(group.key) ? 'chevR' : 'chevD'" size="s" /><span>{{ group.label }}</span><small v-if="group.chapters.length">{{ group.chapters[0].chapterIndex + 1 }}–{{ group.chapters[group.chapters.length - 1].chapterIndex + 1 }}</small></button>
           <template v-if="!closedGroups.has(group.key)">
@@ -109,7 +122,11 @@
         <router-link v-if="previousPendingCanon.route" class="m-btn xs" :to="previousPendingCanon.route">去确认上一章入典</router-link>
       </div>
       <div v-if="displayStatus === 'finalized'" class="write-banner finalized-banner"><V3Icon :name="locked ? 'lock' : 'check'" size="s" /><span>{{ locked ? '本章已锁定，正文只读。' : '本章已定稿。仍可修订，保存修改后需要重新审校。' }}</span></div>
-      <section ref="paper" class="paper" :class="{ 'with-margins': showMargins }">
+      <section ref="paper" class="paper" :class="{ 'with-margins': showMargins, 'mobile-preview': mobilePreview }">
+        <div v-if="mobilePreview" class="mobile-preview-bar" role="status">
+          <span>手机阅读宽度预览（390px）· 便于检查段落长度与换行</span>
+          <button type="button" class="m-link" @click="setMobilePreview(false)">恢复常规稿纸</button>
+        </div>
         <header class="paper-head">
           <div class="paper-kicker" :aria-label="'第' + (session.chapter.value.chapterIndex + 1) + '章'">{{ chapterHeading(session.chapter.value.chapterIndex) }}</div>
           <input v-model="session.title.value" class="chapter-title" :readonly="locked || busy" aria-label="章节标题" placeholder="章节标题" @blur="saveTitle">
@@ -120,7 +137,7 @@
             <span><V3Icon name="clock" size="s" />{{ storyTimeLabel }}</span>
             <button v-if="session.chapter.value.versions?.length" type="button" class="m-link" :disabled="versionBusy" @click="openVersionPanel">版本历史 {{ session.chapter.value.versions.length }}</button>
           </div>
-          <span v-if="showMargins && marginSummary" class="paper-mnote">{{ marginSummary }}</span>
+          <button v-if="showMargins && marginSummary" type="button" class="paper-mnote" :title="marginOffCount ? '跳到当前屏幕外的批注或候选' : '定位到第一条批注或候选'" @click="revealMargin()">{{ marginSummary }}<span v-if="marginOffCount" class="paper-mnote-go" aria-hidden="true">{{ marginOff.below.length ? ' ↓' : ' ↑' }}</span></button>
         </header>
         <div v-if="versionOpen" class="version-panel">
           <div class="version-panel-head"><strong>正文历史版本</strong><button type="button" class="m-btn xs" @click="versionOpen = false">收起</button></div>
@@ -136,21 +153,23 @@
           <PlainTextEditor ref="editor" v-model="session.content.value" :readonly="locked || busy" :marks="ai.currentMarks.value" placeholder="从这里开始写下本章……" @selection="onSelection" @scroll="onEditorHostScroll" @mark-click="onMarkClick" @layout="scheduleMargins" @ready="revealRouteEvidence" />
         </div>
         <div v-if="showMargins" class="paper-margins" aria-label="页边批注与候选" :style="{ top: marginViewport.top + 'px', height: marginViewport.height + 'px' }">
+          <button v-if="marginOff.above.length" type="button" class="margin-edge top" @click="revealMargin(marginOff.above[marginOff.above.length - 1])">↑ 上方还有 {{ marginOff.above.length }} 项</button>
+          <button v-if="marginOff.below.length" type="button" class="margin-edge bottom" @click="revealMargin(marginOff.below[0])">↓ 下方还有 {{ marginOff.below.length }} 项</button>
           <div v-for="item in marginItems" :key="item.id" :ref="value => setMarginElement(item.id, value)" class="margin-item" :style="{ top: (marginPositions[item.id] || 0) + 'px', visibility: marginPositions[item.id] === undefined ? 'hidden' : undefined }">
-            <button v-if="item.finding" type="button" class="margin-note" :class="[item.finding.severity, { foreshadowing: item.finding.type === 'foreshadowing', done: !['open', 'deferred'].includes(item.finding.status), stale: item.stale, on: selectedFindingId === item.finding.id }]" @click="onMarkClick(item.id)"><b>{{ item.number }}</b>{{ item.finding.suggestedFix || item.finding.title }}<span>{{ findingTypeLabel[item.finding.type] }} · {{ item.stale ? '待重审' : severityLabel[item.finding.severity] }}</span></button>
+            <button v-if="item.finding" type="button" class="margin-note" :data-guide="firstMarginFindingId === item.id ? 'write.margin' : undefined" :class="[item.finding.severity, { foreshadowing: item.finding.type === 'foreshadowing', done: !['open', 'deferred'].includes(item.finding.status), stale: item.stale, on: selectedFindingId === item.finding.id }]" @click="onMarkClick(item.id); onboarding.markSeen('write.margin')"><b>{{ item.number }}</b>{{ item.finding.suggestedFix || item.finding.title }}<span>{{ findingTypeLabel[item.finding.type] }} · {{ item.stale ? '待重审' : severityLabel[item.finding.severity] }}</span></button>
             <article v-else-if="item.candidate" class="margin-slip">
               <div class="slip-head"><span>{{ candidateTypeLabel[item.candidate.type] }}候选</span><span>未入典</span></div>
               <p class="slip-story">{{ previewCandidate(item.candidate).title }}</p><p class="slip-detail">{{ previewCandidate(item.candidate).detail }}</p>
               <button type="button" class="m-btn xs" @click="showCandidate(item.id)">核对候选 <V3Icon name="chevR" size="s" /></button>
             </article>
-            <article v-else-if="item.revisionId && revisionMap[item.revisionId]" class="margin-slip">
+            <article v-else-if="item.revisionId && revisionMap[item.revisionId]" class="margin-slip" :data-guide="firstMarginRevisionId === item.id ? 'write.candidate' : undefined">
               <div class="slip-head"><span>正文修订候选</span><span>未入正文</span></div>
               <div class="slip-body"><del v-if="revisionMap[item.revisionId].before">{{ revisionMap[item.revisionId].before }}</del><ins>{{ revisionMap[item.revisionId].after || '（删除此段）' }}</ins></div>
               <div class="slip-acts">
-                <button type="button" class="m-btn xs pri" :disabled="busy || locked" @click="acceptRevision(item.revisionId)">采纳</button>
-                <button type="button" class="m-btn xs" :disabled="busy || locked" title="放弃这一版并按同样要求重新生成" @click="regenerateRevision(item.revisionId)">换一版</button>
-                <button type="button" class="m-btn xs" title="从页边收起，稍后在“候选”中处理" @click="parkRevision(item.revisionId)">暂存</button>
-                <button type="button" class="m-btn xs" :disabled="busy" @click="rejectRevision(item.revisionId)">不用</button>
+                <button type="button" class="m-btn xs pri" :disabled="busy || locked" @click="onboarding.markSeen('write.candidate'); acceptRevision(item.revisionId)">采纳</button>
+                <button type="button" class="m-btn xs" :disabled="busy || locked" title="放弃这一版并按同样要求重新生成" @click="onboarding.markSeen('write.candidate'); regenerateRevision(item.revisionId)">换一版</button>
+                <button type="button" class="m-btn xs" title="从页边收起，稍后在“候选”中处理" @click="onboarding.markSeen('write.candidate'); parkRevision(item.revisionId)">暂存</button>
+                <button type="button" class="m-btn xs" :disabled="busy" @click="onboarding.markSeen('write.candidate'); rejectRevision(item.revisionId)">不用</button>
               </div>
             </article>
           </div>
@@ -160,7 +179,7 @@
 
     <aside v-show="deskOpen && !focused" class="write-side desk-side" aria-label="案头">
       <div class="desk-tabs" role="tablist" aria-label="案头">
-        <button v-for="tab in tabs" :id="'desk-tab-' + tab.id" :key="tab.id" type="button" role="tab" :aria-selected="activeTab === tab.id" :aria-controls="'desk-panel-' + tab.id" :tabindex="activeTab === tab.id ? 0 : -1" :class="{ on: activeTab === tab.id }" @click="activeTab = tab.id" @keydown="onTabKey">{{ tab.label }}<b v-if="tab.count">{{ tab.count }}</b></button>
+        <button v-for="tab in tabs" :id="'desk-tab-' + tab.id" :key="tab.id" type="button" role="tab" :data-guide="tab.id === 'review' ? 'write.margin.desk' : tab.id === 'candidate' ? 'write.candidate.desk' : undefined" :aria-selected="activeTab === tab.id" :aria-controls="'desk-panel-' + tab.id" :tabindex="activeTab === tab.id ? 0 : -1" :class="{ on: activeTab === tab.id }" @click="activeTab = tab.id" @keydown="onTabKey">{{ tab.label }}<b v-if="tab.count">{{ tab.count }}</b></button>
       </div>
 
       <section v-if="activeTab === 'review'" id="desk-panel-review" class="desk-panel" role="tabpanel" aria-labelledby="desk-tab-review">
@@ -293,9 +312,10 @@
   <div v-if="selectedText && selectionRect && !busy && !styleSample" ref="selectionTools" class="selection-tools" role="toolbar" aria-label="选区 AI 操作" :style="selectionToolStyle" @mousedown.prevent>
     <span>{{ selectedText.length }} 字</span>
     <template v-if="!locked">
-      <button v-for="item in selectionActions" :key="item.mode" type="button" @click="runSelection(item.mode)">{{ item.label }}</button><i />
-      <button type="button" @click="openSelectionDirections">接下来怎么写</button>
-      <button type="button" @click="openSelectionChat('check')">设定核对</button><button type="button" @click="openSelectionChat('chat')">问 AI</button>
+      <button v-for="item in selectionActions" :key="item.mode" type="button" :data-guide="item.mode === 'rewrite' ? 'write.selection' : undefined" @click="onboarding.markSeen('write.selection'); runSelection(item.mode)">{{ item.label }}</button><i />
+      <button type="button" @click="onboarding.markSeen('write.selection'); openSelectionDirections()">接下来怎么写</button>
+      <button type="button" @click="onboarding.markSeen('write.selection'); openSelectionChat('check')">设定核对</button><button type="button" @click="onboarding.markSeen('write.selection'); openSelectionChat('chat')">问 AI</button>
+      <GuideBeacon :visible="writeBeacons.includes('write.selection')" beacon-id="write.selection" />
     </template>
     <button type="button" @click="openSampleStyle">提炼写法</button>
   </div>
@@ -333,6 +353,9 @@ import { errorText } from '@/services/userFacingError'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import V3Icon from '../components/V3Icon.vue'
+import GuideBeacon from '../components/GuideBeacon.vue'
+import { useOnboardingStore } from '@/stores/onboarding'
+import type { GuideBeaconId } from '@/services/onboardingGuide'
 import PlainTextEditor, { type SelectionInfo } from '../editor/PlainTextEditor.vue'
 import BookChat from '@/v3/write/BookChat.vue'
 import CharacterDeskPanel from '@/v3/write/CharacterDeskPanel.vue'
@@ -381,7 +404,7 @@ const sideOpen = ref(window.innerWidth > 800), deskOpen = ref(window.innerWidth 
 const closedGroups = ref(new Set<string>()), selectedSceneId = ref(''), modeInfoOpen = ref(false)
 type TypographySetting = 'fontSize' | 'paragraphSpacing' | 'letterSpacing'
 const typographyKey = 'mojian-v3-writing-typography'
-const defaultTypography = { fontSize: 18, paragraphSpacing: 0.9, letterSpacing: 0.03 }
+const defaultTypography = { fontSize: 18, paragraphSpacing: 0.9, letterSpacing: 0.03, mobilePreview: false }
 function readTypography() {
   try {
     const saved = JSON.parse(localStorage.getItem(typographyKey) || 'null') as Partial<typeof defaultTypography> | null
@@ -389,16 +412,48 @@ function readTypography() {
     const clamp = (value: unknown, fallback: number, min: number, max: number) =>
       typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback
     return { fontSize: clamp(saved.fontSize, 18, 14, 30), paragraphSpacing: clamp(saved.paragraphSpacing, 0.9, 0, 2),
-      letterSpacing: clamp(saved.letterSpacing, 0.03, 0, 0.12) }
+      letterSpacing: clamp(saved.letterSpacing, 0.03, 0, 0.12), mobilePreview: saved.mobilePreview === true }
   } catch { return { ...defaultTypography } }
 }
 const typography = ref(readTypography())
+const mobilePreview = computed(() => typography.value.mobilePreview)
 const typographyOpen = ref(false), typographyControl = ref<HTMLElement>()
 const typographyStyle = computed(() => ({ '--write-font-size': `${typography.value.fontSize}px`,
   '--write-paragraph-spacing': `${typography.value.paragraphSpacing}em`, '--write-letter-spacing': `${typography.value.letterSpacing}em` }))
+function persistTypography() {
+  try { localStorage.setItem(typographyKey, JSON.stringify(typography.value)) } catch { /* Keep the current session setting when storage is unavailable. */ }
+}
 function setTypography(key: TypographySetting, value: number) {
   typography.value = { ...typography.value, [key]: value }
-  try { localStorage.setItem(typographyKey, JSON.stringify(typography.value)) } catch { /* Keep the current session setting when storage is unavailable. */ }
+  persistTypography()
+}
+const onboarding = useOnboardingStore()
+const firstMarginFindingId = computed(() => marginItems.value.find(item => item.finding)?.id ?? null)
+const firstMarginRevisionId = computed(() => marginItems.value.find(item => item.revisionId && revisionMap.value[item.revisionId])?.id ?? null)
+const writeBeacons = computed(() => {
+  const candidates: GuideBeaconId[] = ['write.mode', 'write.type']
+  if (selectedText.value && selectionRect.value && !locked.value && !busy.value) candidates.push('write.selection')
+  if (openFindings.value.length > 0) candidates.push('write.margin')
+  if (Object.keys(revisionMap.value).length > 0) candidates.push('write.candidate')
+  if (!locked.value && session.workflow.value?.primary && session.content.value.trim().length > 0) candidates.push('write.finalize')
+  return onboarding.visibleBeaconsFor(candidates, 2)
+})
+function openCompletionWithGuide() {
+  onboarding.markSeen('write.finalize')
+  openCompletion()
+}
+function toggleModeInfo() {
+  modeInfoOpen.value = !modeInfoOpen.value
+  onboarding.markSeen('write.mode')
+}
+function toggleTypography() {
+  typographyOpen.value = !typographyOpen.value
+  onboarding.markSeen('write.type')
+}
+function setMobilePreview(enabled: boolean) {
+  typography.value = { ...typography.value, mobilePreview: enabled }
+  onboarding.markSeen('write.type')
+  persistTypography()
 }
 function resetTypography() {
   typography.value = { ...defaultTypography }
@@ -496,6 +551,31 @@ const chapterGroups = computed(() => {
   return groups
 })
 const currentGroup = computed(() => chapterGroups.value.find(group => group.chapters.some(chapter => chapter.id === chapterId.value)))
+// 目录默认只展开当前章所在的卷，其余卷折叠；之后作者手动展开或折叠的状态保留，切到别的卷的章时只补展开那一卷，并把当前章滚到可见处。
+const chapterTreeEl = ref<HTMLElement>()
+let treeCollapsedFor = ''
+const treeTouched = new Set<string>()
+let treeAutoKey = ''
+function revealCurrentChapterInTree() {
+  void nextTick(() => chapterTreeEl.value?.querySelector<HTMLElement>('.tree-item.on')?.scrollIntoView?.({ block: 'center' }))
+}
+watch([novelId, () => currentGroup.value?.key, () => chapterGroups.value.length], () => {
+  const current = currentGroup.value
+  if (!current) return
+  if (treeCollapsedFor !== novelId.value) {
+    treeCollapsedFor = novelId.value
+    treeTouched.clear()
+    closedGroups.value = new Set(chapterGroups.value.filter(group => group.key !== current.key).map(group => group.key))
+  } else {
+    const next = new Set(closedGroups.value)
+    next.delete(current.key)
+    // 上一卷是自动展开的、作者没碰过，就随着离开自动收起；作者手动展开过的保留。
+    if (treeAutoKey && treeAutoKey !== current.key && !treeTouched.has(treeAutoKey)) next.add(treeAutoKey)
+    closedGroups.value = next
+  }
+  treeAutoKey = current.key
+  revealCurrentChapterInTree()
+}, { immediate: true, flush: 'post' })
 const groupFinalized = computed(() => currentGroup.value?.chapters.filter(chapter => ['finalized', 'locked'].includes(chapter.status)).length || 0)
 const groupProgress = computed(() => currentGroup.value?.chapters.length ? groupFinalized.value / currentGroup.value.chapters.length * 100 : 0)
 const displayStatus = computed(() => ai.reviewBusy.value ? 'reviewing' : !session.saved.value && !locked.value ? 'drafting' : session.workflow.value?.status || 'idea')
@@ -582,7 +662,7 @@ const marginItems = computed<MarginItem[]>(() => {
   for (const item of items) if (item.finding) item.number = ++number
   return items
 })
-const showMargins = computed(() => marginItems.value.length > 0)
+const showMargins = computed(() => !mobilePreview.value && marginItems.value.length > 0)
 // 页边底部摘要：只统计页边上看得到的项，数量为 0 的不显示。
 const marginSummary = computed(() => {
   const open = marginItems.value.filter(item => item.finding && !item.stale && ['open', 'deferred'].includes(item.finding.status)).length
@@ -591,6 +671,15 @@ const marginSummary = computed(() => {
   return [open && `${open} 条待处理`, stale && `${stale} 条待重审`, slips && `${slips} 份候选`].filter(Boolean).join(' · ')
 })
 const marginPositions = ref<Record<string, number>>({})
+// 滚出当前屏幕的页边项：页边只有汇总文字时，用它提示方向并支持一键跳转。
+const marginOff = ref<{ above: MarginItem[]; below: MarginItem[] }>({ above: [], below: [] })
+const marginOffCount = computed(() => marginOff.value.above.length + marginOff.value.below.length)
+function revealMargin(item?: MarginItem) {
+  const target = item ?? marginOff.value.below[0] ?? marginOff.value.above[marginOff.value.above.length - 1] ?? marginItems.value[0]
+  if (!target) return
+  editor.value?.revealRange(target.start, target.start, { focus: false })
+  scheduleMargins()
+}
 const marginViewport = ref({ top: 0, height: 0 })
 const marginElements = new Map<string, HTMLElement>()
 let marginFrame = 0, layoutObserver: ResizeObserver | undefined
@@ -607,6 +696,7 @@ function scheduleMargins() {
   marginFrame = requestAnimationFrame(() => {
     if (!showMargins.value) {
       marginPositions.value = {}
+      marginOff.value = { above: [], below: [] }
       return
     }
     if (!paper.value || !editor.value || !editorHost.value) return
@@ -615,14 +705,18 @@ function scheduleMargins() {
     marginViewport.value = { top: bounds.top - paperTop, height: bounds.height }
     let previousBottom = 0
     const positions: Record<string, number> = {}
+    const above: MarginItem[] = [], below: MarginItem[] = []
     for (const item of marginItems.value) {
       const element = marginElements.get(item.id), coords = editor.value.coordsAtOffset(item.start)
-      if (!element || !coords || coords.bottom < bounds.top || coords.top >= bounds.bottom) continue
+      if (!element || !coords) continue
+      if (coords.bottom < bounds.top) { above.push(item); continue }
+      if (coords.top >= bounds.bottom) { below.push(item); continue }
       const top = Math.max(coords.top - bounds.top - 4, previousBottom + 10)
       positions[item.id] = top
       previousBottom = top + element.offsetHeight
     }
     marginPositions.value = positions
+    marginOff.value = { above, below }
   })
 }
 function onEditorHostScroll() {
@@ -744,6 +838,7 @@ function clearChatPrefill() {
   chatPrefillVersion.value++
 }
 function toggleGroup(key: string) {
+  treeTouched.add(key)
   const next = new Set(closedGroups.value)
   if (next.has(key)) next.delete(key); else next.add(key)
   closedGroups.value = next
@@ -751,16 +846,16 @@ function toggleGroup(key: string) {
 function toggleSide() {
   sideOpen.value = focused.value || !sideOpen.value
   focused.value = false
-  if (sideOpen.value && window.innerWidth <= 800) deskOpen.value = false
+  if (sideOpen.value && window.innerWidth <= 1120) deskOpen.value = false
 }
 function toggleDesk() {
   deskOpen.value = focused.value || !deskOpen.value
   focused.value = false
-  if (deskOpen.value && window.innerWidth <= 800) sideOpen.value = false
+  if (deskOpen.value && window.innerWidth <= 1120) sideOpen.value = false
 }
 function showDesk(tab: typeof activeTab.value) {
   focused.value = false; deskOpen.value = true; activeTab.value = tab
-  if (window.innerWidth <= 800) sideOpen.value = false
+  if (window.innerWidth <= 1120) sideOpen.value = false
 }
 function openScene(id: string) { selectedSceneId.value = id; showDesk('memory') }
 async function setMode(mode: 'manual' | 'ai') {
@@ -1077,7 +1172,7 @@ watch([paper, editorHost], (elements, previous) => {
   scheduleMargins()
 }, { flush: 'post' })
 function onWindowResize() {
-  if (window.innerWidth <= 800 && deskOpen.value) sideOpen.value = false
+  if (window.innerWidth <= 1120 && deskOpen.value) sideOpen.value = false
   selectionRect.value = null; scheduleMargins()
 }
 function onKey(event: KeyboardEvent) {
@@ -1127,18 +1222,18 @@ const previousPendingCanon = computed(() => {
 .foreshadow-chip:hover { text-decoration: underline; }
 .canon-reminder-banner { border-color: color-mix(in srgb, var(--jin) 45%, var(--line)); background: var(--jin-soft); }
 .canon-reminder-banner .m-btn { margin-left: auto; flex-shrink: 0; }
-.gate-canon-note { margin: 6px 0 10px; padding: 7px 10px; border-radius: 6px; background: var(--jin-soft); color: var(--ink-2); font-size: 12px; line-height: 1.5; }
-.lifecycle { display: flex; align-items: center; gap: 5px; color: var(--ink-4); font-size: 11px; }.lc-step { display: inline-flex; align-items: center; gap: 5px; }.lc-step i { width: 8px; height: 8px; border: 1px solid var(--line-2); border-radius: 50%; }.lc-step > span { display: none; }.lc-step.done i { background: var(--ink-3); border-color: var(--ink-3); }.lc-step.cur { color: var(--zhu); font-weight: 600; }.lc-step.cur i { background: var(--zhu); border-color: var(--zhu); box-shadow: 0 0 0 4px var(--zhu-soft); }.lc-step.cur > span { display: inline; }.lc-bar { width: 12px; height: 1px; background: var(--line-2); }
+.gate-canon-note { margin: 6px 0 10px; padding: 7px 10px; border-radius: 6px; background: var(--jin-soft); color: var(--ink-2); font-size: 13px; line-height: 1.5; }
+.lifecycle { display: flex; align-items: center; gap: 5px; color: var(--ink-4); font-size: 12px; }.lc-step { display: inline-flex; align-items: center; gap: 5px; }.lc-step i { width: 8px; height: 8px; border: 1px solid var(--line-2); border-radius: 50%; }.lc-step > span { display: none; }.lc-step.done i { background: var(--ink-3); border-color: var(--ink-3); }.lc-step.cur { color: var(--zhu); font-weight: 600; }.lc-step.cur i { background: var(--zhu-solid); border-color: var(--zhu); box-shadow: 0 0 0 4px var(--zhu-soft); }.lc-step.cur > span { display: inline; }.lc-bar { width: 12px; height: 1px; background: var(--line-2); }
 .mode-wrap { display: flex; align-items: center; position: relative; gap: 4px; }.mode-wrap .m-seg button { padding: 0 8px; }.mode-info { width: 22px; height: 26px; color: var(--ink-4); }
 .mode-pop { display: none; position: absolute; z-index: 100; right: 0; top: calc(100% + 8px); width: 350px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); box-shadow: var(--shadow-3); white-space: normal; font-size: 12px; }
-.mode-pop.open, .mode-wrap:has(.mode-info:hover) .mode-pop, .mode-wrap:has(.mode-info:focus-visible) .mode-pop { display: block; }.mode-pop > strong { color: var(--ink-2); font-size: 12px; }.mode-pop > div { display: grid; grid-template-columns: 35px 1fr; gap: 10px; margin-top: 12px; }.mode-pop b { font-size: 13px; }.mode-pop p { margin: 0; color: var(--ink-3); line-height: 1.65; }.mode-pop small { display: flex; gap: 6px; padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--line); font-size: 11px; color: var(--ink-3); }
+.mode-pop.open, .mode-wrap:has(.mode-info:hover) .mode-pop, .mode-wrap:has(.mode-info:focus-visible) .mode-pop { display: block; }.mode-pop > strong { color: var(--ink-2); font-size: 12px; }.mode-pop > div { display: grid; grid-template-columns: 35px 1fr; gap: 10px; margin-top: 12px; }.mode-pop b { font-size: 13px; }.mode-pop p { margin: 0; color: var(--ink-3); line-height: 1.65; }.mode-pop small { display: flex; gap: 6px; padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-3); }
 .top-save { display: flex; align-items: center; gap: 6px; color: var(--ink-3); font-size: 12px; }.top-save i { width: 6px; height: 6px; border-radius: 50%; background: var(--qing); }.top-save i.warn { background: var(--jin); }.view-on { color: var(--ink-2); }.status-note { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 .top-sep { width: 1px; height: 14px; background: var(--line-2); flex: none; }
 .top-gate-status { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--ink-2); font-size: 12px; white-space: nowrap; transition: background .12s, border-color .12s, color .12s; }
 .top-gate-status:hover:not(:disabled) { border-color: var(--line-2); color: var(--ink); background: var(--panel-2); }
 .top-gate-status i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .top-gate-status i.ok { background: var(--qing); }
-.top-gate-status i.warn { background: var(--zhu); }
+.top-gate-status i.warn { background: var(--zhu-solid); }
 .top-gate-status i.todo { background: var(--jin); }
 .top-gate-btn { height: 28px; padding: 0 10px; font-size: 12px; border-radius: 6px; gap: 5px; white-space: nowrap; }
 .write-type-control { position: relative; flex: none; }
@@ -1148,13 +1243,13 @@ const previousPendingCanon = computed(() => {
 .write-type-pop > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .write-type-pop > header strong { font-size: 13px; }
 .write-type-field { display: grid; grid-template-columns: 1fr auto; gap: 7px 12px; padding: 8px 0; color: var(--ink-2); font-size: 12px; }
-.write-type-field output { color: var(--ink-3); font: 11px var(--f-num); }
+.write-type-field output { color: var(--ink-3); font: 12px var(--f-num); }
 .write-type-field input { grid-column: 1 / -1; width: 100%; margin: 0; accent-color: var(--zhu); }
 .selection-tools { position: fixed; z-index: 60; display: flex; flex-wrap: wrap; width: max-content; box-sizing: border-box; align-items: center; justify-content: center; gap: 3px; padding: 5px 8px; border-radius: 8px; background: var(--rail); color: var(--rail-hi); box-shadow: var(--shadow-3); font: 12px/1.5 var(--f-ui); }
-.selection-tools > span { color: var(--rail-ink); font: 10px var(--f-num); padding: 0 6px; }.selection-tools button { padding: 6px 7px; border-radius: 4px; white-space: nowrap; }.selection-tools button:hover { background: #ffffff18; }.selection-tools button:disabled { opacity: .4; cursor: not-allowed; }.selection-tools i { height: 16px; border-left: 1px solid #ffffff30; margin: 0 3px; }
-.focus-hint { position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%); font-size: 12px; color: var(--ink-3); background: var(--paper); padding: 6px 12px; border-radius: 20px; box-shadow: var(--shadow-1); z-index: 30; }.is-focused .paper-margins { opacity: .4; transition: opacity .2s; }.is-focused .paper-margins:hover { opacity: 1; }
+.selection-tools > span { color: var(--rail-ink); font: 11px var(--f-num); padding: 0 6px; }.selection-tools button { padding: 6px 7px; border-radius: 4px; white-space: nowrap; }.selection-tools button:hover { background: #ffffff18; }.selection-tools button:disabled { opacity: .4; cursor: not-allowed; }.selection-tools i { height: 16px; border-left: 1px solid #ffffff30; margin: 0 3px; }
+.focus-hint { position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%); font-size: 13px; color: var(--ink-3); background: var(--paper); padding: 6px 12px; border-radius: 20px; box-shadow: var(--shadow-1); z-index: 30; }.is-focused .paper-margins { opacity: .4; transition: opacity .2s; }.is-focused .paper-margins:hover { opacity: 1; }
 .candidate-section-title { font-size: 12px; color: var(--ink-3); margin: 18px 0 10px; }.revision-diff { white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.8 var(--f-serif); max-height: 440px; overflow: auto; margin: 10px 0; }.revision-diff del { padding: 7px; background: var(--zhu-soft); margin-bottom: 8px; }.revision-diff ins { padding: 7px; }.revision-stale { color: var(--zhu) !important; font-size: 12px; line-height: 1.6; }
-.context-note { margin: 0 0 18px; font-size: 12px; color: var(--ink-3); line-height: 1.7; }.context-section { margin-bottom: 20px; }.context-section h4 { font: 600 12px var(--f-ui); color: var(--ink-3); margin: 0 0 10px; letter-spacing: .06em; }.memory-person { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); margin-bottom: 6px; }.memory-person > div { min-width: 0; }.memory-person strong { font-size: 13px; }.memory-person small { display: block; font-size: 11px; color: var(--ink-3); }.knowledge-chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }.knowledge-chips span { padding: 2px 6px; font-size: 10px; background: var(--panel-2); color: var(--ink-3); border-radius: 4px; overflow-wrap: anywhere; }.knowledge-chips .knows { background: var(--qing-soft); color: var(--qing); }.knowledge-chips .suspects { background: var(--jin-soft); color: var(--jin); }.knowledge-chips .false_belief { background: var(--zi-soft); color: var(--zi); }.context-warning { font-size: 11px; color: var(--zi); }.memory-promise { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px dashed var(--line); font-size: 12px; }.memory-promise i { background: var(--qing); }.memory-promise small { margin-left: auto; white-space: nowrap; color: var(--ink-4); font-size: 10px; }.memory-beat { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; margin: 8px 0; color: var(--ink-2); }.memory-beat .icon { color: var(--ink-4); margin-top: 3px; }.memory-scene { padding: 10px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; background: var(--paper); }.memory-scene.on { border-color: var(--zhu); }.memory-scene p { margin: 5px 0; color: var(--ink-2); }.memory-scene small { color: var(--ink-3); }.context-isolation { display: flex; gap: 8px; padding: 10px; border: 1px dashed var(--line-2); border-radius: 8px; font-size: 11px; color: var(--ink-3); line-height: 1.65; }.memory-panel :deep(.time-box) { margin: 0 0 18px; }.m-link { color: var(--dai); text-decoration: none; font-size: 12px; }.panel-title .m-link { display: inline-flex; align-items: center; }
+.context-note { margin: 0 0 18px; font-size: 13px; color: var(--ink-3); line-height: 1.7; }.context-section { margin-bottom: 20px; }.context-section h4 { font: 600 12px var(--f-ui); color: var(--ink-3); margin: 0 0 10px; letter-spacing: .06em; }.memory-person { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); margin-bottom: 6px; }.memory-person > div { min-width: 0; }.memory-person strong { font-size: 13px; }.memory-person small { display: block; font-size: 13px; color: var(--ink-3); }.knowledge-chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }.knowledge-chips span { padding: 2px 6px; font-size: 11px; background: var(--panel-2); color: var(--ink-3); border-radius: 4px; overflow-wrap: anywhere; }.knowledge-chips .knows { background: var(--qing-soft); color: var(--qing); }.knowledge-chips .suspects { background: var(--jin-soft); color: var(--jin); }.knowledge-chips .false_belief { background: var(--zi-soft); color: var(--zi); }.context-warning { font-size: 13px; color: var(--zi); }.memory-promise { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }.memory-promise i { background: var(--qing); }.memory-promise small { margin-left: auto; white-space: nowrap; color: var(--ink-4); font-size: 11px; }.memory-beat { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; margin: 8px 0; color: var(--ink-2); }.memory-beat .icon { color: var(--ink-4); margin-top: 3px; }.memory-scene { padding: 10px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; background: var(--paper); }.memory-scene.on { border-color: var(--zhu); }.memory-scene p { margin: 5px 0; color: var(--ink-2); }.memory-scene small { color: var(--ink-3); }.context-isolation { display: flex; gap: 8px; padding: 10px; border: 1px dashed var(--line-2); border-radius: 8px; font-size: 13px; color: var(--ink-3); line-height: 1.65; }.memory-panel :deep(.time-box) { margin: 0 0 18px; }.m-link { color: var(--dai); text-decoration: none; font-size: 13px; }.panel-title .m-link { display: inline-flex; align-items: center; }
 .completion-overlay .gate-list { padding: 0; }.completion-overlay .gate-row { grid-template-columns: 9px 110px 1fr; }.completion-changes { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 18px; }.completion-changes h4 { margin: 0 0 8px; font: 600 14px var(--f-serif); }.completion-changes p { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; line-height: 1.65; }.completion-changes .m-tag { flex: none; margin-top: 1px; }.completion-note { padding: 10px; background: var(--panel); color: var(--ink-3); font-size: 12px; line-height: 1.7; }
 .seal-overlay { position: fixed; inset: 0; z-index: 910; pointer-events: none; display: grid; place-content: center; justify-items: center; gap: 30px; background: color-mix(in srgb, var(--paper) 60%, transparent); }.chapter-seal { width: 172px; height: 172px; display: grid; place-items: center; border: 6px solid var(--zhu); color: var(--zhu); font: 700 54px/1 var(--f-kai); letter-spacing: .08em; writing-mode: vertical-rl; border-radius: 8px; transform: rotate(-8deg); box-shadow: inset 0 0 0 3px var(--paper), inset 0 0 0 5px var(--zhu); animation: chapter-stamp .7s var(--ease); }.seal-overlay > span { font-size: 12px; color: var(--ink-2); }@keyframes chapter-stamp { 0% { opacity: 0; transform: rotate(-18deg) scale(2.4); }65% { opacity: 1; transform: rotate(-8deg) scale(.94); }100% { transform: rotate(-8deg) scale(1); } }
 .write-page { --side-w: 220px; --desk-w: 368px; position: absolute; inset: 0; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr) var(--desk-w); min-height: 0; background: var(--desk); }
@@ -1168,64 +1263,71 @@ const previousPendingCanon = computed(() => {
 .side-head strong { font: 600 13px var(--f-ui); color: var(--ink-2); }.panel-title strong { font: 600 14px var(--f-serif); }
 .chapter-tree { flex: 1; overflow: auto; padding: 0 8px 12px; }.tree-volume { margin-top: 8px; }
 .volume-head { display: flex; gap: 6px; align-items: center; width: 100%; padding: 6px 8px; color: var(--ink-3); font-size: 12px; text-align: left; border-radius: 6px; }
-.volume-head span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.volume-head small { margin-left: auto; font: 10px var(--f-num); color: var(--ink-4); }.volume-head:hover { background: var(--hover); }
+.volume-head span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.volume-head small { margin-left: auto; font: 11px var(--f-num); color: var(--ink-3); }.volume-head:hover { background: var(--hover); }
 .tree-item { width: 100%; display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 12px; border-radius: 6px; text-align: left; color: var(--ink-2); font-size: 13px; }
 .tree-item:hover { background: var(--hover); }.tree-item.on { background: var(--paper); color: var(--ink); box-shadow: var(--shadow-1); font-weight: 600; }
 .tree-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--line-2); }.tree-dot.empty { background: transparent; border: 1px solid var(--ink-4); }
-.tree-dot.done { background: var(--qing); }.tree-dot.ok { background: var(--qing); box-shadow: inset 0 0 0 1px var(--paper); border: 1px solid var(--qing); }.tree-dot.work { background: var(--dai); }.tree-dot.lock { background: var(--ink-2); }.tree-dot.revision { background: var(--zhu); }.tree-dot.stale { background: var(--zi); }
-.tree-number { width: 20px; flex: none; font: 10px var(--f-num); color: var(--ink-4); }.tree-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.tree-item small { color: var(--ink-4); font-size: 10px; font-weight: 400; }
-.tree-scenes { margin: 2px 0 6px 38px; padding-left: 10px; border-left: 1px solid var(--line-2); }.tree-scenes button { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 12px; color: var(--ink-3); text-align: left; }.tree-scenes button.on { color: var(--zhu); }.tree-empty { padding: 0 20px; color: var(--ink-4); font-size: 11px; }
-.tree-foot { padding: 12px 16px; border-top: 1px solid var(--line); display: grid; gap: 7px; color: var(--ink-3); font-size: 12px; }.tree-progress { display: flex; justify-content: space-between; gap: 8px; }.tree-progress .m-num { white-space: nowrap; }.tree-legend { display: flex; gap: 7px 10px; flex-wrap: wrap; font-size: 11px; }.tree-legend span { display: flex; align-items: center; gap: 5px; }.tree-foot a { display: flex; align-items: center; font-size: 11px; }
+.tree-dot.done { background: var(--qing); }.tree-dot.ok { background: var(--qing); box-shadow: inset 0 0 0 1px var(--paper); border: 1px solid var(--qing); }.tree-dot.work { background: var(--dai); }.tree-dot.lock { background: var(--ink-2); }.tree-dot.revision { background: var(--zhu-solid); }.tree-dot.stale { background: var(--zi); }
+.tree-number { width: 22px; flex: none; font: 11px var(--f-num); color: var(--ink-3); }.tree-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.tree-item small { color: var(--ink-3); font-size: 12px; font-weight: 400; }
+.tree-scenes { margin: 2px 0 6px 38px; padding-left: 10px; border-left: 1px solid var(--line-2); }.tree-scenes button { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 12px; color: var(--ink-3); text-align: left; }.tree-scenes button.on { color: var(--zhu); }.tree-empty { padding: 0 20px; color: var(--ink-4); font-size: 12px; }
+.tree-foot { padding: 12px 16px; border-top: 1px solid var(--line); display: grid; gap: 7px; color: var(--ink-3); font-size: 12px; }.tree-progress { display: flex; justify-content: space-between; gap: 8px; }.tree-progress .m-num { white-space: nowrap; }.tree-legend { display: flex; gap: 7px 10px; flex-wrap: wrap; font-size: 12px; }.tree-legend span { display: flex; align-items: center; gap: 5px; }.tree-foot a { display: flex; align-items: center; font-size: 12px; }
 .write-banner { max-width: 840px; margin: 0 auto 14px; display: flex; gap: 10px; align-items: flex-start; padding: 9px 14px; border-radius: 8px; background: var(--dai-soft); color: var(--dai); font-size: 12px; }.write-banner .icon { margin-top: 3px; }.finalized-banner { background: var(--qing-soft); color: var(--qing); }
-.paper { --paper-inset: 48px; --margin-w: 198px; flex: 1 1 0; min-height: 0; width: 100%; max-width: 840px; margin: 0 auto; display: flex; flex-direction: column; background: var(--paper); border-radius: 4px; box-shadow: var(--shadow-2); padding: 56px var(--margin-w) 64px var(--paper-inset); position: relative; }
+.paper { --paper-inset: 48px; --margin-w: 198px; flex: 1 1 0; min-height: 0; width: 100%; max-width: 840px; margin: 0 auto; display: flex; flex-direction: column; background: var(--paper); border-radius: 4px; box-shadow: var(--shadow-2); padding: 56px var(--margin-w) 64px var(--paper-inset); position: relative; transition: max-width .18s ease, padding .18s ease, border-radius .18s ease; }
+.paper.mobile-preview { --paper-inset: 20px; --margin-w: 0px; max-width: 430px; padding: 28px 20px 48px; border-radius: 22px; }
+.paper.mobile-preview::after { inset: 7px; border-radius: 16px; }
+.paper.mobile-preview .chapter-title { font-size: 22px; }
+.mobile-preview-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 16px; padding: 6px 10px; border: 1px dashed var(--line-2); border-radius: 8px; background: var(--panel); color: var(--ink-3); font-size: 12px; }
+.write-type-toggle { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-2); cursor: pointer; }
+.write-type-trigger.on { border-color: var(--zhu); color: var(--zhu); background: var(--zhu-soft); }
 .paper:not(.with-margins) { padding-right: var(--paper-inset); }
 .paper:not(.with-margins) :deep(.pte-doc) { padding-right: 0; }
 .paper.with-margins::before { content: ''; position: absolute; top: 150px; bottom: 40px; right: var(--margin-w); border-left: 1px dashed var(--line-2); }
 .paper::after { content: ''; position: absolute; inset: 10px; border: 1px solid var(--line); border-radius: 2px; pointer-events: none; opacity: .55; }
 .paper-head { position: relative; flex: none; margin-bottom: 32px; }.paper-kicker { color: var(--zhu); font: 500 13px/1 var(--f-serif); letter-spacing: .35em; margin-bottom: 12px; }
 .chapter-title { width: 100%; border: 0; outline: 0; background: transparent; color: var(--ink); font: 600 30px/1.3 var(--f-serif); letter-spacing: .06em; padding: 0; }
-.paper-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--ink-3); font-size: 11px; margin-top: 14px; }.paper-meta span { display: flex; align-items: center; gap: 5px; }.paper-meta .m-link { font-size: 11px; }
-.paper-mnote { position: absolute; left: calc(100% + 16px); bottom: 4px; width: calc(var(--margin-w) - 32px); font: 14px/1.4 var(--f-kai); color: var(--ink-4); }
+.paper-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--ink-3); font-size: 13px; margin-top: 14px; }.paper-meta span { display: flex; align-items: center; gap: 5px; }.paper-meta .m-link { font-size: 13px; }
+.paper-mnote { position: absolute; left: calc(100% + 16px); bottom: 4px; width: calc(var(--margin-w) - 32px); font: 14px/1.4 var(--f-kai); color: var(--ink-3); text-align: left; background: none; border: 0; padding: 0; cursor: pointer; }.paper-mnote:hover { color: var(--zhu); }.paper-mnote-go { color: var(--zhu); }
+.margin-edge { position: absolute; left: 16px; right: 12px; z-index: 2; pointer-events: auto; font: 13px/1.4 var(--f-ui); color: var(--zhu); background: var(--paper); border: 1px dashed var(--line-2); border-radius: 12px; padding: 3px 10px; text-align: center; cursor: pointer; }.margin-edge:hover { background: var(--hover); }.margin-edge.top { top: 4px; }.margin-edge.bottom { bottom: 4px; }
 .paper-margins { position: absolute; right: 0; width: var(--margin-w); overflow: hidden; pointer-events: none; }.margin-item { position: absolute; width: 100%; padding: 4px 16px 0; pointer-events: auto; }
 .margin-note { display: block; font: 15px/1.55 var(--f-kai); color: var(--zhu); text-align: left; position: relative; overflow-wrap: anywhere; }
-.margin-note::before { content: ''; position: absolute; left: -16px; top: 10px; width: 12px; height: 1px; background: currentColor; opacity: .5; }.margin-note b { display: inline-grid; place-items: center; width: 16px; height: 16px; font: 600 10px/1 var(--f-num); border: 1px solid currentColor; border-radius: 50%; margin-right: 5px; vertical-align: 2px; }.margin-note span { display: block; font: 11px/1.4 var(--f-ui); color: var(--ink-3); margin-top: 3px; }
+.margin-note::before { content: ''; position: absolute; left: -16px; top: 10px; width: 12px; height: 1px; background: currentColor; opacity: .5; }.margin-note b { display: inline-grid; place-items: center; width: 16px; height: 16px; font: 600 10px/1 var(--f-num); border: 1px solid currentColor; border-radius: 50%; margin-right: 5px; vertical-align: 2px; }.margin-note span { display: block; font: 12px/1.4 var(--f-ui); color: var(--ink-3); margin-top: 3px; }
 .margin-note.warning { color: var(--jin); }.margin-note.suggestion { color: var(--dai); }.margin-note.foreshadowing { color: var(--qing); }.margin-note.done { color: var(--ink-4); }.margin-note.done > b { opacity: .6; }.margin-note:hover { transform: translateX(2px); }
 .margin-slip { background: var(--slip); border: 1px solid var(--slip-line); border-radius: 3px; padding: 11px 10px 9px; box-shadow: 0 6px 16px #3a2a0a1c; transform: rotate(-.6deg); position: relative; }
-.margin-slip::before { content: ''; position: absolute; top: -5px; left: 50%; width: 10px; height: 10px; border-radius: 50%; background: var(--zhu); box-shadow: 0 2px 3px #0003; }
-.slip-head { display: flex; justify-content: space-between; gap: 6px; font-size: 10px; color: var(--ink-3); margin-bottom: 6px; }.slip-head span:last-child { color: var(--jin); white-space: nowrap; }
+.margin-slip::before { content: ''; position: absolute; top: -5px; left: 50%; width: 10px; height: 10px; border-radius: 50%; background: var(--zhu-solid); box-shadow: 0 2px 3px #0003; }
+.slip-head { display: flex; justify-content: space-between; gap: 6px; font-size: 11px; color: var(--ink-3); margin-bottom: 6px; }.slip-head span:last-child { color: var(--jin); white-space: nowrap; }
 .slip-body { max-height: 220px; overflow: auto; font: 14px/1.75 var(--f-serif); white-space: pre-wrap; overflow-wrap: anywhere; }.slip-body del, .revision-diff del { display: block; color: var(--zhu); opacity: .8; }.slip-body ins, .revision-diff ins { display: block; text-decoration: none; background: var(--qing-soft); color: var(--qing); }
-.slip-story { font: 14px/1.6 var(--f-serif); margin: 0 0 5px; }.slip-detail { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 140px; overflow: auto; font-size: 11px; color: var(--ink-2); margin: 0 0 8px; }.slip-acts { display: flex; gap: 4px; margin-top: 9px; flex-wrap: wrap; }.slip-acts .m-btn { height: 24px; padding: 0 6px; font-size: 11px; }
+.slip-story { font: 14px/1.6 var(--f-serif); margin: 0 0 5px; }.slip-detail { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 140px; overflow: auto; font-size: 12px; color: var(--ink-2); margin: 0 0 8px; }.slip-acts { display: flex; gap: 4px; margin-top: 9px; flex-wrap: wrap; }.slip-acts .m-btn { height: 24px; padding: 0 6px; font-size: 12px; }
 .version-panel { flex: none; margin: -8px 24px 20px 0; padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); }.version-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }.version-panel p { margin: 5px 0 10px; }.version-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }.version-select { min-width: 0; width: 100%; padding: 6px 8px; border: 1px solid var(--line-2); border-radius: 5px; background: var(--paper); color: var(--ink); }
 .editor-host { flex: 1 1 0; min-height: 0; overflow: hidden; }
-.gate-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0 0 12px; }.gate-stats > div { padding: 10px 8px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); }.gate-stats b { display: block; font: 600 20px/1.2 var(--f-num); }.gate-stats span { font-size: 10px; color: var(--ink-3); }.gate-stats .bad b { color: var(--zhu); }.gate-detail { margin: 0 0 10px; font-size: 12px; line-height: 1.6; color: var(--ink-3); }
-.desk-tabs { display: flex; border-bottom: 1px solid var(--line); overflow-x: auto; }.desk-tabs button { flex: 1; min-width: 54px; padding: 14px 6px 11px; font-size: 12px; color: var(--ink-3); border-bottom: 2px solid transparent; white-space: nowrap; }.desk-tabs button.on { color: var(--zhu); border-bottom-color: var(--zhu); }.desk-tabs b { margin-left: 3px; font-size: 10px; }
-.desk-panel { flex: 1; overflow: auto; }.desk-empty { padding: 20px 16px; line-height: 1.7; }.finding, .candidate { padding: 14px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }.finding:hover, .candidate:hover { background: var(--panel-2); }.finding-head { display: flex; align-items: flex-start; gap: 7px; font-size: 12.5px; line-height: 1.5; }.finding p, .candidate p { margin: 8px 0 0; font-size: 12px; line-height: 1.65; color: var(--ink-3); }.finding.accepted, .finding.intentional { opacity: .6; }.finding-actions { display: flex; gap: 5px; margin-top: 9px; flex-wrap: wrap; }.quote { padding-left: 9px; border-left: 2px solid var(--zhu-mid); color: var(--ink-2) !important; }.review-report { margin: 12px 16px; padding: 10px; background: var(--panel-2); white-space: pre-wrap; font-size: 11px; line-height: 1.6; max-height: 260px; overflow: auto; }
+.gate-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0 0 12px; }.gate-stats > div { padding: 10px 8px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); }.gate-stats b { display: block; font: 600 20px/1.2 var(--f-num); }.gate-stats span { font-size: 12px; color: var(--ink-3); }.gate-stats .bad b { color: var(--zhu); }.gate-detail { margin: 0 0 10px; font-size: 12px; line-height: 1.6; color: var(--ink-3); }
+.desk-tabs { display: flex; border-bottom: 1px solid var(--line); overflow-x: auto; }.desk-tabs button { flex: 1; min-width: 54px; padding: 14px 6px 11px; font-size: 12px; color: var(--ink-3); border-bottom: 2px solid transparent; white-space: nowrap; }.desk-tabs button.on { color: var(--zhu); border-bottom-color: var(--zhu); }.desk-tabs b { margin-left: 3px; font-size: 11px; }
+.desk-panel { flex: 1; overflow: auto; }.desk-empty { padding: 20px 16px; line-height: 1.7; }.finding, .candidate { padding: 14px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }.finding:hover, .candidate:hover { background: var(--panel-2); }.finding-head { display: flex; align-items: flex-start; gap: 7px; font-size: 12.5px; line-height: 1.5; }.finding p, .candidate p { margin: 8px 0 0; font-size: 12px; line-height: 1.65; color: var(--ink-3); }.finding.accepted, .finding.intentional { opacity: .6; }.finding-actions { display: flex; gap: 5px; margin-top: 9px; flex-wrap: wrap; }.quote { padding-left: 9px; border-left: 2px solid var(--zhu-mid); color: var(--ink-2) !important; }.review-report { margin: 12px 16px; padding: 10px; background: var(--panel-2); white-space: pre-wrap; font-size: 12px; line-height: 1.6; max-height: 260px; overflow: auto; }
 .desk-panel.chat-panel { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
 .chat-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .memory-plan-links { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 .memory-note-body { white-space: pre-wrap; word-break: break-word; }
 .zhu-soft-btn { border-color: color-mix(in srgb, var(--zhu) 45%, var(--line)); background: var(--zhu-soft); color: var(--zhu); font-weight: 600; }
-.coverage { position: relative; margin: 12px 16px; height: 7px; border-radius: 5px; background: var(--panel-2); overflow: hidden; }.coverage span { display: block; height: 100%; background: var(--zhu); }.coverage small { display: block; margin-top: 7px; color: var(--ink-4); font-size: 10px; }
+.coverage { position: relative; margin: 12px 16px; height: 7px; border-radius: 5px; background: var(--panel-2); overflow: hidden; }.coverage span { display: block; height: 100%; background: var(--zhu-solid); }.coverage small { display: block; margin-top: 7px; color: var(--ink-4); font-size: 11px; }
 .background-checks, .banned-report { margin: 12px 16px; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); font-size: 12px; }
 .background-checks > strong, .banned-report > strong { display: block; margin-bottom: 7px; }
 .background-task { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; padding: 5px 0; border-top: 1px solid var(--line); }
 .background-task small { grid-column: 1 / -1; color: var(--zhu); line-height: 1.5; }
-.banned-report pre { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 11px; line-height: 1.6; }
-.gate-list { padding: 8px 16px; }.gate-row { display: grid; grid-template-columns: 9px 1fr auto; gap: 7px; align-items: baseline; padding: 9px 0; border-bottom: 1px dashed var(--line); font-size: 12px; }.gate-row i { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); }.gate-row i.ok { background: var(--qing); }.gate-row i.block { background: var(--zhu); }.gate-row i.todo { background: var(--jin); }.gate-row small { color: var(--ink-4); text-align: right; }.time-box { margin: 10px 16px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }.time-box p { margin: 7px 0; color: var(--ink-3); line-height: 1.6; }.time-form { display: flex; gap: 7px; }.time-form input { width: 90px; border: 1px solid var(--line-2); border-radius: 5px; padding: 5px 7px; background: var(--paper); color: var(--ink); }.revision-note { margin: 10px 16px; padding: 10px; background: var(--zhu-soft); color: var(--ink-2); font-size: 12px; line-height: 1.6; }
+.banned-report pre { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 12px; line-height: 1.6; }
+.gate-list { padding: 8px 16px; }.gate-row { display: grid; grid-template-columns: 9px 1fr auto; gap: 7px; align-items: baseline; padding: 9px 0; border-bottom: 1px dashed var(--line); font-size: 12px; }.gate-row i { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); }.gate-row i.ok { background: var(--qing); }.gate-row i.block { background: var(--zhu-solid); }.gate-row i.todo { background: var(--jin); }.gate-row small { color: var(--ink-4); text-align: right; }.time-box { margin: 10px 16px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }.time-box p { margin: 7px 0; color: var(--ink-3); line-height: 1.6; }.time-form { display: flex; gap: 7px; }.time-form input { width: 90px; border: 1px solid var(--line-2); border-radius: 5px; padding: 5px 7px; background: var(--paper); color: var(--ink); }.revision-note { margin: 10px 16px; padding: 10px; background: var(--zhu-soft); color: var(--ink-2); font-size: 12px; line-height: 1.6; }
 .desk-tabs { gap: 2px; padding: 10px 12px 0; background: var(--panel); }
 .desk-tabs button { height: 34px; padding: 0 10px; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-bottom-width: 2px; margin-bottom: -1px; }
 .desk-tabs button.on { font-weight: 600; }
-.desk-tabs b { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--zhu); color: #fff; font: 600 10px/16px var(--f-num); }
+.desk-tabs b { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--zhu-solid); color: #fff; font: 600 10px/16px var(--f-num); }
 .desk-panel { padding: 14px; }
 .desk-panel > .panel-title { margin: -14px -14px 14px; padding: 12px 14px; }
 .review-summary { padding: 14px; margin-bottom: 12px; border-radius: var(--r-m); background: var(--paper); border: 1px solid var(--line); }
 .review-summary-head, .review-summary-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .review-summary-head strong { font: 600 14px var(--f-serif); letter-spacing: .03em; }
-.review-summary-meta { margin-top: 6px; font-size: 12px; }
+.review-summary-meta { margin-top: 6px; font-size: 13px; }
 .coverage-bars { display: flex; gap: 3px; margin: 9px 0 7px; }
 .coverage-bars i { flex: 1; height: 6px; border-radius: 2px; background: var(--qing); }
 .coverage-bars i.off { background: var(--line-2); }
-.review-summary-foot { font-size: 11px; line-height: 1.45; }
+.review-summary-foot { font-size: 13px; line-height: 1.45; }
 .review-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .review-filters .m-chip { height: 26px; }
 .finding, .candidate { padding: 12px 13px; margin-bottom: 10px; border: 1px solid var(--line); border-left: 3px solid var(--line-2); border-radius: 8px; background: var(--paper); box-shadow: none; }
@@ -1235,14 +1337,14 @@ const previousPendingCanon = computed(() => {
 .finding.on { box-shadow: 0 0 0 2px var(--zhu-mid), var(--shadow-1); }
 .finding:focus-visible { outline: 2px solid var(--zhu); outline-offset: 2px; }
 .finding.previous { border-left-style: dashed; }.finding.previous .finding-title, .finding.previous .finding-quote { opacity: .72; }
-.finding-stale { display: block; margin: -2px 0 4px; color: var(--zi); font-size: 11px; }
-.finding-hint { align-self: center; color: var(--ink-4); font-size: 11px; }
+.finding-stale { display: block; margin: -2px 0 4px; color: var(--zi); font-size: 12px; }
+.finding-hint { align-self: center; color: var(--ink-4); font-size: 13px; }
 .margin-note.stale { opacity: .55; }.margin-note.stale:hover, .margin-note.stale.on { opacity: 1; }.margin-note.on > b { background: currentColor; color: var(--paper); }
-.finding-head { align-items: center; font-size: 11.5px; color: var(--ink-3); }
-.finding-type { white-space: nowrap; }.finding-loc { margin-left: auto; color: var(--ink-4); font-size: 10px; }
+.finding-head { align-items: center; font-size: 12px; color: var(--ink-3); }
+.finding-type { white-space: nowrap; }.finding-loc { margin-left: auto; color: var(--ink-4); font-size: 11px; }
 .finding-title { display: block; margin: 7px 0 6px; font-size: 13.5px; line-height: 1.5; }
 .finding-quote { margin: 6px 0 8px !important; padding: 6px 10px; border-left: 2px solid var(--zhu-mid); background: var(--panel); border-radius: 0 4px 4px 0; color: var(--ink-2) !important; font: 13px/1.7 var(--f-serif) !important; }
-.finding-detail p { margin: 6px 0 8px; font-size: 12px; line-height: 1.6; }
+.finding-detail p { margin: 6px 0 8px; font-size: 13px; line-height: 1.6; }
 .finding-suggestion { margin: 8px 0; padding: 8px 10px; border-radius: 6px; background: var(--dai-soft); color: var(--ink-2); font-size: 12px; line-height: 1.55; }
 .finding-actions { gap: 6px; margin-top: 9px; }
 .review-report { margin: 12px 0 0; }
@@ -1253,8 +1355,9 @@ const previousPendingCanon = computed(() => {
 .candidate .quote { margin: 6px 0 8px !important; padding: 6px 10px; background: var(--panel); border-left-color: var(--zhu-mid); border-radius: 0 4px 4px 0; font: 13px/1.7 var(--f-serif); }
 .write-loading, .write-error { padding: 60px; color: var(--ink-2); }.write-error { color: var(--zhu); }.write-toast { position: fixed; right: 24px; bottom: 52px; z-index: 30; display: flex; align-items: center; gap: 10px; max-width: 520px; padding: 10px 14px; background: var(--rail); color: var(--rail-hi); border-radius: 8px; box-shadow: var(--shadow-3); font-size: 12.5px; }
 @media (min-width: 1600px) { .write-page { --side-w: 248px; --desk-w: 410px; }.write-page.no-side { --side-w: 0px; }.write-page.no-desk { --desk-w: 0px; }.paper { --paper-inset: 64px; --margin-w: 214px; padding-left: 64px; } }
-@media (max-width: 1120px) { .write-page { --desk-w: 0px; }.desk-side { grid-area: auto; position: absolute; z-index: 25; right: 0; top: 0; bottom: 0; width: min(390px, 88%); box-shadow: var(--shadow-3); }.top-save { font-size: 0; gap: 0; }.top-save i { margin: 0; }.top-gate-status { display: none; }.crumb-volume { display: none; } }
-@media (max-width: 800px) { .write-page { --side-w: 0px; }.tree-side { grid-area: auto; position: absolute; z-index: 26; left: 0; top: 0; bottom: 0; width: 235px; box-shadow: var(--shadow-3); }.write-main { padding: 18px 16px 24px; }.paper { --paper-inset: 32px; --margin-w: 170px; padding-left: 32px; padding-top: 40px; }.paper-meta { gap: 5px 8px; }.chapter-title { font-size: 26px; }.gate-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }.lifecycle { gap: 3px; }.lc-bar { width: 6px; } }
+@media (max-width: 1120px) { .write-page { --desk-w: 340px; }.write-page.no-desk { --desk-w: 0px; }.top-save { font-size: 0; gap: 0; }.top-save i { margin: 0; }.top-gate-status { display: none; }.crumb-volume { display: none; } }
+@media (min-width: 801px) and (max-width: 1000px) { .write-page:not(.no-desk) .paper { --margin-w: 0px; }.write-page:not(.no-desk) .paper::before, .write-page:not(.no-desk) .paper-mnote, .write-page:not(.no-desk) .paper-margins { display: none; }.write-page:not(.no-desk) .paper :deep(.pte-doc) { padding-right: 0; } }
+@media (max-width: 800px) { .write-page { --side-w: 0px; --desk-w: 0px; }.desk-side { grid-area: auto; position: absolute; z-index: 25; right: 0; top: 0; bottom: 0; width: min(390px, 88%); box-shadow: var(--shadow-3); }.tree-side { grid-area: auto; position: absolute; z-index: 26; left: 0; top: 0; bottom: 0; width: 235px; box-shadow: var(--shadow-3); }.write-main { padding: 18px 16px 24px; }.paper { --paper-inset: 32px; --margin-w: 170px; padding-left: 32px; padding-top: 40px; }.paper-meta { gap: 5px 8px; }.chapter-title { font-size: 26px; }.gate-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }.lifecycle { gap: 3px; }.lc-bar { width: 6px; } }
 @media (max-width: 600px) { .paper { --paper-inset: 24px; --margin-w: 0px; padding: 30px 24px 40px; min-height: 0 !important; }.paper::before, .paper-mnote, .paper-margins { display: none; }.write-main { padding: 12px 10px 20px; }.paper :deep(.pte-doc) { padding-right: 0; }.top-save { display: none; }.top-sep, .top-review-btn { display: none; }.mode-info { display: none; }.selection-tools { flex-wrap: wrap; height: auto; padding: 6px; }.selection-tools span { display: none; }.completion-overlay .m-modal-f { flex-wrap: wrap; }.completion-overlay .m-modal-f .l { width: 100%; } }
 @media (prefers-reduced-motion: reduce) { .chapter-seal { animation: none; }.margin-note:hover { transform: none; } }
 </style>

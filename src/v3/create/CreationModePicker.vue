@@ -1,6 +1,6 @@
 <template>
   <section class="creation-mode-picker" aria-label="创建方式搭配">
-    <fieldset class="choice-group writing-choice">
+    <fieldset class="choice-group writing-choice" data-guide="create.mode">
       <legend>正文创作方式</legend>
       <div class="choice-grid">
         <label v-for="option in writingOptions" :key="option.value" class="mode-option"
@@ -13,7 +13,7 @@
         </label>
       </div>
     </fieldset>
-    <fieldset class="choice-group origin-choice">
+    <fieldset class="choice-group origin-choice" data-guide="create.origin">
       <legend>作品创建起点</legend>
       <div class="choice-grid">
         <label v-for="option in setupOptions" :key="option.value" class="mode-option"
@@ -101,7 +101,7 @@ const setupOptions = [
 .origin-choice .mode-option:last-child strong { font-size: 14px; }.origin-choice .mode-option:last-child small { margin: 0; }
 .choice-number { display: none; }.writing-choice { order: 3; margin-top: 22px; }.writing-choice legend { margin-bottom: 8px; font: 600 12px var(--f-ui); color: var(--ink-3); }
 .writing-choice .choice-grid { gap: 10px; }.writing-choice .mode-option { grid-template-columns: auto minmax(0, 1fr); gap: 10px; padding: 10px 14px; }
-.writing-choice .mode-icon { display: none; }.writing-choice strong { font-size: 12px; }.writing-choice small { margin-top: 3px; font-size: 11px; }
+.writing-choice .mode-icon { display: none; }.writing-choice strong { font-size: 12px; }.writing-choice small { margin-top: 3px; font-size: 12px; }
 .choice-actions { border-top: 1px solid var(--line-2); gap: 16px; justify-content: space-between; align-items: center; flex-wrap: wrap; display: flex; bottom: -32px; order: 4; position: static; padding: 16px 0 0; margin-top: 16px; border-color: var(--line); background: transparent; }.choice-summary { line-height: 1.6; margin: 0; color: var(--ink-3); font-size: 12px; }
 #start-creation-btn { height: 34px; padding: 0 14px; border: 1px solid var(--ink); border-radius: 6px; background: var(--ink); color: var(--paper); font: 13px var(--f-ui); }
 @media (max-width: 1100px) {.origin-choice .choice-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; } }

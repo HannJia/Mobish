@@ -141,7 +141,7 @@ describe('V3 典籍原型布局与真实按章投影', () => {
     expect(wrapper!.find('input[type="range"]').exists()).toBe(false)
     expect(wrapper!.get('.codex-detail').text()).toContain('选择人物或矩阵单元格')
     const characterLink = wrapper!.findAllComponents(RouterLinkStub).find(link => link.text() === '管理人物资料')
-    expect(characterLink?.props('to')).toBe('/characters/' + created.id)
+    expect(characterLink?.props('to')).toEqual({ path: '/characters/' + created.id, query: { returnTo: '/codex/' + created.id } })
   })
 
   it('滑条投影到实际章节，只显示当时已确认的认知与来源历史', async () => {
@@ -249,7 +249,7 @@ describe('V3 典籍原型布局与真实按章投影', () => {
         && target.query.evidenceVersion === evidence.sourceVersionId && target.query.evidenceStart === String(evidence.startOffset)
     })).toBe(true)
     route.query = { tab: 'characters', atChapter: '2', character: 'person-1' }; await flushPromises()
-    expect(wrapper!.get('.codex-tabs .on').text()).toBe('人物')
+    expect(wrapper!.get('.codex-tabs .on').text()).toBe('人物状态')
     expect(wrapper!.get('.detail-person h2').text()).toBe('苏禾')
   })
 
@@ -261,13 +261,15 @@ describe('V3 典籍原型布局与真实按章投影', () => {
     const resourceTargets = new Map(wrapper!.findAllComponents(RouterLinkStub)
       .filter(link => link.find('strong').exists())
       .map(link => [link.get('strong').text(), link.props('to')]))
-    expect(resourceTargets.get('灵感记录')).toBe('/inspiration/' + data.novel.id)
-    expect(resourceTargets.get('资料库')).toBe('/knowledge/' + data.novel.id)
-    expect(resourceTargets.get('数据面板')).toBe('/data/' + data.novel.id)
+    // 从典籍出去的链接都带上典籍自己的地址，目标页才能显示“← 返回典籍”。
+    const fromCodex = (path: string) => ({ path, query: { returnTo: '/codex/' + data.novel.id } })
+    expect(resourceTargets.get('灵感记录')).toEqual(fromCodex('/inspiration/' + data.novel.id))
+    expect(resourceTargets.get('知识库')).toEqual(fromCodex('/knowledge/' + data.novel.id))
+    expect(resourceTargets.get('数据面板')).toEqual(fromCodex('/data/' + data.novel.id))
 
-    await tab('人物')
+    await tab('人物状态')
     const characterLink = wrapper!.findAllComponents(RouterLinkStub).find(link => link.text() === '编辑人物')
-    expect(characterLink?.props('to')).toEqual({ path: '/characters/' + data.novel.id, query: { character: 'person-0' } })
+    expect(characterLink?.props('to')).toEqual({ path: '/characters/' + data.novel.id, query: { character: 'person-0', returnTo: '/codex/' + data.novel.id } })
   })
 
   it('人物卡只显示真实转折，不制造固定五阶段成长进度', async () => {
@@ -276,7 +278,7 @@ describe('V3 典籍原型布局与真实按章投影', () => {
       { id: 'future', chapterIndex: 1, title: '计划中的转折', description: '尚未发生。', characters: ['person-0'], type: '转折', status: 'planted', source: 'user', timestamp: now }]
     data.novel.storyArcs = [{ id: 'arc-character', title: '守渡人的转变', description: '', type: 'character', importance: 3, status: 'active', reactivateAt: '', characterIds: ['person-0'], turningPointEventIds: ['actual', 'future'], nodes: [], createdAt: now, updatedAt: now }]
     expect(chapter.content).not.toBe('')
-    await mountCodex(); await tab('人物')
+    await mountCodex(); await tab('人物状态')
     expect(wrapper!.findAll('.character-card')).toHaveLength(2)
     expect(wrapper!.get('.turning-points').text()).toContain('渡口拒开')
     expect(wrapper!.get('.turning-points').text()).not.toContain('计划中的转折')
@@ -415,31 +417,40 @@ describe('V3 典籍原型布局与真实按章投影', () => {
     await mountCodex()
     await matrixCell('person-1').trigger('click')
     await wrapper!.get('input[type="range"]').setValue('0'); await flushPromises()
-    for (const label of ['人物', '关系网', '时间线', '资料与回顾']) await tab(label)
+    for (const label of ['人物状态', '关系网', '时间线', '资料与回顾']) await tab(label)
     expect(wrapper!.get('.resource-grid').text()).toContain('故事回顾')
-    expect(wrapper!.get('.codex-links').text()).toContain('本书资料')
+    expect(wrapper!.get('.codex-sources').text()).toContain('知识库')
     expect(JSON.stringify([data.novel, data.workspace.getCanonMutations(data.novel.id), data.workspace.getCandidates(data.novel.id)])).toBe(before)
   })
 
-  it('仅在携带 returnTo 时显示「返回写作」按钮并透传到人物与数据面板链接', async () => {
+  it('页头列出人物资料、数据面板、知识库，并让目标页能「返回典籍」；带 returnTo 时典籍自己显示返回写作', async () => {
     const data = fixture()
     const target = `/write/${data.novel.id}/${data.novel.chapters[0].id}?tab=character`
     await mountCodex()
     expect(wrapper!.find('.codex-back-btn').exists()).toBe(false)
+    expect(wrapper!.find('.codex-links').exists()).toBe(false)
+    const sources = wrapper!.get('.codex-sources')
+    expect(sources.text()).toContain('人物资料')
+    expect(sources.text()).toContain('数据面板')
+    expect(sources.text()).toContain('知识库')
 
     wrapper!.unmount()
+    const codexHere = `/codex/${data.novel.id}?returnTo=${encodeURIComponent(target)}`
     route.query = { returnTo: target }
+    ;(route as unknown as { fullPath: string }).fullPath = codexHere
     await mountCodex()
     const back = wrapper!.findAllComponents(RouterLinkStub).find(link => link.classes().includes('codex-back-btn'))
     expect(back).toBeDefined()
     expect(back!.text()).toContain('返回写作')
     expect(back!.props('to')).toBe(target)
 
-    const footerLinks = wrapper!.findAllComponents(RouterLinkStub).filter(link => link.text() === '数据面板' || link.text() === '管理人物')
-    expect(footerLinks.length).toBeGreaterThanOrEqual(2)
-    for (const link of footerLinks) {
-      expect(link.props('to')).toMatchObject({ query: { returnTo: target } })
-    }
+    const sourceLinks = wrapper!.findAllComponents(RouterLinkStub).filter(link => link.classes().includes('source-link'))
+    expect(sourceLinks.map(link => link.props('to'))).toEqual([
+      { path: '/characters/' + data.novel.id, query: { returnTo: codexHere } },
+      { path: '/data/' + data.novel.id, query: { returnTo: codexHere } },
+      { path: '/knowledge/' + data.novel.id, query: { returnTo: codexHere } },
+    ])
+    delete (route as unknown as { fullPath?: string }).fullPath
   })
 
   it.skipIf(process.env.CODEX_MATRIX_BENCHMARK !== '1')('输出大型知情矩阵挂载基准', async () => {

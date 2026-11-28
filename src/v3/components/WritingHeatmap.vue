@@ -100,23 +100,23 @@ const columns = computed(() => {
 <style scoped>
 .hm-grid { display: grid; grid-auto-rows: 12px; gap: 3px; overflow-x: auto; padding-bottom: 2px; }
 .month-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-rows: 32px; gap: 2px; }
-.month-weekday { display: grid; place-items: center; color: var(--ink-4); font-size: 11px; }
+.month-weekday { display: grid; place-items: center; color: var(--ink-3); font-size: 12px; }
 .month-day { display: grid; place-items: center; min-width: 0; border-radius: 4px; color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; }
 .month-day.l0 { background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line); }
 .month-day.l1 { background: color-mix(in srgb, var(--zhu) 22%, var(--paper)); }
 .month-day.l2 { background: color-mix(in srgb, var(--zhu) 45%, var(--paper)); }
 .month-day.l3 { background: color-mix(in srgb, var(--zhu) 70%, var(--paper)); color: var(--ink); }
-.month-day.l4 { background: var(--zhu); color: var(--paper); }
+.month-day.l4 { background: var(--zhu-solid); color: var(--paper); }
 .month-day.today { box-shadow: inset 0 0 0 1.5px var(--zhu); }
 .month-day.adjacent { background: transparent; box-shadow: none; color: var(--ink-4); opacity: .45; pointer-events: none; }
-.hm-m { font-size: 10px; color: var(--ink-4); line-height: 12px; white-space: nowrap; overflow: visible; }
-.hm-w { font-size: 10px; color: var(--ink-4); line-height: 12px; }
+.hm-m { font-size: 11px; color: var(--ink-4); line-height: 12px; white-space: nowrap; overflow: visible; }
+.hm-w { font-size: 11px; color: var(--ink-4); line-height: 12px; }
 .hm-c { width: 12px; height: 12px; justify-self: center; border-radius: 3px; }
 .l0 { background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line); }
 .l1 { background: color-mix(in srgb, var(--zhu) 22%, var(--paper)); }
 .l2 { background: color-mix(in srgb, var(--zhu) 45%, var(--paper)); }
 .l3 { background: color-mix(in srgb, var(--zhu) 70%, var(--paper)); }
-.l4 { background: var(--zhu); }
+.l4 { background: var(--zhu-solid); }
 .fut { background: transparent; }
 .outside { background: transparent; }
 .hm-f { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 10px; font-size: 12px; color: var(--ink-3); flex-wrap: wrap; }

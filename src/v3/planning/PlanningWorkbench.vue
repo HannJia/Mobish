@@ -1629,7 +1629,7 @@ async function removeEvent(eventId: string) {
 .arc-source-text { max-height: 280px; overflow: auto; white-space: pre-wrap; font-family: inherit; }
 .suggested-node { padding: 12px 0; border-bottom: 1px solid var(--line-2); }
 .entity-source-alert { color: var(--jin); font-size: 12px; line-height: 1.6; }
-.entity-source-note { color: var(--ink-2); font-size: 12px; line-height: 1.6; }
+.entity-source-note { color: var(--ink-2); font-size: 13px; line-height: 1.6; }
 .save-error { color: var(--zhu); }
 .planning-workbench { max-width: 1180px; margin: 0 auto; padding-bottom: 56px; }
 .planning-workbench {
@@ -1672,7 +1672,7 @@ async function removeEvent(eventId: string) {
 .plan-lane-header { display: flex; min-height: 48px; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 2px 4px 10px; border-bottom: 1px solid var(--line-2); }
 .plan-lane-header div { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 .plan-lane-header strong { color: var(--ink); font-family: var(--f-serif); font-size: 16px; font-weight: 700; }
-.plan-lane-header span { color: var(--ink-3); font-size: 11px; }
+.plan-lane-header span { color: var(--ink-3); font-size: 12px; }
 .plan-list { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; }
 .plan-card {
   min-width: 0; padding: 12px 14px;
@@ -1689,9 +1689,9 @@ async function removeEvent(eventId: string) {
 .plan-card-header, .plan-card-header > div, .proposal-header, .proposal-header > div { display: flex; align-items: center; gap: 7px; }
 .plan-card-header, .proposal-header { justify-content: space-between; }
 .plan-card h3 { margin: 8px 0 6px; color: var(--ink); font-family: var(--f-serif); font-size: 15px; font-weight: 600; line-height: 1.4; }
-.plan-card p { margin: 6px 0; color: var(--ink-2); font-size: 12px; line-height: 1.65; white-space: pre-wrap; }
-.plan-card small { color: var(--ink-3); font-size: 11px; }
-.plan-range { color: var(--zhu); font-size: 11px; font-variant-numeric: tabular-nums; }
+.plan-card p { margin: 6px 0; color: var(--ink-2); font-size: 13px; line-height: 1.65; white-space: pre-wrap; }
+.plan-card small { color: var(--ink-3); font-size: 12px; }
+.plan-range { color: var(--zhu); font-size: 12px; font-variant-numeric: tabular-nums; }
 .plan-objective { display: block; color: var(--dai); font-size: 12px; font-weight: 500; line-height: 1.5; }
 .plan-beats { margin: 8px 0 10px; padding-left: 18px; color: var(--ink-2); font-size: 12px; line-height: 1.6; }
 .empty-plan { display: flex; min-height: 96px; align-items: center; justify-content: center; flex-direction: column; gap: 6px; border: 1px dashed var(--line-2); border-radius: var(--r-m); background: transparent; color: var(--ink-3); cursor: pointer; }
@@ -1734,9 +1734,9 @@ async function removeEvent(eventId: string) {
 .arc-title-row h3 { margin: 0; font-family: var(--f-serif); font-size: 17px; font-weight: 600; line-height: 1.35; color: var(--ink); }
 .icon-actions { display: flex; flex-shrink: 0; }
 .arc-description { min-height: 42px; margin: 12px 0; color: var(--ink-2); font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
-.arc-meta, .timeline-meta { display: flex; flex-wrap: wrap; gap: 10px 16px; color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.arc-meta, .timeline-meta { display: flex; flex-wrap: wrap; gap: 10px 16px; color: var(--ink-3); font-size: 13px; font-variant-numeric: tabular-nums; }
 .progress-track { height: 4px; margin: 10px 0 14px; overflow: hidden; background: var(--panel-2); border-radius: 2px; }
-.progress-value { height: 100%; background: var(--zhu); transition: width .2s ease; }
+.progress-value { height: 100%; background: var(--zhu-solid); transition: width .2s ease; }
 .node-list { border-top: 1px solid var(--line); }
 .node-row { display: grid; grid-template-columns: 24px 64px minmax(0, 1fr) 28px; align-items: center; gap: 8px; min-height: 48px; border-bottom: 1px solid var(--line); }
 .node-toggle { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; background: transparent; color: var(--zhu); cursor: pointer; }
@@ -1746,14 +1746,14 @@ async function removeEvent(eventId: string) {
 .node-content span { overflow: hidden; color: var(--ink-3); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .node-completed .node-content { opacity: .65; }
 .node-completed .node-content strong { text-decoration: line-through; }
-.node-empty { padding: 18px 0; color: var(--ink-3); font-size: 12px; text-align: center; }
+.node-empty { padding: 18px 0; color: var(--ink-3); font-size: 13px; text-align: center; }
 .add-node-button { margin-top: 12px; }
 .filter-bar, .memory-search { display: grid; grid-template-columns: minmax(220px, 1fr) 150px 150px; gap: 10px; padding: 8px 0 18px; }
 .memory-search { grid-template-columns: minmax(0, 1fr) auto; }
 .memory-categories { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 8px; }
 .memory-categories button { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line-2); border-radius: var(--r-m); background: var(--paper); color: var(--ink-2); padding: 7px 12px; cursor: pointer; }
 .memory-categories button[aria-pressed="true"] { color: var(--zhu); background: var(--zhu-soft); border-color: var(--zhu); }
-.memory-categories span { font-size: 11px; font-variant-numeric: tabular-nums; opacity: .75; }
+.memory-categories span { font-size: 12px; font-variant-numeric: tabular-nums; opacity: .75; }
 .memory-excerpt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .memory-path, .memory-state { color: var(--dai); }
 .memory-path-detail { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; color: var(--dai); font-size: 13px; }
@@ -1761,13 +1761,13 @@ async function removeEvent(eventId: string) {
 .memory-path-detail section p { margin: 0 0 6px; font-size: 13px; }
 .memory-path-detail section button { margin-right: 12px; }
 .memory-path-detail span + span::before { content: '→'; margin-right: 6px; color: var(--ink-3); }
-.memory-freshness-note { color: var(--ink-2); font-size: 12px; line-height: 1.6; }
+.memory-freshness-note { color: var(--ink-2); font-size: 13px; line-height: 1.6; }
 .index-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0 4px; color: var(--ink-3); font-size: 12px; }
 .timeline-list { position: relative; }
 .timeline-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 18px; }
 .timeline-marker { position: relative; padding-top: 18px; color: var(--zhu); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
 .timeline-marker::after { position: absolute; top: 0; right: -14px; width: 1px; height: 100%; background: var(--line); content: ''; }
-.timeline-marker i { position: absolute; z-index: 1; top: 22px; right: -18px; width: 9px; height: 9px; border: 2px solid var(--desk); border-radius: 50%; background: var(--zhu); box-shadow: 0 0 0 1px var(--zhu); }
+.timeline-marker i { position: absolute; z-index: 1; top: 22px; right: -18px; width: 9px; height: 9px; border: 2px solid var(--desk); border-radius: 50%; background: var(--zhu-solid); box-shadow: 0 0 0 1px var(--zhu); }
 .timeline-content { min-width: 0; padding: 14px 0 20px; border-bottom: 1px solid var(--line); }
 .timeline-heading strong { font-family: var(--f-serif); font-size: 15px; font-weight: 600; line-height: 1.4; }
 .timeline-content p { margin: 8px 0; color: var(--ink-2); font-size: 13px; line-height: 1.65; white-space: pre-wrap; }
@@ -1839,7 +1839,7 @@ async function removeEvent(eventId: string) {
 .arc-node-track span { display: grid; justify-items: center; align-content: start; gap: 6px; flex: 1 0 64px; color: var(--ink-3); }
 .arc-node-track i { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--ink-3); border-radius: 50%; font-style: normal; }
 .arc-node-track .completed i { background: var(--qing); color: var(--on-accent); }
-.arc-selector-meta { font-size: 12px; color: var(--ink-3); }
+.arc-selector-meta { font-size: 13px; color: var(--ink-3); }
 .arc-related-characters { padding: 16px; margin: 16px 0; border: 1px solid var(--line); border-radius: var(--r-m); }
 .arc-related-characters span { display: inline-block; margin: 8px 8px 0 0; padding: 3px 10px; border-radius: 20px; background: var(--dai-soft); }
 @media (max-width: 1350px) { .plan-workbench { grid-template-columns: minmax(0, 1fr); } .plan-selection-detail { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } .plan-selection-detail section { margin: 0; } }

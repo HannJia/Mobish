@@ -1,5 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
 import { useNovelStore } from '@/stores/novel'
+import { useOnboardingStore } from '@/stores/onboarding'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import { useReconstructionWorkspaceStore } from '@/stores/reconstructionWorkspace'
 import { useEditorRecovery, type EditorDraftSession } from '@/composables/useEditorRecovery'
@@ -169,18 +170,24 @@ export function useChapterSession(options: ChapterSessionOptions) {
     saving.value = true; saveError.value = ''
     try {
       const nextSignature = reviewSignature.value
-      const keepReview = c.contentReviewSignature === nextSignature && c.content === content.value
-      const changedText = c.content !== content.value || c.title !== title.value
-      const status = changedText ? (content.value.trim() ? 'writing' : 'draft') : c.status
+      const savedContent = content.value
+      const hasBody = savedContent.trim().length > 0
+      const keepReview = c.contentReviewSignature === nextSignature && c.content === savedContent
+      const changedText = c.content !== savedContent || c.title !== title.value
+      const status = changedText ? (hasBody ? 'writing' : 'draft') : c.status
       const ok = novels.updateChapter(n.id, c.id, {
         title: title.value,
-        content: content.value,
+        content: savedContent,
         status,
         contentReviewSignature: keepReview ? c.contentReviewSignature : '',
         reviewRewriteBlockedSignature: c.reviewRewriteBlockedSignature === contentVersion.value ? c.reviewRewriteBlockedSignature : '',
       })
       if (!ok) throw new Error('章节已锁定或不存在，正文未保存。')
       await novels.saveNovelNow(n.id)
+      if (hasBody) {
+        try { useOnboardingStore().recordAchievement('first_chapter_saved') }
+        catch { /* Onboarding must not affect the committed chapter. */ }
+      }
       if (checkpoint && session.value) {
         const committedSession = session.value
         const consumed = await recovery.consume(committedSession, checkpoint)

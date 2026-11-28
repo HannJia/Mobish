@@ -6,8 +6,8 @@ const crypto = require('crypto')
 const { fileURLToPath } = require('url')
 const { spawnSync } = require('child_process')
 const { writeAtomicFile, preserveRecoveryFiles } = require('./durableFiles.cjs')
-const { createUpdateController, releaseVersion, LATEST_API, GITEE_API } = require('./updater.cjs')
-const { createElectronUpdateFetch, createUpdateTransport, fetchReleaseJson, verifyDownloadedFile } = require('./updateTransport.cjs')
+const { createUpdateController, releaseVersion, LATEST_API, GITEE_API, OFFICIAL_UPDATE_BASE } = require('./updater.cjs')
+const { createElectronUpdateFetch, createUpdateTransport, fetchReleaseJson, fetchOfficialManifest, verifyDownloadedFile } = require('./updateTransport.cjs')
 // A release build may set a fixed HTTPS directory containing <tag>/latest.yml and <tag>/mobish-<version>.exe.
 const GITEE_STATIC_UPDATE_BASE = undefined
 const { createUpdateHandshake } = require('./updateHandshake.cjs')
@@ -90,6 +90,7 @@ function getUpdates() {
     supported, autoCheck, currentVersion: app.getVersion(), arch: process.arch,
     getUpdater: () => require('electron-updater').autoUpdater,
     fetchLatest: signal => fetchReleaseJson(LATEST_API, 'github', signal, fetchImpl),
+    fetchOfficial: signal => fetchOfficialManifest(new URL('latest.yml', OFFICIAL_UPDATE_BASE).href, signal, fetchImpl),
     fetchGitee: async (signal, tag) => {
       if (tag) return fetchReleaseJson(`${GITEE_API}/tags/${encodeURIComponent(tag)}`, 'gitee', signal, fetchImpl)
       for (let page = 1; ; page++) {
